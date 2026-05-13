@@ -1,0 +1,53 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Node
+node_modules/
+.next/
+.vite/
+.vite-temp/
+
+# Foundry
+contracts/cache/
+contracts/out/
+contracts/lib/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Wallet / secrets
+wallet-setup/recovery_file.dat
+*.keystore
+*.key
+
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/*.pem
+
+# Misc
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
