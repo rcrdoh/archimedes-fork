@@ -106,10 +106,11 @@ Refer to [`docs/design.md` § 6](docs/design.md) for the full table. Headline ch
   state)
 - **LLM:** Claude API for strategy extraction, reasoning trace generation, user-facing
   explanations
-- **Backtesting:** Open question — vectorbt (Chuan's design.md proposal) vs.
-  [backtrader](https://github.com/mementum/backtrader) (Dan's suggestion). See
-  [`docs/specs/backtrader-vs-vectorbt-decision-memo.md`](docs/specs/backtrader-vs-vectorbt-decision-memo.md)
-  for the framing.
+- **Backtesting:** [backtrader](https://github.com/mementum/backtrader) for v1 per
+  [`docs/specs/backtrader-vs-vectorbt-decision-memo.md`](docs/specs/backtrader-vs-vectorbt-decision-memo.md).
+  Supersedes `docs/design.md` § 6 ("vectorbt / custom numpy engine") on this one
+  line; design.md remains the architecture spec for everything else. Migration to
+  vectorbt is a v2 problem if parameter-sweep speed becomes a constraint.
 - **Smart contracts:** Solidity targeting Arc (EVM-compatible)
 - **On-chain integration:** Circle SDK — Wallets, USYC, Gateway, CCTP, Paymaster, App Kit
 - **Deployment:** Docker + Fly.io / Railway
