@@ -259,6 +259,28 @@ class SwapQuoteResponse(BaseModel):
     min_amount_out: float  # After slippage tolerance
 
 
+class PoolResponse(BaseModel):
+    """AMM pool summary for the exchange UI."""
+
+    address: str
+    token0: str
+    token1: str
+    symbol0: str
+    symbol1: str
+    reserve0: float
+    reserve1: float
+    tvl_usdc: float
+    volume_24h_usdc: float = 0.0
+    fee_pct: float
+    apr_pct: float | None = None
+    total_supply: float
+
+
+class PoolListResponse(BaseModel):
+    pools: list[PoolResponse]
+    total: int
+
+
 # ═══════════════════════════════════════════════════════════════
 # Contract Addresses (for frontend to call on-chain directly)
 # ═══════════════════════════════════════════════════════════════

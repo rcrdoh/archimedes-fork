@@ -31,17 +31,17 @@ services:
       timeout: 5s
       retries: 5
 
-  # ---------- Frontend (static mockups) + reverse proxy ----------
+  # ---------- Reverse proxy + Frontend ----------
   nginx:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
     restart: unless-stopped
     ports:
       - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./ui-mockups:/usr/share/nginx/html:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_started
 
   # ---------- Backend API ----------
   backend:

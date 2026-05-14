@@ -15,7 +15,7 @@ from eth_account.signers.local import LocalAccount
 from pydantic_settings import BaseSettings
 from web3 import AsyncWeb3
 from web3.middleware import ExtraDataToPOAMiddleware
-from web3.providers.async_rpc import AsyncHTTPProvider
+from web3.providers import AsyncHTTPProvider
 
 
 class ChainSettings(BaseSettings):
