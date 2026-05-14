@@ -144,7 +144,8 @@ class BacktestResult:
 
         Criteria:
           - Base validation passes
-          - DSR populated and p-value > 0.95 (Sharpe credibly > 0)
+          - DSR populated (value, p-value, AND num_trials_in_selection)
+            and p-value > 0.95 (Sharpe credibly > 0)
           - PBO populated and < 0.5 (not expected to underperform median OOS)
           - OOS Sharpe populated and within 50% of in-sample Sharpe (no cliff)
           - Look-ahead audit passed
@@ -153,6 +154,10 @@ class BacktestResult:
         if not self.passes_validation:
             return False
         if self.deflated_sharpe_ratio is None or self.dsr_p_value is None:
+            return False
+        if self.num_trials_in_selection is None:
+            # DSR is meaningless without recording the N used; the spec
+            # requires it for reproducibility.
             return False
         if self.dsr_p_value < 0.95:
             return False

@@ -333,7 +333,7 @@ from archimedes.services.strategy_provider import default_provider
 p = default_provider()
 for s in p.list_strategies():
     print(f'{s.paper_title}  ({s.paper_venue}, {s.paper_year})')
-    print(f'  paper_grounded={s.is_paper_grounded}  profiles={s.risk_constraints.get(\"risk_profiles\")}')
+    print(f'  paper_grounded={s.is_paper_grounded}  profiles={s.risk_profiles}')
 "
 
 # Run a real backtest via the analytics-engine CLI (requires uv in the engine subdir)

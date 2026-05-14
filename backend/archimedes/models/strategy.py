@@ -74,6 +74,9 @@ class Strategy:
     risk_constraints: dict[str, float] = field(
         default_factory=dict
     )  # e.g. {"max_drawdown": 0.20, "max_leverage": 1.0}
+    risk_profiles: list[str] = field(
+        default_factory=list
+    )  # Risk-tier tags: "conservative" | "moderate" | "aggressive" | "hyper_risky"
     status: StrategyStatus = StrategyStatus.CANDIDATE
     extraction_reasoning: str = ""  # Full LLM reasoning for extraction
     created_at: datetime | None = None
@@ -86,7 +89,9 @@ class Strategy:
     paper_citation_count: int | None = None  # Snapshot at curation time
 
     # ── Methodology integrity ───────────────────────────────
-    methodology_hash: str | None = None  # SHA-256 of canonical methodology_summary
+    # SHA-256 over the canonical methodology — methodology_text when populated,
+    # otherwise methodology_summary. See compute_methodology_hash() for the rule.
+    methodology_hash: str | None = None
     methodology_text: str | None = None  # Full extracted methodology (longer than summary)
     extraction_llm: str | None = None  # e.g. "claude-opus-4-7" — null if hand-curated
     extraction_prompt_hash: str | None = None  # SHA-256 of the extraction prompt

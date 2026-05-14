@@ -163,6 +163,11 @@ def _to_strategy(path: Path, metadata: dict[str, Any], code_hash: str) -> Strate
     if paper_year is not None:
         paper_year = int(paper_year)
 
+    # Use file mtime so timestamps reflect the strategy file's curation
+    # time rather than process start time — otherwise every restart would
+    # bump created_at/updated_at for unchanged strategies.
+    file_mtime = datetime.fromtimestamp(path.stat().st_mtime)
+
     return Strategy(
         id=_strategy_id(metadata, code_hash),
         paper_arxiv_id=str(metadata.get("PAPER_ARXIV_ID") or ""),
@@ -174,11 +179,12 @@ def _to_strategy(path: Path, metadata: dict[str, Any], code_hash: str) -> Strate
         signals=[],
         position_sizing=position_sizing,
         rebalance_frequency=rebalance_frequency,
-        risk_constraints=dict(metadata.get("RISK_CONSTRAINTS") or {}) | {"risk_profiles": risk_profiles},
+        risk_constraints=dict(metadata.get("RISK_CONSTRAINTS") or {}),
+        risk_profiles=list(risk_profiles),
         status=StrategyStatus.CANDIDATE,
         extraction_reasoning="",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=file_mtime,
+        updated_at=file_mtime,
         paper_venue=metadata.get("PAPER_VENUE"),
         paper_year=paper_year,
         paper_doi=metadata.get("PAPER_DOI"),
@@ -256,11 +262,7 @@ class LocalStrategyProvider:
 
     def get_strategies_for_risk_profile(self, risk_profile_name: str) -> list[Strategy]:
         wanted = risk_profile_name.lower()
-        return [
-            s
-            for s in self._strategies.values()
-            if wanted in (s.risk_constraints.get("risk_profiles") or [])
-        ]
+        return [s for s in self._strategies.values() if wanted in s.risk_profiles]
 
     def extract_from_paper(self, arxiv_id: str) -> Strategy | None:
         """Demo-feature stub. Real implementation arrives in the arxiv pipeline.
