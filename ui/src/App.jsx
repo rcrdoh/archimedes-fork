@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   publicClient, getWalletClient, getAddress, connectWallet, disconnectWallet,
-  getAvailableProviders, getConnectedProvider,
+  reconnectWallet, getAvailableProviders, getConnectedProvider,
   USDC,
   ORACLE_ABI, TOKEN_ABI, SYNTH_VAULT_ABI,
   AMM_ROUTER_ABI, TRACE_REGISTRY_ABI, VAULT_ABI, VAULT_FACTORY_ABI,
@@ -43,7 +43,7 @@ async function fetchAssetData(asset) {
 
 // ─── Tabs ────────────────────────────────────────────────────
 
-const TABS = ['📊 Dashboard', '🔄 Mint/Burn', '🔀 Swap', '🏛️ Vaults', '📝 Traces']
+const TABS = ['📊 Dashboard', '🔄 Mint/Burn', '🔀 Swap', '💧 Liquidity', '🏛️ Vaults', '📝 Traces']
 
 // ─── Wallet Connect Button ────────────────────────────────────
 
@@ -200,6 +200,69 @@ function MintBurn() {
   const [action, setAction] = useState('mint')
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
+  const [balances, setBalances] = useState({ usdc: null, synth: null, price: null })
+  const [estimate, setEstimate] = useState(null)
+
+  // Load balances when asset or wallet changes
+  const loadBalances = useCallback(async () => {
+    try {
+      const wallet = await getWalletClient()
+      const addr = getAddress()
+      if (!addr) return
+
+      const [usdcBal, synthBal, price] = await Promise.all([
+        publicClient.readContract({ address: USDC, abi: TOKEN_ABI, functionName: 'balanceOf', args: [addr] }),
+        publicClient.readContract({ address: selectedAsset.token, abi: TOKEN_ABI, functionName: 'balanceOf', args: [addr] }),
+        publicClient.readContract({ address: selectedAsset.oracle, abi: ORACLE_ABI, functionName: 'price' }),
+      ])
+      setBalances({
+        usdc: Number(usdcBal) / 10 ** PRICE_DECIMALS,
+        synth: Number(synthBal) / 10 ** TOKEN_DECIMALS,
+        price: Number(price) / 10 ** PRICE_DECIMALS,
+      })
+    } catch {
+      // wallet not connected
+    }
+  }, [selectedAsset])
+
+  useEffect(() => { loadBalances() }, [selectedAsset, loadBalances])
+
+  // Auto-refresh balances every 15 seconds
+  useEffect(() => {
+    const interval = setInterval(loadBalances, 15_000)
+    return () => clearInterval(interval)
+  }, [loadBalances])
+
+  // Estimate output when amount changes
+  useEffect(() => {
+    if (!amount || !balances.price) { setEstimate(null); return }
+    const amt = parseFloat(amount)
+    if (isNaN(amt) || amt <= 0) { setEstimate(null); return }
+
+    if (action === 'mint') {
+      // mint fee = 50bps. price is already human-readable ($/token).
+      // synthOut = netUsdc / price
+      const fee = amt * 0.005
+      const netUsdc = amt - fee
+      const synthOut = netUsdc / balances.price
+      setEstimate({
+        fee: fee.toFixed(2),
+        output: synthOut,
+        outputLabel: `${selectedAsset.emoji} ${synthOut.toFixed(6)} ${selectedAsset.sym}`,
+      })
+    } else {
+      // burn fee = 50bps. price is already human-readable.
+      // usdcOut = synthAmount * price * (1 - fee)
+      const usdcGross = amt * balances.price
+      const fee = usdcGross * 0.005
+      const usdcOut = usdcGross - fee
+      setEstimate({
+        fee: fee.toFixed(2),
+        output: usdcOut,
+        outputLabel: `💵 ${usdcOut.toFixed(2)} USDC`,
+      })
+    }
+  }, [amount, action, balances.price, selectedAsset])
 
   const execute = async () => {
     setBusy(true)
@@ -236,10 +299,20 @@ function MintBurn() {
         })
         setStatus(`✅ Burned! TX: ${hash}`)
       }
+      loadBalances() // refresh after tx
     } catch (err) {
       setStatus(`❌ ${err.shortMessage || err.message}`)
     }
     setBusy(false)
+  }
+
+  // Max amount helper
+  const setMax = () => {
+    if (action === 'mint') {
+      setAmount(balances.usdc ? String(Math.floor(balances.usdc * 100) / 100) : '')
+    } else {
+      setAmount(balances.synth ? String(balances.synth) : '')
+    }
   }
 
   return (
@@ -247,9 +320,25 @@ function MintBurn() {
       <h2>Mint / Burn Synthetics</h2>
       <p className="hint">Deposit USDC to mint synthetic tokens, or burn them back to USDC.</p>
 
+      {/* Balance bar */}
+      <div className="balance-bar">
+        <div className="balance-item">
+          <span className="balance-label">💵 USDC</span>
+          <span className="balance-value">{balances.usdc !== null ? balances.usdc.toFixed(2) : '—'}</span>
+        </div>
+        <div className="balance-item">
+          <span className="balance-label">{selectedAsset.emoji} {selectedAsset.sym}</span>
+          <span className="balance-value">{balances.synth !== null ? balances.synth.toFixed(6) : '—'}</span>
+        </div>
+        <div className="balance-item">
+          <span className="balance-label">💲 Price</span>
+          <span className="balance-value">{balances.price !== null ? `$${balances.price.toFixed(2)}` : '—'}</span>
+        </div>
+      </div>
+
       <div className="form-group">
         <label>Asset</label>
-        <select value={selectedAsset.id} onChange={e => setSelectedAsset(ASSETS.find(a => a.id === e.target.value))}>
+        <select value={selectedAsset.id} onChange={e => { setSelectedAsset(ASSETS.find(a => a.id === e.target.value)); setAmount(''); setEstimate(null) }}>
           {ASSETS.map(a => <option key={a.id} value={a.id}>{a.emoji} {a.sym} — {a.name}</option>)}
         </select>
       </div>
@@ -257,28 +346,39 @@ function MintBurn() {
       <div className="form-group">
         <label>Action</label>
         <div className="btn-group">
-          <button className={action === 'mint' ? 'active' : ''} onClick={() => setAction('mint')}>Mint</button>
-          <button className={action === 'burn' ? 'active' : ''} onClick={() => setAction('burn')}>Burn</button>
+          <button className={action === 'mint' ? 'active' : ''} onClick={() => { setAction('mint'); setAmount(''); setEstimate(null) }}>Mint</button>
+          <button className={action === 'burn' ? 'active' : ''} onClick={() => { setAction('burn'); setAmount(''); setEstimate(null) }}>Burn</button>
         </div>
       </div>
 
       <div className="form-group">
-        <label>{action === 'mint' ? 'USDC Amount (6 dec)' : 'Synth Amount (18 dec)'}</label>
-        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="1000" />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <label>{action === 'mint' ? 'USDC Amount' : `${selectedAsset.sym} Amount`}</label>
+          <button className="link-btn" onClick={setMax}>Max</button>
+        </div>
+        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder={action === 'mint' ? '1000' : '0.5'} />
       </div>
+
+      {/* Estimate */}
+      {estimate && (
+        <div className="estimate-box">
+          <div className="estimate-row">
+            <span>Fee (0.5%)</span>
+            <span>${estimate.fee}</span>
+          </div>
+          <div className="estimate-row estimate-output">
+            <span>You receive ≈</span>
+            <span>{estimate.outputLabel}</span>
+          </div>
+          <div className="estimate-note">Estimate based on current oracle price. Actual amount may differ slightly.</div>
+        </div>
+      )}
 
       <button className="primary" onClick={execute} disabled={busy || !amount}>
         {busy ? '⏳ Waiting...' : action === 'mint' ? '🪙 Mint' : '🔥 Burn'}
       </button>
 
       {status && <div className="status">{status}</div>}
-
-      <div className="info-box">
-        <strong>Selected:</strong> {selectedAsset.emoji} {selectedAsset.sym}<br />
-        <strong>Token:</strong> <code>{selectedAsset.token}</code><br />
-        <strong>Vault:</strong> <code>{selectedAsset.vault}</code><br />
-        <strong>Oracle:</strong> <code>{selectedAsset.oracle}</code>
-      </div>
     </div>
   )
 }
@@ -286,37 +386,95 @@ function MintBurn() {
 // ─── Swap Panel ──────────────────────────────────────────────
 
 function Swap() {
-  const [tokenIn, setTokenIn] = useState(ASSETS[0])
-  const [tokenOut, setTokenOut] = useState(ASSETS[1])
+  const ALL_SWAP_TOKENS = [
+    { id: 'USDC', name: 'USD Coin', sym: 'USDC', emoji: '💵', token: USDC },
+    ...ASSETS,
+  ]
+
+  const [tokenIn, setTokenIn] = useState(ALL_SWAP_TOKENS[0])
+  const [tokenOut, setTokenOut] = useState(ALL_SWAP_TOKENS[1])
   const [amountIn, setAmountIn] = useState('')
-  const [preview, setPreview] = useState(null)
+  const [quote, setQuote] = useState(null)   // { amountOut, execPrice, spotPrice, slippage }
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
+  const [quoting, setQuoting] = useState(false)
 
   const routerAddr = NEW_CONTRACTS.ammRouter
 
-  const getQuote = async () => {
-    if (!routerAddr || !amountIn) return
+  // Decimals for display — USDC is 6, synthetics are 18
+  const decimalsIn = tokenIn.id === 'USDC' ? PRICE_DECIMALS : TOKEN_DECIMALS
+  const decimalsOut = tokenOut.id === 'USDC' ? PRICE_DECIMALS : TOKEN_DECIMALS
+
+  // Auto-quote with debounce when amountIn / tokens change
+  const getQuote = useCallback(async (amtStr, tIn, tOut) => {
+    if (!routerAddr || !amtStr) { setQuote(null); return }
+    const amt = parseFloat(amtStr)
+    if (isNaN(amt) || amt <= 0) { setQuote(null); return }
+    if (tIn.id === tOut.id) { setQuote(null); return }
+
+    setQuoting(true)
+    setStatus('')
     try {
-      const amountInt = BigInt(Math.round(parseFloat(amountIn) * 10 ** TOKEN_DECIMALS))
-      const out = await publicClient.readContract({
-        address: routerAddr,
-        abi: AMM_ROUTER_ABI,
-        functionName: 'getAmountOut',
-        args: [tokenIn.token, tokenOut.token, amountInt],
-      })
-      setPreview(Number(out) / 10 ** TOKEN_DECIMALS)
-    } catch {
-      setPreview(null)
+      const dIn = tIn.id === 'USDC' ? PRICE_DECIMALS : TOKEN_DECIMALS
+      const dOut = tOut.id === 'USDC' ? PRICE_DECIMALS : TOKEN_DECIMALS
+      const amountInt = BigInt(Math.round(amt * 10 ** dIn))
+
+      // Fetch actual quote and spot quote (1 unit) in parallel
+      const oneUnit = BigInt(10 ** dIn)  // 1 token in smallest unit
+      const [outRaw, spotOutRaw] = await Promise.all([
+        publicClient.readContract({
+          address: routerAddr, abi: AMM_ROUTER_ABI,
+          functionName: 'getAmountOut',
+          args: [tIn.token, tOut.token, amountInt],
+        }),
+        publicClient.readContract({
+          address: routerAddr, abi: AMM_ROUTER_ABI,
+          functionName: 'getAmountOut',
+          args: [tIn.token, tOut.token, oneUnit],
+        }),
+      ])
+
+      const amountOut = Number(outRaw) / 10 ** dOut
+      const spotOneOut = Number(spotOutRaw) / 10 ** dOut  // output for exactly 1 unit in
+
+      if (amountOut === 0) {
+        setQuote(null)
+        setStatus('⚠️ No liquidity in this pool yet. Add liquidity first.')
+      } else {
+        const execPrice = amountOut / amt          // actual tokens out per token in
+        const spotPrice = spotOneOut               // ideal tokens out per token in
+        const slippage = spotPrice > 0
+          ? ((spotPrice - execPrice) / spotPrice) * 100
+          : 0
+        setQuote({ amountOut, execPrice, spotPrice, slippage })
+        setStatus('')
+      }
+    } catch (err) {
+      setQuote(null)
+      if (err.message?.includes('Insufficient') || err.message?.includes('insufficient')) {
+        setStatus('⚠️ Insufficient liquidity for this trade size.')
+      } else {
+        setStatus(`⚠️ ${err.shortMessage || err.message}`)
+      }
     }
-  }
+    setQuoting(false)
+  }, [routerAddr])
+
+  // Debounced auto-quote
+  useEffect(() => {
+    setQuote(null)
+    const timer = setTimeout(() => {
+      getQuote(amountIn, tokenIn, tokenOut)
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [amountIn, tokenIn, tokenOut, getQuote])
 
   const executeSwap = async () => {
     setBusy(true)
     setStatus('')
     try {
       const wallet = await getWalletClient()
-      const amountInt = BigInt(Math.round(parseFloat(amountIn) * 10 ** TOKEN_DECIMALS))
+      const amountInt = BigInt(Math.round(parseFloat(amountIn) * 10 ** decimalsIn))
 
       setStatus('Approving token...')
       await wallet.writeContract({
@@ -340,6 +498,14 @@ function Swap() {
     setBusy(false)
   }
 
+  const flipTokens = () => {
+    const prev = tokenIn
+    setTokenIn(tokenOut)
+    setTokenOut(prev)
+    setAmountIn('')
+    setQuote(null)
+  }
+
   return (
     <div className="panel">
       <h2>🔀 Swap via AMM</h2>
@@ -349,33 +515,242 @@ function Swap() {
         <>
           <div className="form-group">
             <label>Token In</label>
-            <select value={tokenIn.id} onChange={e => { setTokenIn(ASSETS.find(a => a.id === e.target.value)); setPreview(null) }}>
-              {ASSETS.map(a => <option key={a.id} value={a.id}>{a.emoji} {a.sym}</option>)}
+            <select value={tokenIn.id} onChange={e => { setTokenIn(ALL_SWAP_TOKENS.find(a => a.id === e.target.value)); setQuote(null) }}>
+              {ALL_SWAP_TOKENS.map(a => <option key={a.id} value={a.id}>{a.emoji} {a.sym}</option>)}
             </select>
           </div>
 
           <div className="form-group">
             <label>Amount In</label>
-            <input type="number" value={amountIn} onChange={e => { setAmountIn(e.target.value); setPreview(null) }} placeholder="100" />
+            <input type="number" value={amountIn} onChange={e => setAmountIn(e.target.value)} placeholder="100" />
           </div>
 
-          <div style={{ textAlign: 'center', fontSize: '2rem' }}>⬇️</div>
+          <div style={{ textAlign: 'center' }}>
+            <button className="btn-sm" onClick={flipTokens} title="Swap direction">⬆️⬇️</button>
+          </div>
 
           <div className="form-group">
             <label>Token Out</label>
-            <select value={tokenOut.id} onChange={e => { setTokenOut(ASSETS.find(a => a.id === e.target.value)); setPreview(null) }}>
-              {ASSETS.map(a => <option key={a.id} value={a.id}>{a.emoji} {a.sym}</option>)}
+            <select value={tokenOut.id} onChange={e => { setTokenOut(ALL_SWAP_TOKENS.find(a => a.id === e.target.value)); setQuote(null) }}>
+              {ALL_SWAP_TOKENS.map(a => <option key={a.id} value={a.id}>{a.emoji} {a.sym}</option>)}
             </select>
           </div>
 
-          <button onClick={getQuote} disabled={!amountIn}>Get Quote</button>
-          {preview !== null && <div className="preview">≈ {preview.toFixed(6)} {tokenOut.sym}</div>}
+          {/* Live quote details */}
+          {quoting && <div className="status" style={{ opacity: 0.6 }}>⏳ Fetching quote...</div>}
 
-          <button className="primary" onClick={executeSwap} disabled={busy || !amountIn}>
+          {quote && (
+            <div className="estimate-box">
+              <div className="estimate-row estimate-output">
+                <span>You receive ≈</span>
+                <span>{tokenOut.emoji} {quote.amountOut.toFixed(6)} {tokenOut.sym}</span>
+              </div>
+              <div className="estimate-row">
+                <span>Exec Price</span>
+                <span>{quote.execPrice.toFixed(6)} {tokenOut.sym}/{tokenIn.sym}</span>
+              </div>
+              <div className="estimate-row">
+                <span>Spot Price</span>
+                <span>{quote.spotPrice.toFixed(6)} {tokenOut.sym}/{tokenIn.sym}</span>
+              </div>
+              <div className="estimate-row">
+                <span>Price Impact</span>
+                <span style={{ color: quote.slippage > 1 ? '#ef4444' : quote.slippage > 0.3 ? '#f59e0b' : '#22c55e' }}>
+                  {quote.slippage.toFixed(3)}%
+                </span>
+              </div>
+              <div className="estimate-note">
+                Quote auto-refreshes. Price impact is the difference between spot and execution price.
+              </div>
+            </div>
+          )}
+
+          <button className="primary" onClick={executeSwap} disabled={busy || !amountIn || !quote}>
             {busy ? '⏳' : '🔀 Swap'}
           </button>
 
           {status && <div className="status">{status}</div>}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Liquidity Panel ─────────────────────────────────────────
+
+function Liquidity() {
+  const [selectedAsset, setSelectedAsset] = useState(ASSETS[0])
+  const [usdcAmount, setUsdcAmount] = useState('')
+  const [synthAmount, setSynthAmount] = useState('')
+  const [status, setStatus] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [poolAddr, setPoolAddr] = useState(null)
+  const [reserves, setReserves] = useState(null)
+  const [balances, setBalances] = useState(null)
+
+  const routerAddr = NEW_CONTRACTS.ammRouter
+
+  const USDC_DECIMALS = 6
+  const SYNTH_DECIMALS = 18
+  const walletAddr = getAddress()
+
+  const loadPoolInfo = async () => {
+    if (!routerAddr) return
+    try {
+      // Load pool info
+      const pool = await publicClient.readContract({
+        address: routerAddr,
+        abi: AMM_ROUTER_ABI,
+        functionName: 'getPool',
+        args: [USDC, selectedAsset.token],
+      })
+      setPoolAddr(pool)
+      if (pool && pool !== '0x0000000000000000000000000000000000000000') {
+        const AMMPOOL_ABI = [
+          { name: 'reserve0',     type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+          { name: 'reserve1',     type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+          { name: 'totalSupply',  type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+        ]
+        const [r0, r1, ts] = await Promise.all([
+          publicClient.readContract({ address: pool, abi: AMMPOOL_ABI, functionName: 'reserve0' }),
+          publicClient.readContract({ address: pool, abi: AMMPOOL_ABI, functionName: 'reserve1' }),
+          publicClient.readContract({ address: pool, abi: AMMPOOL_ABI, functionName: 'totalSupply' }),
+        ])
+        setReserves({ reserve0: Number(r0), reserve1: Number(r1), totalSupply: Number(ts) })
+      } else {
+        setReserves(null)
+      }
+    } catch {
+      setPoolAddr(null)
+      setReserves(null)
+    }
+
+    // Load wallet balances
+    if (walletAddr) {
+      try {
+        const [usdcBal, synthBal] = await Promise.all([
+          publicClient.readContract({
+            address: USDC, abi: TOKEN_ABI, functionName: 'balanceOf', args: [walletAddr],
+          }),
+          publicClient.readContract({
+            address: selectedAsset.token, abi: TOKEN_ABI, functionName: 'balanceOf', args: [walletAddr],
+          }),
+        ])
+        setBalances({
+          usdc: Number(usdcBal) / 10 ** USDC_DECIMALS,
+          synth: Number(synthBal) / 10 ** SYNTH_DECIMALS,
+        })
+      } catch {
+        setBalances(null)
+      }
+    } else {
+      setBalances(null)
+    }
+  }
+
+  useEffect(() => { loadPoolInfo() }, [selectedAsset])
+
+  const addLiquidity = async () => {
+    if (!routerAddr || !usdcAmount || !synthAmount) return
+    setBusy(true)
+    setStatus('')
+    try {
+      const wallet = await getWalletClient()
+      const usdcInt = BigInt(Math.round(parseFloat(usdcAmount) * 10 ** USDC_DECIMALS))
+      const synthInt = BigInt(Math.round(parseFloat(synthAmount) * 10 ** SYNTH_DECIMALS))
+
+      // Approve synth token → router
+      setStatus('Approving synth token...')
+      await wallet.writeContract({
+        address: selectedAsset.token,
+        abi: TOKEN_ABI,
+        functionName: 'approve',
+        args: [routerAddr, synthInt],
+      })
+
+      // Approve USDC → router
+      setStatus('Approving USDC...')
+      await wallet.writeContract({
+        address: USDC,
+        abi: TOKEN_ABI,
+        functionName: 'approve',
+        args: [routerAddr, usdcInt],
+      })
+
+      // Add liquidity
+      setStatus('Adding liquidity...')
+      const hash = await wallet.writeContract({
+        address: routerAddr,
+        abi: AMM_ROUTER_ABI,
+        functionName: 'addLiquidity',
+        args: [USDC, selectedAsset.token, usdcInt, synthInt, BigInt(0)],
+      })
+      setStatus(`✅ Liquidity added! TX: ${hash}`)
+      loadPoolInfo()
+    } catch (err) {
+      setStatus(`❌ ${err.shortMessage || err.message}`)
+    }
+    setBusy(false)
+  }
+
+  return (
+    <div className="panel">
+      <h2>💧 Add Liquidity</h2>
+      {!routerAddr ? (
+        <div className="info-box warning">⚠️ AMM Router not deployed yet.</div>
+      ) : (
+        <>
+          <div className="form-group">
+            <label>Pool</label>
+            <select value={selectedAsset.id} onChange={e => setSelectedAsset(ASSETS.find(a => a.id === e.target.value))}>
+              {ASSETS.map(a => <option key={a.id} value={a.id}>{a.emoji} {a.sym}/USDC</option>)}
+            </select>
+          </div>
+
+          {poolAddr && poolAddr !== '0x0000000000000000000000000000000000000000' ? (
+            <div className="info-box">
+              <strong>Pool:</strong> <code>{poolAddr}</code><br />
+              {reserves && (
+                <>
+                  <strong>Reserves:</strong> {(reserves.reserve0 / 1e6).toFixed(2)} USDC / {(reserves.reserve1 / 1e18).toFixed(6)} {selectedAsset.sym}<br />
+                  <strong>LP Supply:</strong> {reserves.totalSupply}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="info-box warning">⚠️ Pool not found for this pair.</div>
+          )}
+
+          {balances ? (
+            <div className="balance-bar">
+              <span>💵 USDC: <strong>{balances.usdc.toFixed(2)}</strong></span>
+              <span>{selectedAsset.emoji} {selectedAsset.sym}: <strong>{balances.synth.toFixed(6)}</strong></span>
+            </div>
+          ) : walletAddr ? (
+            <div className="balance-bar">Loading balances...</div>
+          ) : (
+            <div className="info-box warning">Connect wallet to see your balances.</div>
+          )}
+
+          <div className="form-group">
+            <label>USDC Amount (6 dec)</label>
+            <input type="number" value={usdcAmount} onChange={e => setUsdcAmount(e.target.value)} placeholder="10" />
+          </div>
+
+          <div className="form-group">
+            <label>Synth Amount (18 dec)</label>
+            <input type="number" value={synthAmount} onChange={e => setSynthAmount(e.target.value)} placeholder="50" />
+          </div>
+
+          <button className="primary" onClick={addLiquidity} disabled={busy || !usdcAmount || !synthAmount}>
+            {busy ? '⏳' : '💧 Add Liquidity'}
+          </button>
+
+          {status && <div className="status">{status}</div>}
+
+          <p className="hint" style={{ marginTop: 16 }}>
+            First mint synthetics via the Mint/Burn tab, then add them here paired with USDC.
+          </p>
         </>
       )}
     </div>
@@ -634,13 +1009,27 @@ function Traces() {
 
 export default function App() {
   const [tab, setTab] = useState(0)
-  const [walletAddr, setWalletAddr] = useState(getAddress())
+  const [walletAddr, setWalletAddr] = useState(null)
   const [data, setData] = useState({})
   const [prevData, setPrevData] = useState({})
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
   const [lastFetch, setLastFetch] = useState(null)
   const [countdown, setCountdown] = useState(30)
+
+  // Reconnect wallet from localStorage on mount
+  useEffect(() => {
+    reconnectWallet().then(result => {
+      if (result) setWalletAddr(result.address)
+    })
+  }, [])
+
+  // Listen for wallet account changes from extension events
+  useEffect(() => {
+    const handler = (e) => setWalletAddr(e.detail.address)
+    window.addEventListener('wallet-changed', handler)
+    return () => window.removeEventListener('wallet-changed', handler)
+  }, [])
 
   const handleConnect = (addr) => setWalletAddr(addr)
   const handleDisconnect = () => { disconnectWallet(); setWalletAddr(null) }
@@ -692,8 +1081,9 @@ export default function App() {
         {tab === 0 && <Dashboard data={data} prevData={prevData} errors={errors} loading={loading} lastFetch={lastFetch} countdown={countdown} fetchAll={fetchAll} />}
         {tab === 1 && <MintBurn />}
         {tab === 2 && <Swap />}
-        {tab === 3 && <Vaults />}
-        {tab === 4 && <Traces />}
+        {tab === 3 && <Liquidity />}
+        {tab === 4 && <Vaults />}
+        {tab === 5 && <Traces />}
       </main>
 
       <footer>

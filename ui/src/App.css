@@ -472,3 +472,102 @@ button {
 .wallet-option:hover { border-color: var(--accent); background: rgba(99,102,241,.05); }
 .wallet-option:disabled { opacity: 0.5; cursor: not-allowed; }
 .wallet-icon { font-size: 1.5rem; }
+
+/* ── Balance bar ── */
+.balance-bar {
+  display: flex;
+  gap: 20px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+}
+.balance-bar strong {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent);
+}
+
+.balance-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.balance-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.balance-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0;
+  font-weight: 600;
+}
+.link-btn:hover { text-decoration: underline; }
+
+.estimate-box {
+  margin: 8px 0 12px;
+  padding: 12px 14px;
+  background: rgba(99,102,241,.08);
+  border: 1px solid rgba(99,102,241,.2);
+  border-radius: 8px;
+}
+.estimate-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  padding: 3px 0;
+}
+.estimate-output {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--green);
+  margin-top: 4px;
+}
+.estimate-note {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.price-tag {
+  padding: 8px 14px;
+  background: rgba(99,102,241,.08);
+  border: 1px solid rgba(99,102,241,.2);
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+.input-row input {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.preview-detail {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 4px;
+}

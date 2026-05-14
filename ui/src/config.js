@@ -57,6 +57,8 @@ export const WALLET_PROVIDERS = [
   },
 ]
 
+const STORAGE_KEY = 'archimedes_wallet'
+
 let _walletClient = null
 let _provider = null
 let _address = null
@@ -64,6 +66,82 @@ let _providerId = null
 
 export function getConnectedProvider() { return _providerId }
 export function getAddress() { return _address }
+
+function saveWalletMeta(providerId, address) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ providerId, address }))
+  } catch { /* storage unavailable */ }
+}
+
+function clearWalletMeta() {
+  try { localStorage.removeItem(STORAGE_KEY) } catch { /* */ }
+}
+
+function loadWalletMeta() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+// Try to reconnect to a previously connected wallet on page load.
+// Uses eth_accounts (non-popup) to check if the user is still authorised.
+export async function reconnectWallet() {
+  const meta = loadWalletMeta()
+  if (!meta) return null
+
+  const provider = WALLET_PROVIDERS.find(p => p.id === meta.providerId)
+  if (!provider) { clearWalletMeta(); return null }
+
+  const ethereum = provider.detect()
+  if (!ethereum) { clearWalletMeta(); return null }
+
+  try {
+    const accounts = await ethereum.request({ method: 'eth_accounts' })
+    if (!accounts?.length) { clearWalletMeta(); return null }
+
+    const addr = accounts[0]
+
+    // Ensure Arc Testnet is selected
+    const chainIdHex = '0x4cef52'
+    try {
+      await ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: chainIdHex }],
+      })
+    } catch (switchError) {
+      if (switchError.code === 4902) {
+        await ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: chainIdHex,
+            chainName: 'Arc Testnet',
+            nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
+            rpcUrls: ['https://rpc.testnet.arc.network'],
+            blockExplorerUrls: [],
+          }],
+        })
+      } else {
+        throw switchError
+      }
+    }
+
+    _provider = ethereum
+    _address = addr
+    _providerId = meta.providerId
+    _walletClient = createWalletClient({
+      account: _address,
+      chain: arcTestnet,
+      transport: custom(ethereum),
+    })
+
+    saveWalletMeta(_providerId, _address)
+    return { address: _address, provider: _providerId }
+  } catch {
+    clearWalletMeta()
+    return null
+  }
+}
 
 export async function connectWallet(providerId) {
   const provider = WALLET_PROVIDERS.find(p => p.id === providerId)
@@ -110,6 +188,7 @@ export async function connectWallet(providerId) {
     transport: custom(ethereum),
   })
 
+  saveWalletMeta(providerId, _address)
   return { address: _address, provider: providerId }
 }
 
@@ -118,6 +197,7 @@ export function disconnectWallet() {
   _provider = null
   _address = null
   _providerId = null
+  clearWalletMeta()
 }
 
 export async function getWalletClient() {
@@ -128,6 +208,30 @@ export async function getWalletClient() {
 // Check which providers are available
 export function getAvailableProviders() {
   return WALLET_PROVIDERS.filter(p => p.detect() !== null)
+}
+
+// Listen for account/chain changes from the wallet extension
+if (typeof window !== 'undefined' && window.ethereum) {
+  window.ethereum.on?.('accountsChanged', (accounts) => {
+    if (!accounts?.length) {
+      disconnectWallet()
+      window.dispatchEvent(new CustomEvent('wallet-changed', { detail: { address: null } }))
+    } else {
+      _address = accounts[0]
+      if (_providerId) saveWalletMeta(_providerId, _address)
+      if (_provider) {
+        _walletClient = createWalletClient({
+          account: _address,
+          chain: arcTestnet,
+          transport: custom(_provider),
+        })
+      }
+      window.dispatchEvent(new CustomEvent('wallet-changed', { detail: { address: _address } }))
+    }
+  })
+  window.ethereum.on?.('chainChanged', () => {
+    window.location.reload()
+  })
 }
 
 // ─── ABIs (minimal, just what we need) ──────────────────────
