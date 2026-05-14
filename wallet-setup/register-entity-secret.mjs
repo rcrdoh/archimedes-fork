@@ -55,5 +55,9 @@ async function main() {
 
 main().catch((err) => {
   console.error("Failed:", err.message || err);
+  if (err.response) {
+    console.error("HTTP", err.response.status);
+    console.error("Body:", JSON.stringify(err.response.data, null, 2));
+  }
   process.exit(1);
 });

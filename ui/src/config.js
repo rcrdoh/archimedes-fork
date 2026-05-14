@@ -1,9 +1,9 @@
 import { createPublicClient, createWalletClient, custom, http } from 'viem'
 
 const arcTestnet = {
-  id: 1203948,
+  id: 5042002,
   name: 'Arc Testnet',
-  nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 6 },
+  nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
   rpcUrls: { default: { http: ['https://rpc.testnet.arc.network'] } },
 }
 
@@ -76,8 +76,8 @@ export async function connectWallet(providerId) {
   const accounts = await ethereum.request({ method: 'eth_requestAccounts' })
   if (!accounts?.length) throw new Error('No accounts returned')
 
-  // Switch to Arc Testnet
-  const chainIdHex = '0x' + (1203948).toString(16)
+  // Switch to Arc Testnet (chain ID from RPC: 0x4cef52 = 5042002)
+  const chainIdHex = '0x4cef52'
   try {
     await ethereum.request({
       method: 'wallet_switchEthereumChain',
@@ -91,7 +91,7 @@ export async function connectWallet(providerId) {
         params: [{
           chainId: chainIdHex,
           chainName: 'Arc Testnet',
-          nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 6 },
+          nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
           rpcUrls: ['https://rpc.testnet.arc.network'],
           blockExplorerUrls: [],
         }],
