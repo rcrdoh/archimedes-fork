@@ -1,0 +1,260 @@
+# Selection-Bias Corrections — Implementation Spec
+
+> **Date:** 2026-05-13 (Day 3)
+> **Owner:** Önder (math + statistics)
+> **Consumers:** Dan (strategy validation gate), Daniel R. (analytics-engine
+> output), Daniel S. (passport UI), Chuan (orchestrator's rigor gate)
+> **Status:** Draft — ready for Önder review and implementation
+> **Prerequisite reading:** [`../agora_project_analysis.md`](../agora_project_analysis.md)
+> § 5.3, [`./strategy-passport-spec.md`](./strategy-passport-spec.md),
+> [`../architectural-principles.md`](../architectural-principles.md)
+
+## Why this exists
+
+The strongest red-team critique of an LLM-driven strategy-extraction pipeline
+is **multiple-testing inflation**. If we evaluate N candidate strategies on
+historical data and pick the top K by backtest Sharpe, we are running an
+N-way selection experiment without selection-bias control. McLean & Pontiff
+(2016) showed published cross-sectional predictors lost ~26% of return
+out-of-sample and ~58% post-publication; Bailey, Borwein, López de Prado &
+Zhu (2014) demonstrated that under realistic multiple-testing conditions
+the in-sample-optimal strategy frequently does not even dominate the median
+out-of-sample. Either failure mode produces a "validated" strategy that
+fails in production.
+
+**Archimedes' wedge against the 96 other AI-portfolio submissions at the
+last HackMoney is that we apply the textbook corrections.** This spec
+defines the contract.
+
+## What this spec covers
+
+Three corrections, each populating specific fields on
+[`backend/archimedes/models/backtest.py`](../../backend/archimedes/models/backtest.py)
+`BacktestResult`:
+
+1. **Deflated Sharpe Ratio (DSR)** — Sharpe corrected for non-normality and
+   multiple testing (Bailey & López de Prado 2014).
+2. **Probability of Backtest Overfitting (PBO)** — CSCV-framework probability
+   that the in-sample-optimal strategy underperforms the median out-of-
+   sample (Bailey, Borwein, López de Prado & Zhu 2014).
+3. **Walk-forward OOS Sharpe** — held-out-of-sample slice metric, separate
+   from in-sample. The analytics-engine already exposes `walk_forward_split`
+   and `out_of_sample_sharpe` slots; this spec defines how they're populated.
+
+The fourth column, `look_ahead_audit_passed`, is a static-analysis check
+already wired by Daniel R.'s engine — covered briefly at the end for
+completeness.
+
+## 1. Deflated Sharpe Ratio (DSR)
+
+**Reference:** Bailey, D. H., & López de Prado, M. (2014). The Deflated
+Sharpe Ratio: Correcting for Selection Bias, Backtest Overfitting and
+Non-Normality. *Journal of Portfolio Management* 40(5), 94–107.
+
+### Inputs
+
+| Field | Source | Notes |
+|---|---|---|
+| `daily_returns: list[float]` | analytics-engine `BacktestResult.daily_returns` | Already populated |
+| `num_trials: int` | caller (orchestrator) | See § 1.3 for sourcing rules |
+| `annualization: int` | constant `252` | Daily bars assumption |
+
+### Formula
+
+Given Sharpe ratio `SR_hat` estimated from `T` daily returns with skewness
+`gamma_3` and excess kurtosis `gamma_4`, and `N` independent trials in the
+selection set, the DSR is the probability that the true Sharpe exceeds zero:
+
+```
+SR_zero = sqrt( (1 - gamma_E) + gamma_E^2 ) * (1 / sqrt(N))
+       where gamma_E ≈ 0.5772 (Euler-Mascheroni)
+       (the Bailey-López de Prado approximation for the expected max of
+        N iid normal Sharpe estimates)
+
+DSR = Z * ( (SR_hat - SR_zero) * sqrt(T - 1) /
+            sqrt( 1 - gamma_3 * SR_hat + ((gamma_4 - 1) / 4) * SR_hat^2 ) )
+       where Z is the standard normal CDF
+```
+
+`dsr_p_value` is the resulting probability (0 to 1). Higher = more confident
+the true Sharpe is positive after correcting for the N-way selection.
+
+### Outputs
+
+Populate on `BacktestResult`:
+
+- `deflated_sharpe_ratio: float` — the corrected Sharpe value (Sharpe units,
+  not probability)
+- `dsr_p_value: float` — probability the true Sharpe > 0
+- `num_trials_in_selection: int` — the N value used
+
+### Sourcing N (`num_trials_in_selection`)
+
+For v1, `N` is the number of distinct strategies evaluated by the analytics-
+engine in the same "selection round" — i.e. the size of the curated library
+at evaluation time. The orchestrator passes this in as a single integer.
+
+**Concretely:** when Önder's `evaluate(strategy, ...)` is called by the
+orchestrator, the orchestrator also passes
+`num_trials = len(strategy_provider.list_strategies())`. The default in the
+absence of context is `1` (no correction), but a warning is logged if N=1
+when more than one strategy exists in the library.
+
+For LLM-extracted candidates (the arxiv pipeline demo), `N` should reflect
+the candidate pool size from the most recent extraction pass, not the
+library size — the LLM tried K methodology variants and we picked the best.
+This will be wired in T5 (post-hackathon if not reached).
+
+## 2. Probability of Backtest Overfitting (PBO)
+
+**Reference:** Bailey, D. H., Borwein, J., López de Prado, M., & Zhu, J.
+(2014). The Probability of Backtest Overfitting. SSRN 2326253.
+
+### Inputs
+
+| Field | Source | Notes |
+|---|---|---|
+| `returns_matrix: np.ndarray (T, N)` | orchestrator | Daily returns for all N candidate strategies aligned on the same T dates |
+| `S: int` | constant `16` | Number of CSCV partitions; 16 is the paper's recommended default |
+| `selection_metric: callable` | default `sharpe_ratio` | The function used to pick the "best" strategy |
+
+### Algorithm (CSCV — Combinatorially Symmetric Cross-Validation)
+
+1. Partition the T-day return matrix into `S` equal-size submatrices along
+   the time axis.
+2. Enumerate every combination `C(S, S/2)` of S/2 submatrices forming the
+   in-sample set; the complement is out-of-sample.
+3. For each split, rank all N strategies in-sample by `selection_metric`,
+   identify the strategy with the highest in-sample rank, then look up its
+   out-of-sample rank.
+4. The relative OOS rank `omega = rank_OOS / N` produces the logit
+   `lambda = log( omega / (1 - omega) )`.
+5. `PBO = P(lambda <= 0)` — the fraction of splits in which the in-sample-
+   best strategy underperforms the OOS median.
+
+### Outputs
+
+Populate on `BacktestResult`:
+
+- `pbo_score: float` — probability of backtest overfitting (0 to 1, lower
+  is better)
+
+A `pbo_score >= 0.5` means the in-sample-optimal strategy is expected to
+underperform the median strategy out-of-sample — the strategy fails the
+rigor gate.
+
+### Computation cadence
+
+PBO is a **library-level** metric, not a per-strategy metric. Compute once
+per analytics-engine run across all strategies in the library, then attach
+the same `pbo_score` to each strategy's `BacktestResult` from that run.
+Re-compute when the library changes.
+
+## 3. Walk-forward Out-of-Sample Sharpe
+
+The analytics-engine already declares `walk_forward_split` (train fraction,
+default 0.70) and `out_of_sample_sharpe` on its result dataclass. Önder's
+`IBacktestEvaluator` should:
+
+1. Split `daily_returns` by `walk_forward_train_fraction` along the time
+   axis. No shuffling.
+2. Run the strategy logic over the **train** slice for any
+   parameter-tuning the strategy supports (v1 strategies are
+   non-parameterized so this is a no-op).
+3. Apply the chosen parameters to the **test** slice and compute Sharpe
+   over the test slice alone.
+4. Populate `out_of_sample_sharpe` with the test-slice Sharpe.
+
+The rigor gate requires `out_of_sample_sharpe / sharpe_ratio >= 0.5` —
+i.e. the OOS Sharpe must be at least half the in-sample Sharpe.
+
+## 4. Look-ahead audit
+
+`look_ahead_audit_passed: bool` is already set by Daniel R.'s engine via
+[`analytics-engine/.../engine.py`](../../analytics-engine/src/archimedes_analytics_engine/engine.py)
+`_lookahead_audit_passed()`, which checks that the broker is not configured
+with `coc` (close-on-close) or `coo` (close-on-open). That covers the
+backtrader-level look-ahead vector; if you add additional static checks
+(e.g. AST analysis of the strategy file for forward-bar references) wire
+the result into the same field.
+
+## API surface
+
+Önder's `IBacktestEvaluator.evaluate` signature already takes the strategy
+and price data. Extend it once to accept `num_trials`:
+
+```python
+def evaluate(
+    self,
+    strategy: Strategy,
+    price_data: dict[str, list[float]],
+    start_date: str | None = None,
+    end_date: str | None = None,
+    num_trials: int = 1,  # NEW — for DSR multiple-testing correction
+) -> BacktestResult: ...
+```
+
+A new method for library-level PBO:
+
+```python
+def compute_pbo(
+    self,
+    returns_matrix: dict[str, list[float]],  # strategy_id -> daily returns
+    s_partitions: int = 16,
+) -> dict[str, float]:  # strategy_id -> pbo_score (all identical)
+    """Compute PBO across the full strategy library."""
+```
+
+## Acceptance criteria for v1
+
+- [ ] `BacktestResult.deflated_sharpe_ratio` and `dsr_p_value` populated for
+      every backtest run with `num_trials > 1`.
+- [ ] `num_trials_in_selection` recorded so the correction is reproducible.
+- [ ] `pbo_score` computed once per library run and attached to every
+      strategy's result from that run.
+- [ ] `out_of_sample_sharpe` populated per strategy via walk-forward split.
+- [ ] `BacktestResult.passes_rigor_gate` returns `True` only when all four
+      controls are present and pass their thresholds.
+- [ ] Unit tests: a hand-constructed return series with known properties
+      reproduces a DSR and PBO matching reference values (within tolerance).
+
+## Numerical sanity-check example (for unit test seed)
+
+A strategy with:
+- `sharpe_ratio = 1.8` over `T = 2520` days (10 years)
+- `skewness = -0.4`, `excess_kurtosis = 3.2`
+- `num_trials = 10` (a library of 10 strategies)
+
+Expected (approximate):
+- `SR_zero ≈ sqrt(1.557) * 1/sqrt(10) ≈ 0.394`
+- `DSR statistic ≈ (1.8 - 0.394) * sqrt(2519) / sqrt(1 - (-0.4)(1.8) + (2.2/4)(3.24))`
+  `≈ 1.406 * 50.19 / sqrt(1 + 0.72 + 1.782) ≈ 70.57 / 1.873 ≈ 37.7`
+- `dsr_p_value ≈ Z(37.7) ≈ ~1.0` (very high confidence Sharpe > 0)
+
+A weaker strategy with `sharpe_ratio = 0.9`, same N=10, T=2520, same higher
+moments produces `dsr_p_value ≈ 0.99x` — still likely positive but with
+visibly lower confidence. Use a `sharpe_ratio = 0.3, N=1000` case to
+produce a `dsr_p_value < 0.5` for the failure-case unit test.
+
+## What this spec deliberately does not specify
+
+- Exact numerical-library choice (scipy vs. numpy vs. statsmodels) — Önder
+  picks.
+- Specific test fixtures or property-based test setup — Önder owns.
+- The PBO `S` parameter beyond the default `16` — known-good per the paper.
+- Encryption / privacy of trial counts (a v2 concern; v1 is fully public).
+
+## References
+
+Bailey, D. H., & López de Prado, M. (2014). The Deflated Sharpe Ratio:
+Correcting for Selection Bias, Backtest Overfitting and Non-Normality.
+*Journal of Portfolio Management* 40(5), 94–107.
+<https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551>
+
+Bailey, D. H., Borwein, J., López de Prado, M., & Zhu, J. (2014). The
+Probability of Backtest Overfitting. SSRN 2326253.
+<https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2326253>
+
+McLean, R. D., & Pontiff, J. (2016). Does Academic Research Destroy Stock
+Return Predictability? *Journal of Finance* 71(1), 5–32.
+<https://onlinelibrary.wiley.com/doi/abs/10.1111/jofi.12365>
