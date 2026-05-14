@@ -22,7 +22,27 @@ A paper qualifies for the v1 strategy library if and only if:
 
 Papers below are organized by arxiv [q-fin category](https://arxiv.org/list/q-fin/recent).
 **Validation status to be filled by Dan:** ✓ = re-validated; ⚠ = re-implementation in
-progress; ☐ = candidate not yet evaluated.
+progress; ☐ = candidate not yet evaluated; 🌱 = seeded as analytics-engine strategy file
+awaiting backtest run.
+
+## Day 3 seeded strategies (2026-05-13)
+
+Three strategies have been written as runnable backtrader files in
+[`analytics-engine/strategies/`](../analytics-engine/strategies/) and are loadable by
+[`backend/archimedes/services/strategy_provider.py`](../backend/archimedes/services/strategy_provider.py):
+
+- 🌱 **A2** Moskowitz, Ooi & Pedersen 2012 — Time Series Momentum
+  ([`moskowitz_ooi_pedersen_2012_tsmom.py`](../analytics-engine/strategies/moskowitz_ooi_pedersen_2012_tsmom.py))
+- 🌱 **A new — single-asset SMA200 trend filter** — Faber 2007
+  ([`faber_2007_sma200_timing.py`](../analytics-engine/strategies/faber_2007_sma200_timing.py))
+- 🌱 **A new — volatility-managed long** — Moreira & Muir 2017
+  ([`moreira_muir_2017_volatility_managed.py`](../analytics-engine/strategies/moreira_muir_2017_volatility_managed.py))
+
+All three are *single-asset* per the analytics-engine's one-feed-per-backtest constraint.
+Cross-sectional papers like A1 (Jegadeesh-Titman) and A3 (HRP) require multi-feed
+support and stay deferred for v1.5. Per-asset backtests pending Önder's
+`IBacktestEvaluator` implementation; until then the strategies load with `status =
+CANDIDATE` and no `BacktestResult`.
 
 ---
 

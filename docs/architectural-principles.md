@@ -48,10 +48,18 @@ Three independent arguments converge:
    problem of every leaderboard. **Verifiable reasoning history bypasses the prediction
    problem**: we don't claim the past predicts the future; we claim the past is auditable.
 
-## The three primitives that make verifiable history work
+## The four primitives that make verifiable history work
 
 These are the architectural commitments. Schema details in
-[`specs/strategy-passport-spec.md`](specs/strategy-passport-spec.md); principle here.
+[`specs/strategy-passport-spec.md`](specs/strategy-passport-spec.md) and
+[`specs/selection-bias-corrections-spec.md`](specs/selection-bias-corrections-spec.md);
+principle here.
+
+> **Day 3 update:** The fourth primitive — selection-bias correction — was added on
+> 2026-05-13 after the red-team review documented in
+> [`agora_project_analysis.md`](agora_project_analysis.md) § 5.3. The three original
+> primitives address *auditability*; the fourth addresses *credibility* of admission to
+> the library in the first place.
 
 ### Primitive 1: paper-claim binding (the strategy passport)
 
@@ -104,6 +112,54 @@ outputs. This is what makes the agent's *information surface* auditable.
   agent's tool calls are recorded, we can replay them later with different LLM prompts
   and see how decisions would have differed.
 
+### Primitive 4: selection-bias correction (the admission gate)
+
+Auditability proves that the agent *did what it claims*. Selection-bias correction proves
+that the strategies in the library *deserve to be there* — that they survive the
+statistical tests separating curve-fit artifacts from credible predictors.
+
+For every strategy admitted to the Tier-1 library, the
+[`specs/selection-bias-corrections-spec.md`](specs/selection-bias-corrections-spec.md)
+contract requires:
+
+- **Deflated Sharpe Ratio (DSR)** — Sharpe corrected for non-normality and multiple
+  testing (Bailey & López de Prado 2014). `dsr_p_value >= 0.95`.
+- **Probability of Backtest Overfitting (PBO)** — CSCV-framework probability that the
+  in-sample-optimal strategy underperforms the OOS median (Bailey, Borwein, López de
+  Prado, Zhu 2014). `pbo_score < 0.5`.
+- **Walk-forward out-of-sample Sharpe** — held-out slice metric. Must reach at least
+  50% of the in-sample Sharpe (no cliff).
+- **Look-ahead audit** — static checks confirm no future-bar references in strategy
+  code or data slicing.
+- **Paper-claim delta surfaced**, not hidden — `sharpe_vs_paper`, `cagr_vs_paper`, and
+  McLean-Pontiff post-publication decay estimate all visible in the passport.
+
+This addresses the strongest red-team critique of an LLM-driven strategy pipeline:
+*published academic alpha is mostly dead alpha* (McLean & Pontiff 2016 — 58% of
+in-sample Sharpe lost post-publication on average). The four corrections do not make a
+strategy "right"; they reduce the false-positive rate and surface the residual
+uncertainty so the user can audit it.
+
+**Tier-2 community vaults are exempt from primitive 4.** That is by design — see the
+two-tier section below.
+
+## Two-tier marketplace: how the primitives apply to each tier
+
+Per [`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md), Archimedes runs a
+two-tier vault marketplace. The primitives are not uniformly required; the tiers are
+*defined* by which primitives they commit to.
+
+| Primitive | Tier 1 (Archimedes Verified 🏆) | Tier 2 (Community 👥) |
+|---|---|---|
+| 1. Paper-claim binding | **Required** — every strategy traces to published research | Optional — community vaults need no paper backing |
+| 2. Reasoning trace | **Required** — every agent decision is hashed and anchored | **Required** if agent-assisted; manual vaults log creator-attributed decisions |
+| 3. Tool-call provenance | **Required** — every tool invocation recorded with input/output hashes | **Required** for agent-assisted actions |
+| 4. Selection-bias correction | **Required** — DSR + PBO + OOS Sharpe + look-ahead audit must all pass | Not required — Tier 2 is freestyle by design |
+
+The Tier 1 badge means "this vault's strategies survive all four primitives." The Tier 2
+flag means "this vault carries reasoning traces but the strategies have not been
+paper-grounded or selection-bias-corrected." Both are useful; neither is misrepresented.
+
 ## The three layers, named explicitly
 
 Borrowing a framing from prediction-market architecture (Canteen's _Unbundling the
@@ -125,24 +181,30 @@ MCP-native + verifiable history" credible as a pitch.
 
 ## Design constraints these primitives imply
 
-Once you commit to the three primitives, several design choices are forced:
+Once you commit to the four primitives, several design choices are forced:
 
 1. **You commit to an on-chain anchoring path.** The verifiability depends on the hash
-   being checkable independent of the platform. Chuan's
-   [`design.md` § 5.2](design.md) specifies this as `ReasoningTraceRegistry.sol`. Don't
-   skip it.
+   being checkable independent of the platform. The
+   [`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md) § 3.4 keeps
+   `ReasoningTraceRegistry.sol` from the original design unchanged. Don't skip it.
 2. **You commit to content-hashing as the integrity primitive.** Not signatures, not
    platform attestations. The trace is what it is; any change to it changes the hash;
    anyone with the trace can verify it themselves.
 3. **You commit to "verifiable history, not predictive performance" as the reputation
    thesis.** Don't ship a numeric score that claims to predict future performance. Ship
-   the queryable, auditable history.
-4. **You commit to non-custodial settlement.** Platform never holds user funds. ArchimedesVault
-   contracts hold USDC; agent has rebalance authority only, not withdraw-to-platform
-   authority.
-5. **You commit to paper-grounded curation, not LLM-blind ingestion.** Strategies come
-   from real published research with verifiable methodology. The arxiv pipeline can
+   the queryable, auditable history + the selection-bias-corrected admission record.
+4. **You commit to non-custodial settlement.** Platform never holds user funds. Vault
+   contracts (ERC-4626 per ecosystem-design-spec § 3.2) hold user USDC and synth tokens;
+   the agent has rebalance authority only, not withdraw-to-platform authority.
+5. **You commit to paper-grounded curation for Tier 1, not LLM-blind ingestion.** Tier 1
+   strategies come from real published research with verifiable methodology. The arxiv
+   pipeline can
    *propose* strategies, but a human curator (Dan in v1) validates before listing.
+6. **You commit to selection-bias-corrected admission for Tier 1.** Every Tier-1
+   strategy passes DSR (Bailey & López de Prado 2014), PBO (Bailey/Borwein/López de
+   Prado/Zhu 2014), walk-forward OOS Sharpe, and a look-ahead static audit before
+   promotion from CANDIDATE → VALIDATED. The numbers, including the paper-claim delta,
+   are surfaced in the passport — never hidden behind an aggregate score.
 
 ## What this doesn't commit you to
 
@@ -163,15 +225,19 @@ open, and the team can pick later:
 
 ## How to evaluate proposed features against these principles
 
-When the team is deciding whether to add a feature, run it through this filter:
+When the team is deciding whether to add a feature, run it through this six-question filter:
 
 1. **Does it make any prior decision's record less auditable?** If yes, push back hard.
 2. **Does it tie reputation to predicted performance rather than actual history?** If yes,
    replace with a history-based equivalent.
 3. **Does it move user funds into platform custody?** If yes, redesign.
 4. **Does it lock us into a single framework or LLM provider?** If yes, push back.
-5. **Does it bypass the paper-claim binding?** (E.g., "let users submit untested strategies
-   directly.") If yes, push back — the paper-grounded curation is part of the pitch.
+5. **Does it bypass the Tier 1 paper-claim binding?** (E.g., "let community strategies
+   carry the Verified badge.") If yes, push back — paper-grounded curation is the badge.
+   Tier 2 is the legitimate freestyle path.
+6. **Does it bypass the Tier 1 selection-bias gate?** (E.g., "skip DSR/PBO for strategies
+   we feel good about.") If yes, push back — the four-primitive admission gate is the
+   only thing that distinguishes rigor from hand-waving.
 
 A feature that fails any of these is a feature that erodes the architectural moat.
 Sometimes it's worth the erosion (e.g., a v2 fiat on-ramp may require custodial

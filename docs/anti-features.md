@@ -4,7 +4,9 @@
 > **Purpose:** Make scope discipline explicit. For every plausible-but-distracting feature
 > someone proposes mid-week-2, this doc says NO with a reason. Use it as the back-pressure
 > document.
-> **Date:** 2026-05-12 (Day 2). Revisit weekly.
+> **Date:** 2026-05-12 (Day 2). **Last revised 2026-05-13 (Day 3)** — reconciled with the
+> ecosystem-design pivot in [`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md)
+> and the red-team critique in [`agora_project_analysis.md`](agora_project_analysis.md).
 
 ## Why this doc exists
 
@@ -32,14 +34,21 @@ against. Take-rate on USDC settlement + USYC yield-share is the revenue model.
 v1 portfolio is spot + RWA + USYC. Leverage adds liquidation failure modes, regulatory
 exposure, and demo fragility we can't manage in 12 days.
 
-### NOT building: third-party strategy onboarding for v1
+### NOT building: third-party strategy onboarding into Tier 1
 
-**Why not:** Curated v1 library per [`mvp-scope-memo.md`](mvp-scope-memo.md). Third-party
-onboarding requires moderation, abuse prevention, methodology review at scale, and an
-onboarding flow — none of which advance the v1 demo. The arxiv ingest pipeline runs as a
-demo segment on 2–3 papers; it does not productize for v1.
+**Why not:** Tier 1 vaults carry the "Archimedes Verified" badge precisely because every
+strategy is curator-validated and paper-grounded. Allowing arbitrary third-party
+strategies into Tier 1 dilutes the badge to meaninglessness — moderation, abuse
+prevention, and methodology review at scale are real products on their own.
 
-**v2 conversation, not v1.**
+**Tier 2 is the carve-out.** Per [`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md)
+§ 5, community-tier vaults are permissionless and explicitly labeled. They carry reasoning
+traces and tool-call provenance like Tier 1, but they do NOT carry paper-grounding or
+selection-bias-corrected backtests. The two-tier separation is the design — not a
+relaxation of the original scope.
+
+**v2 conversation:** opening a curator-application flow that lets community-tier vault
+authors petition for Tier 1 review.
 
 ### NOT building: a full slashing / dispute resolution mechanic
 
@@ -102,21 +111,27 @@ benefit of demonstrating real on-chain primitives.
 **Why not:** Web-first. Mobile is a different engineering problem and doesn't unlock
 new judging value.
 
-### NOT building: social features (follow users, share portfolios, comments)
+### NOT building: profile pages, DMs, reactions, threads, global feed
 
-**Why not:** Different product. Strategy-leaderboard (per design.md § 9) gives us
-discovery; we don't need social commentary on top.
+**Why not:** [`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md) § 4 puts
+per-vault chat in scope (wallet-address identity, message persistence, AI auto-post +
+@mention). Everything beyond that — profiles with PnL, direct messages, emoji reactions,
+threaded replies, a global marketplace feed — is a different product shape and a v2
+conversation.
 
-**v2 conversation.**
+**Hard line for v1:** chat is a post-investment surface inside a single vault, not a
+discovery or onboarding flow.
 
-### NOT building: a chat-bot / conversational portfolio agent
+### NOT building: chat-as-onboarding / conversational portfolio construction
 
-**Why not:** v1 is form-driven onboarding (pick risk profile) + dashboard for live state.
-A conversational interface is a different product and shifts the agent's failure modes
-from "did it construct the right portfolio?" to "did it understand the user?" — a
-harder evaluation problem.
+**Why not:** v1 onboarding is form-driven (pick risk profile, deposit USDC). The vault
+chat is a *post-investment* engagement surface — users talk to the AI about decisions
+that have already been made. Conversational onboarding shifts agent failure modes from
+"did it construct the right portfolio?" to "did it understand the user's prompt?" —
+a harder evaluation problem we don't take on in v1.
 
-**v2 conversation.**
+**v2 conversation:** natural-language risk-profile elicitation, "describe your goals and
+let the agent recommend a vault" flow.
 
 ### NOT building: agent-to-agent (a2a) commerce
 
@@ -143,18 +158,21 @@ bug surfaces, we deploy a new contract and migrate. Upgrade patterns add their o
 surface (the proxy / delegatecall failure mode is non-trivial); we hold the line on
 immutability for v1.
 
-### NOT building: real-time portfolio chat with the agent
+### NOT building: real-time portfolio *coaching* — user-interruptible agent
 
-**Why not:** Reasoning traces are async — the agent decides, hashes, publishes. A
-real-time chat interface where the user can interrupt or coach the agent is a different
-product (and a harder one — agency vs. interruptibility tradeoffs).
+**Why not:** The vault chat per [`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md)
+§ 4 is read-mostly: the AI auto-posts on agent actions and answers questions about
+*already-made* decisions. What we are NOT building is a chat where the user can
+interrupt, coach, or reverse the agent's behavior in real time. That is a different
+product (agency vs. interruptibility tradeoffs), and a v2 conversation.
 
-### NOT building: a portfolio NFT or position-tokenization layer
+### NOT building: per-position NFTs or per-user portfolio tokens
 
-**Why not:** Don't tokenize the user's *position*. Tokenize the *underlying assets* (RWA
-tokens) per Chuan's [`design.md` § 5.3](design.md). Adding a layer where the user's
-portfolio itself is a tradeable token is a v2+ conversation and adds complexity without
-clear v1 benefit.
+**Why not:** ERC-4626 vault shares per [`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md)
+§ 3.2 are the unit of position — fungible vault-token holdings represent your share of
+the vault's portfolio. We do NOT issue a per-position NFT (one token per user per
+position), a per-user portfolio token, or any other position-individuation layer.
+Vault-token fungibility is what makes the AMM-traded copy-trade primitive work.
 
 ### NOT building: gamified / "rewards" mechanics
 
@@ -167,25 +185,102 @@ ethically dicey territory.)
 **Why not:** Use Chainlink, Pyth, or RedStone for price feeds. Don't roll our own oracle
 network. Off-the-shelf where reliable.
 
+**Hackathon caveat:** the synth layer currently uses a backend-driven mock oracle (per
+[`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md) § 3.6). This is a
+demo simplification; the production path replaces it with Pyth/Chainlink, not a
+home-grown alternative.
+
+## Pitch-rigor anti-claims (Day 3 additions from red-team review)
+
+These are not features we won't build — they are *claims we won't make* in the deck or
+the public-facing copy. Each one survived the red team in
+[`agora_project_analysis.md`](agora_project_analysis.md) as a defensible framing line.
+
+### NOT pitching: "blockchain as memory" as the load-bearing rhetorical claim
+
+**Why not:** Garrison's "memory makes computation universal" is satisfied by Postgres,
+git, Kafka, and S3 versioning — the bar is extraordinarily low and the framing is more
+aesthetic than substantive (analysis doc § 5.1). What blockchain uniquely provides is
+**multi-party tamper-evident commitment** of specific facts, not "memory" in general. The
+defensible pitch line is:
+
+> The ReasoningTraceRegistry is the agent's externalized memory for the specific
+> financial-decision artifacts no party — including Archimedes — can later rewrite.
+
+Use that framing. Do not pitch "blockchain as substrate for universal computation."
+
+### NOT claiming: predicted alpha or future-return guarantees
+
+**Why not:** McLean & Pontiff (2016) — published cross-sectional predictors lose 26%
+out-of-sample and 58% post-publication. Bailey & López de Prado (2014) — backtest-
+optimized strategies often do not exceed the median out-of-sample. Any claim that our
+agent "delivers" a target Sharpe is structurally unsupportable. We claim **auditability
+of past decisions plus statistical rigor of strategy admission** — not future returns.
+
+### NOT claiming: that an on-chain trace hash proves the agent used the trace
+
+**Why not:** A hash anchored at time T proves the trace existed at time T. It does NOT
+prove the agent's trade was caused by that trace's reasoning (analysis doc § 5.2). Until
+[`commit-reveal-trace-spec.md`](specs/commit-reveal-trace-spec.md) is implemented (v1.5),
+do not claim causation. The honest pitch is "verifiable record of the reasoning at the
+moment of the trade" — not "proof that the trade followed from the reasoning."
+
+### NOT claiming: regulatory clarity or production-readiness
+
+**Why not:** Per the regulatory survey in
+[`agora_project_analysis.md`](agora_project_analysis.md) § 6, a managed-portfolio vault
+with curator discretion likely satisfies all four prongs of Howey under current SEC
+interpretation. This is fine for a hackathon prototype with test users; it is **not** a
+production stance. Any pitch should explicitly frame this as a research prototype, not a
+launchable investment product. (The 2026-05 SEC + MiCA + Cayman survey in the analysis
+doc is the reference; cite it if asked.)
+
+### NOT claiming: that selection-bias correction makes our strategies "right"
+
+**Why not:** DSR, PBO, and OOS Sharpe per
+[`specs/selection-bias-corrections-spec.md`](specs/selection-bias-corrections-spec.md)
+*reduce* the false-positive rate; they do not eliminate it. The honest claim is that
+we apply the corrections and surface the numbers — not that the corrections make any
+specific strategy a true positive. The wedge is the rigor, not a guarantee.
+
 ## What we ARE building (for explicit contrast)
 
-To make this doc complete: the v1 scope is the inverse of the above. Specifically:
+To make this doc complete: the v1 scope is the inverse of the above. Updated 2026-05-13
+to reflect the two-tier marketplace pivot in
+[`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md). Specifically:
 
-- Portfolio agent that constructs personalized portfolios from a curated library of
-  paper-grounded strategies
-- Live regime detection + autonomous rebalancing + strategy rotation
-- Strategy passport: paper provenance + reasoning trace + tool-call provenance
+**Ecosystem layer (Chuan + Marten):**
+- Synthetic protocol: 5 oracle-priced synthetic assets (sSPY, sNIKKEI, sGLD, sTREASURY,
+  sOIL) backed 1:1 by USDC in a shared collateral pool
+- AMM exchange: Uniswap-V2-style constant-product pools, USDC-paired
+- VaultFactory + ERC-4626 Vault contracts with 2-and-20-style fees and a 10% platform cut
+- Two-tier marketplace:
+  - **Tier 1 (Archimedes Verified):** paper-grounded strategies + full agent autonomy +
+    selection-bias-corrected backtests + reasoning traces
+  - **Tier 2 (Community):** permissionless vault creation + opt-in agent features +
+    reasoning traces (paper-grounding optional)
+- Vault-token AMM pools enable copy-trading (buy vault tokens = invest in the manager)
+- Per-vault chat with wallet-address identity and AI auto-post + @mention (Tier 1)
+
+**Strategy + agent layer (Dan + Önder + Chuan):**
+- Curated v1 library: 5–10 paper-grounded strategies, each with full strategy passport
+  (paper provenance + methodology hash + curator wallet signature)
+- Selection-bias-corrected backtests (DSR, PBO, OOS Sharpe split, look-ahead audit) per
+  [`specs/selection-bias-corrections-spec.md`](specs/selection-bias-corrections-spec.md)
+- Arxiv ingest pipeline demo on 2–3 papers (not relied on for live portfolio decisions)
+- Portfolio agent: regime detection, autonomous rebalancing, strategy rotation, reasoning
+  traces, tool-call provenance
 - On-chain anchoring of reasoning traces via ReasoningTraceRegistry on Arc
-- Non-custodial vault: ArchimedesVault holds user USDC, agent has rebalance authority only
-- USYC floor per risk profile for risk-off yield
-- RWA token acquisition via CCTP/Gateway
-- Strategy leaderboard for discovery
-- Curated v1 library: 5–10 paper-grounded strategies
-- Arxiv ingest pipeline demo on 2–3 papers (not relied on for live demo)
-- Web frontend (Next.js) for onboarding + dashboard + reasoning-trace viewer
-- Pitch deck + live demo + Q&A prep
 
-That's it. That's the v1. Everything else is v2.
+**Settlement + UX (Marten + Daniel + Chuan):**
+- USDC settlement on Arc + Paymaster for USDC-denominated gas
+- USYC as the risk-off yield anchor in every portfolio (per risk-profile floor)
+- Next.js frontend: marketplace landing, vault detail, swap UI, vault creator, reasoning
+  trace viewer with "verify trace hash" UI element
+- Pitch deck + live demo + Q&A prep grounded in
+  [`agora_project_analysis.md`](agora_project_analysis.md)
+
+That's the updated v1. Everything else is v2.
 
 ## How to use this doc
 
