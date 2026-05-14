@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  publicClient, getWalletClient, getAddress, USDC,
+  publicClient, getWalletClient, getAddress, connectWallet, disconnectWallet,
+  getAvailableProviders, getConnectedProvider,
+  USDC,
   ORACLE_ABI, TOKEN_ABI, SYNTH_VAULT_ABI,
   AMM_ROUTER_ABI, TRACE_REGISTRY_ABI, VAULT_ABI, VAULT_FACTORY_ABI,
   ASSETS, NEW_CONTRACTS,
@@ -42,6 +44,75 @@ async function fetchAssetData(asset) {
 // ─── Tabs ────────────────────────────────────────────────────
 
 const TABS = ['📊 Dashboard', '🔄 Mint/Burn', '🔀 Swap', '🏛️ Vaults', '📝 Traces']
+
+// ─── Wallet Connect Button ────────────────────────────────────
+
+function WalletConnect({ address, onConnect, onDisconnect }) {
+  const [showModal, setShowModal] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const available = getAvailableProviders()
+
+  const handleConnect = async (providerId) => {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await connectWallet(providerId)
+      setShowModal(false)
+      onConnect(result.address)
+    } catch (err) {
+      setError(err.message)
+    }
+    setBusy(false)
+  }
+
+  if (address) {
+    return (
+      <div className="wallet-info">
+        <span className="wallet-addr">{address.slice(0, 6)}...{address.slice(-4)}</span>
+        <button className="btn-sm" onClick={onDisconnect}>Disconnect</button>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <button className="connect-btn" onClick={() => setShowModal(true)}>
+        🔗 Connect Wallet
+      </button>
+
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Connect Wallet</h3>
+            <p className="hint">Select a wallet to interact with Arc Testnet contracts.</p>
+
+            {available.length === 0 ? (
+              <div className="info-box warning">
+                No wallets detected. Install <a href="https://metamask.io" target="_blank" rel="noreferrer">MetaMask</a> or{' '}
+                <a href="https://www.coinbase.com/wallet" target="_blank" rel="noreferrer">Coinbase Wallet</a>.
+              </div>
+            ) : (
+              <div className="wallet-options">
+                {available.map(p => (
+                  <button key={p.id} className="wallet-option" onClick={() => handleConnect(p.id)} disabled={busy}>
+                    <span className="wallet-icon">{p.icon}</span>
+                    <span>{p.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {error && <div className="status" style={{ marginTop: 12 }}>{error}</div>}
+
+            <button className="btn-sm" style={{ marginTop: 12, width: '100%' }} onClick={() => setShowModal(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
 
 // ─── Dashboard Panel ─────────────────────────────────────────
 
@@ -563,12 +634,16 @@ function Traces() {
 
 export default function App() {
   const [tab, setTab] = useState(0)
+  const [walletAddr, setWalletAddr] = useState(getAddress())
   const [data, setData] = useState({})
   const [prevData, setPrevData] = useState({})
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
   const [lastFetch, setLastFetch] = useState(null)
   const [countdown, setCountdown] = useState(30)
+
+  const handleConnect = (addr) => setWalletAddr(addr)
+  const handleDisconnect = () => { disconnectWallet(); setWalletAddr(null) }
 
   const fetchAll = useCallback(async () => {
     const results = await Promise.allSettled(ASSETS.map(a => fetchAssetData(a)))
@@ -605,6 +680,7 @@ export default function App() {
       <header>
         <div className="logo">⚖️ Archimedes</div>
         <div className="subtitle">Arc Testnet · Contract Testing UI</div>
+        <WalletConnect address={walletAddr} onConnect={handleConnect} onDisconnect={handleDisconnect} />
         <nav className="tabs">
           {TABS.map((t, i) => (
             <button key={i} className={tab === i ? 'active' : ''} onClick={() => setTab(i)}>{t}</button>

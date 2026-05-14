@@ -12,22 +12,122 @@ export const publicClient = createPublicClient({
   transport: http(),
 })
 
-// Lazy wallet client — only created when user connects
+// ─── Wallet Connection ──────────────────────────────────────
+
+export const WALLET_PROVIDERS = [
+  {
+    id: 'metamask',
+    name: 'MetaMask',
+    icon: '🦊',
+    detect: () => {
+      if (!window.ethereum) return null
+      // MetaMask injects window.ethereum with isMetaMask
+      if (window.ethereum.isMetaMask) return window.ethereum
+      // Some browsers have multiple wallets — check for MetaMask specifically
+      if (window.ethereum.providers?.find(p => p.isMetaMask)) {
+        return window.ethereum.providers.find(p => p.isMetaMask)
+      }
+      return null
+    },
+  },
+  {
+    id: 'coinbase',
+    name: 'Coinbase Wallet',
+    icon: '🔵',
+    detect: () => {
+      // Coinbase Wallet extension
+      if (window.ethereum?.isCoinbaseWallet) return window.ethereum
+      // Coinbase injected as separate provider
+      if (window.coinbaseWalletExtension) return window.coinbaseWalletExtension
+      // Multiple providers — find Coinbase
+      if (window.ethereum?.providers?.find(p => p.isCoinbaseWallet)) {
+        return window.ethereum.providers.find(p => p.isCoinbaseWallet)
+      }
+      return null
+    },
+  },
+  {
+    id: 'browser',
+    name: 'Browser Wallet',
+    icon: '🌐',
+    detect: () => {
+      // Fallback: any window.ethereum provider
+      return window.ethereum || null
+    },
+  },
+]
+
 let _walletClient = null
-export async function getWalletClient() {
-  if (_walletClient) return _walletClient
-  if (!window.ethereum) throw new Error('No wallet detected')
-  const [address] = await window.ethereum.request({ method: 'eth_requestAccounts' })
+let _provider = null
+let _address = null
+let _providerId = null
+
+export function getConnectedProvider() { return _providerId }
+export function getAddress() { return _address }
+
+export async function connectWallet(providerId) {
+  const provider = WALLET_PROVIDERS.find(p => p.id === providerId)
+  if (!provider) throw new Error(`Unknown provider: ${providerId}`)
+
+  const ethereum = provider.detect()
+  if (!ethereum) throw new Error(`${provider.name} not detected. Please install the extension.`)
+
+  // Request accounts
+  const accounts = await ethereum.request({ method: 'eth_requestAccounts' })
+  if (!accounts?.length) throw new Error('No accounts returned')
+
+  // Switch to Arc Testnet
+  const chainIdHex = '0x' + (1203948).toString(16)
+  try {
+    await ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: chainIdHex }],
+    })
+  } catch (switchError) {
+    // Chain not added — add it
+    if (switchError.code === 4902) {
+      await ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: chainIdHex,
+          chainName: 'Arc Testnet',
+          nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 6 },
+          rpcUrls: ['https://rpc.testnet.arc.network'],
+          blockExplorerUrls: [],
+        }],
+      })
+    } else {
+      throw switchError
+    }
+  }
+
+  _provider = ethereum
+  _address = accounts[0]
+  _providerId = providerId
   _walletClient = createWalletClient({
-    account: address,
+    account: _address,
     chain: arcTestnet,
-    transport: custom(window.ethereum),
+    transport: custom(ethereum),
   })
-  return _walletClient
+
+  return { address: _address, provider: providerId }
 }
 
-export function getAddress() {
-  return _walletClient?.account?.address
+export function disconnectWallet() {
+  _walletClient = null
+  _provider = null
+  _address = null
+  _providerId = null
+}
+
+export async function getWalletClient() {
+  if (_walletClient) return _walletClient
+  throw new Error('No wallet connected. Click "Connect Wallet" to continue.')
+}
+
+// Check which providers are available
+export function getAvailableProviders() {
+  return WALLET_PROVIDERS.filter(p => p.detect() !== null)
 }
 
 // ─── ABIs (minimal, just what we need) ──────────────────────
