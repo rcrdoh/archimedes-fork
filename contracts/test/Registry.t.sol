@@ -1,0 +1,407 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "forge-std/Test.sol";
+import "../src/ReasoningTraceRegistry.sol";
+import "../src/AssetRegistry.sol";
+
+contract ReasoningTraceRegistryTest is Test {
+    ReasoningTraceRegistry public registry;
+
+    address public owner = address(0x1);
+    address public agent1 = address(0x2);
+    address public agent2 = address(0x3);
+    address public vault1 = address(0x10);
+    address public vault2 = address(0x11);
+
+    function setUp() public {
+        vm.prank(owner);
+        registry = new ReasoningTraceRegistry(owner);
+    }
+
+    // ─── Publish Trace ───────────────────────────────────────────────
+
+    function test_publishTrace() public {
+        bytes32 hash = keccak256("trace content 1");
+        bytes memory metadata = abi.encode("rebalance", "regime_shift");
+
+        vm.prank(agent1);
+        uint256 traceId = registry.publishTrace(vault1, hash, metadata);
+
+        assertEq(traceId, 1);
+        assertEq(registry.traceCount(), 1);
+    }
+
+    function test_publishTrace_auto_increment() public {
+        bytes32 hash1 = keccak256("trace 1");
+        bytes32 hash2 = keccak256("trace 2");
+
+        vm.prank(agent1);
+        uint256 id1 = registry.publishTrace(vault1, hash1, "");
+
+        vm.prank(agent2);
+        uint256 id2 = registry.publishTrace(vault1, hash2, "");
+
+        assertEq(id1, 1);
+        assertEq(id2, 2);
+        assertEq(registry.traceCount(), 2);
+    }
+
+    function test_publishTrace_emits_event() public {
+        bytes32 hash = keccak256("trace");
+
+        vm.expectEmit(true, true, true, true);
+        emit IReasoningTraceRegistry.TracePublished(1, agent1, vault1, hash, block.timestamp);
+        vm.prank(agent1);
+        registry.publishTrace(vault1, hash, "");
+    }
+
+    // ─── Verify Trace ────────────────────────────────────────────────
+
+    function test_verifyTrace_correct() public {
+        bytes memory content = "the actual trace content";
+        bytes32 hash = keccak256(content);
+
+        vm.prank(agent1);
+        registry.publishTrace(vault1, hash, "");
+
+        assertTrue(registry.verifyTrace(1, content));
+    }
+
+    function test_verifyTrace_tampered() public {
+        bytes memory content = "the actual trace content";
+        bytes32 hash = keccak256(content);
+
+        vm.prank(agent1);
+        registry.publishTrace(vault1, hash, "");
+
+        assertFalse(registry.verifyTrace(1, "tampered content"));
+    }
+
+    function test_verifyTrace_invalid_id() public view {
+        assertFalse(registry.verifyTrace(0, "anything"));
+        assertFalse(registry.verifyTrace(999, "anything"));
+    }
+
+    // ─── Get Traces by Agent ─────────────────────────────────────────
+
+    function test_getTraces_by_agent() public {
+        bytes32 hash1 = keccak256("trace 1");
+        bytes32 hash2 = keccak256("trace 2");
+        bytes32 hash3 = keccak256("trace 3");
+
+        vm.prank(agent1);
+        registry.publishTrace(vault1, hash1, "");
+
+        vm.prank(agent2);
+        registry.publishTrace(vault2, hash2, "");
+
+        vm.prank(agent1);
+        registry.publishTrace(vault1, hash3, "");
+
+        // Agent1 has 2 traces (IDs 1 and 3)
+        bytes32[] memory agent1Hashes = registry.getTraces(agent1, 0, 1);
+        assertEq(agent1Hashes.length, 2);
+        assertEq(agent1Hashes[0], hash1);
+        assertEq(agent1Hashes[1], hash3);
+
+        // Agent2 has 1 trace (ID 2)
+        bytes32[] memory agent2Hashes = registry.getTraces(agent2, 0, 0);
+        assertEq(agent2Hashes.length, 1);
+        assertEq(agent2Hashes[0], hash2);
+    }
+
+    function test_getTraces_empty_agent() public view {
+        bytes32[] memory hashes = registry.getTraces(address(0x99), 0, 5);
+        assertEq(hashes.length, 0);
+    }
+
+    // ─── Get Trace by ID ─────────────────────────────────────────────
+
+    function test_getTraceById() public {
+        bytes32 hash = keccak256("content");
+        bytes memory metadata = abi.encode("decision_type", "trigger");
+
+        vm.prank(agent1);
+        registry.publishTrace(vault1, hash, metadata);
+
+        (
+            address agent,
+            address vault,
+            bytes32 traceHash,
+            uint256 timestamp,
+            bytes memory retMetadata
+        ) = registry.getTraceById(1);
+
+        assertEq(agent, agent1);
+        assertEq(vault, vault1);
+        assertEq(traceHash, hash);
+        assertGt(timestamp, 0);
+        assertEq(retMetadata, metadata);
+    }
+
+    function test_revert_getTraceById_invalid() public {
+        vm.expectRevert("Invalid trace ID");
+        registry.getTraceById(0);
+    }
+
+    function test_revert_getTraceById_nonexistent() public {
+        vm.expectRevert("Invalid trace ID");
+        registry.getTraceById(999);
+    }
+
+    // ─── Get Traces by Vault ─────────────────────────────────────────
+
+    function test_getTracesByVault() public {
+        vm.prank(agent1);
+        registry.publishTrace(vault1, keccak256("1"), "");
+
+        vm.prank(agent2);
+        registry.publishTrace(vault1, keccak256("2"), "");
+
+        vm.prank(agent1);
+        registry.publishTrace(vault2, keccak256("3"), "");
+
+        uint256[] memory vault1Ids = registry.getTracesByVault(vault1);
+        assertEq(vault1Ids.length, 2);
+        assertEq(vault1Ids[0], 1);
+        assertEq(vault1Ids[1], 2);
+
+        uint256[] memory vault2Ids = registry.getTracesByVault(vault2);
+        assertEq(vault2Ids.length, 1);
+        assertEq(vault2Ids[0], 3);
+    }
+
+    // ─── Multiple agents and vaults ──────────────────────────────────
+
+    function test_traceCount() public {
+        assertEq(registry.traceCount(), 0);
+
+        vm.prank(agent1);
+        registry.publishTrace(vault1, keccak256("1"), "");
+        assertEq(registry.traceCount(), 1);
+
+        vm.prank(agent2);
+        registry.publishTrace(vault2, keccak256("2"), "");
+        assertEq(registry.traceCount(), 2);
+    }
+}
+
+contract AssetRegistryTest is Test {
+    AssetRegistry public registry;
+
+    address public owner = address(0x1);
+    address public nonOwner = address(0x2);
+
+    function setUp() public {
+        vm.prank(owner);
+        registry = new AssetRegistry(owner);
+    }
+
+    // ─── Synthetic Assets ────────────────────────────────────────────
+
+    function test_registerSynthetic() public {
+        address token = address(0x100);
+        bytes32 oracleId = keccak256("TSLA/USD");
+        bytes memory metadata = abi.encode("Synthetic TSLA", "sTSLA", 18);
+
+        vm.prank(owner);
+        registry.registerSynthetic(token, oracleId, metadata);
+
+        bytes memory retMeta = registry.getSynthetic(token);
+        assertEq(retMeta, metadata);
+    }
+
+    function test_getAllSynthetics() public {
+        address t1 = address(0x100);
+        address t2 = address(0x101);
+
+        vm.startPrank(owner);
+        registry.registerSynthetic(t1, keccak256("TSLA"), "");
+        registry.registerSynthetic(t2, keccak256("NVDA"), "");
+        vm.stopPrank();
+
+        address[] memory synthetics = registry.getAllSynthetics();
+        assertEq(synthetics.length, 2);
+        assertEq(synthetics[0], t1);
+        assertEq(synthetics[1], t2);
+    }
+
+    function test_revert_registerSynthetic_duplicate() public {
+        address token = address(0x100);
+
+        vm.startPrank(owner);
+        registry.registerSynthetic(token, keccak256("TSLA"), "");
+        vm.expectRevert("Already registered");
+        registry.registerSynthetic(token, keccak256("TSLA"), "");
+        vm.stopPrank();
+    }
+
+    function test_revert_registerSynthetic_non_owner() public {
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        registry.registerSynthetic(address(0x100), keccak256("TSLA"), "");
+    }
+
+    // ─── Bridged Assets ──────────────────────────────────────────────
+
+    function test_registerBridged() public {
+        address token = address(0x200);
+
+        vm.prank(owner);
+        registry.registerBridged(token, 1, address(0x300)); // from Ethereum mainnet
+
+        // Verify it was registered (no revert means success)
+        assertTrue(true);
+    }
+
+    function test_revert_registerBridged_non_owner() public {
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        registry.registerBridged(address(0x200), 1, address(0x300));
+    }
+
+    // ─── Vaults ──────────────────────────────────────────────────────
+
+    function test_registerVault_tier1() public {
+        address vault = address(0x400);
+        bytes memory metadata = abi.encode("Momentum Alpha", "vMOM");
+
+        vm.prank(owner);
+        registry.registerVault(vault, 1, metadata);
+
+        assertEq(registry.vaultCount(), 1);
+    }
+
+    function test_registerVault_tier2() public {
+        address vault = address(0x401);
+
+        vm.prank(owner);
+        registry.registerVault(vault, 2, "");
+
+        assertEq(registry.vaultCount(), 1);
+    }
+
+    function test_revert_registerVault_duplicate() public {
+        address vault = address(0x400);
+
+        vm.startPrank(owner);
+        registry.registerVault(vault, 1, "");
+        vm.expectRevert("Already registered");
+        registry.registerVault(vault, 1, "");
+        vm.stopPrank();
+    }
+
+    // ─── Update Vault Metrics ────────────────────────────────────────
+
+    function test_updateVaultMetrics() public {
+        address vault = address(0x400);
+
+        vm.prank(owner);
+        registry.registerVault(vault, 1, "");
+
+        uint256 newAum = 1_000_000 * 10**6;
+        bytes memory metrics = abi.encode(newAum, 1500, 2.5e18); // AUM, returns, Sharpe
+
+        vm.prank(owner);
+        registry.updateVaultMetrics(vault, metrics);
+    }
+
+    function test_revert_updateVaultMetrics_not_registered() public {
+        bytes memory metrics = abi.encode(uint256(1000));
+
+        vm.prank(owner);
+        vm.expectRevert("Vault not registered");
+        registry.updateVaultMetrics(address(0x999), metrics);
+    }
+
+    // ─── Leaderboard ─────────────────────────────────────────────────
+
+    function test_getLeaderboard_sorted_by_aum() public {
+        address v1 = address(0x400);
+        address v2 = address(0x401);
+        address v3 = address(0x402);
+
+        vm.startPrank(owner);
+        registry.registerVault(v1, 1, "");
+        registry.registerVault(v2, 1, "");
+        registry.registerVault(v3, 2, "");
+
+        // Set AUMs
+        registry.updateVaultMetrics(v1, abi.encode(uint256(1000)));
+        registry.updateVaultMetrics(v2, abi.encode(uint256(3000)));
+        registry.updateVaultMetrics(v3, abi.encode(uint256(2000)));
+        vm.stopPrank();
+
+        // Get all tiers leaderboard
+        address[] memory leaderboard = registry.getLeaderboard(0, 0);
+        assertEq(leaderboard.length, 3);
+        assertEq(leaderboard[0], v2); // AUM 3000
+        assertEq(leaderboard[1], v3); // AUM 2000
+        assertEq(leaderboard[2], v1); // AUM 1000
+    }
+
+    function test_getLeaderboard_filter_by_tier() public {
+        address v1 = address(0x400);
+        address v2 = address(0x401);
+
+        vm.startPrank(owner);
+        registry.registerVault(v1, 1, "");
+        registry.registerVault(v2, 2, "");
+
+        registry.updateVaultMetrics(v1, abi.encode(uint256(5000)));
+        registry.updateVaultMetrics(v2, abi.encode(uint256(1000)));
+        vm.stopPrank();
+
+        // Tier 1 only
+        address[] memory tier1 = registry.getLeaderboard(1, 0);
+        assertEq(tier1.length, 1);
+        assertEq(tier1[0], v1);
+
+        // Tier 2 only
+        address[] memory tier2 = registry.getLeaderboard(2, 0);
+        assertEq(tier2.length, 1);
+        assertEq(tier2[0], v2);
+    }
+
+    function test_getLeaderboard_with_limit() public {
+        address v1 = address(0x400);
+        address v2 = address(0x401);
+        address v3 = address(0x402);
+
+        vm.startPrank(owner);
+        registry.registerVault(v1, 1, "");
+        registry.registerVault(v2, 1, "");
+        registry.registerVault(v3, 1, "");
+
+        registry.updateVaultMetrics(v1, abi.encode(uint256(1000)));
+        registry.updateVaultMetrics(v2, abi.encode(uint256(3000)));
+        registry.updateVaultMetrics(v3, abi.encode(uint256(2000)));
+        vm.stopPrank();
+
+        // Limit to top 2
+        address[] memory top2 = registry.getLeaderboard(0, 2);
+        assertEq(top2.length, 2);
+        assertEq(top2[0], v2); // 3000
+        assertEq(top2[1], v3); // 2000
+    }
+
+    function test_getLeaderboard_empty() public view {
+        address[] memory leaderboard = registry.getLeaderboard(0, 0);
+        assertEq(leaderboard.length, 0);
+    }
+
+    // ─── vaultCount ──────────────────────────────────────────────────
+
+    function test_vaultCount() public {
+        assertEq(registry.vaultCount(), 0);
+
+        vm.prank(owner);
+        registry.registerVault(address(0x400), 1, "");
+        assertEq(registry.vaultCount(), 1);
+
+        vm.prank(owner);
+        registry.registerVault(address(0x401), 2, "");
+        assertEq(registry.vaultCount(), 2);
+    }
+}
