@@ -2,16 +2,21 @@
 
 Implements IOracleUpdater from archimedes/interfaces/chain.py.
 Uses yfinance for equity/ETF prices and CoinGecko for crypto.
+Pushes prices via Circle Developer Controlled Wallets API (the oracle owner
+wallet is a Circle-managed wallet — no raw private key available).
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
+import os
+import uuid
 from datetime import datetime, timezone
 
-from archimedes.chain.client import chain_client
-from archimedes.chain.contracts import ContractLoader, get_contract_loader
+import aiohttp
+
 from archimedes.models.asset import AssetPrice, MarketSnapshot
 
 logger = logging.getLogger(__name__)
@@ -33,13 +38,44 @@ CRYPTO_MAP = {
     "sBTC": "bitcoin",
 }
 
+CIRCLE_API_BASE = "https://api.circle.com/v1/w3s"
+CIRCLE_BLOCKCHAIN = "ARC-TESTNET"
+
+
+def _encrypt_entity_secret(entity_secret_hex: str, public_key_pem: str) -> str:
+    """Encrypt entity secret with Circle's RSA public key (OAEP/SHA-256).
+
+    Circle requires a fresh ciphertext per request to prevent replay attacks.
+    """
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    public_key = serialization.load_pem_public_key(public_key_pem.encode())
+    plaintext = bytes.fromhex(entity_secret_hex)
+    ciphertext = public_key.encrypt(
+        plaintext,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None,
+        ),
+    )
+    return base64.b64encode(ciphertext).decode()
+
 
 class OracleUpdater:
     """Fetches market prices and pushes them to on-chain PriceOracle contracts."""
 
-    def __init__(self, loader: ContractLoader | None = None):
-        self.loader = loader or get_contract_loader()
+    def __init__(self) -> None:
         self._price_cache: dict[str, AssetPrice] = {}
+        self._circle_public_key: str | None = None  # cached per instance lifetime
+
+        # Circle credentials from env
+        self._api_key: str = os.getenv("CIRCLE_API_KEY", "")
+        self._entity_secret: str = os.getenv("CIRCLE_ENTITY_SECRET", "")
+        self._wallet_id: str = os.getenv("WALLET_ID", "")
+
+    # ─── Public API ──────────────────────────────────────────────
 
     async def fetch_prices(self) -> list[AssetPrice]:
         """Fetch current prices for all synthetic assets via yfinance + CoinGecko."""
@@ -55,7 +91,6 @@ class OracleUpdater:
         crypto_prices = await self._fetch_crypto(now)
         prices.extend(crypto_prices)
 
-        # Cache
         for p in prices:
             self._price_cache[p.symbol] = p
 
@@ -63,39 +98,72 @@ class OracleUpdater:
         return prices
 
     async def push_prices_on_chain(self, prices: list[AssetPrice]) -> str | None:
-        """Call PriceOracle.setPrice() for each asset on Arc."""
-        account = chain_client.settings.owner_account
-        if not account:
-            logger.warning("No owner account configured — skipping on-chain price push")
+        """Call PriceOracle.setPrice() for each asset via Circle Wallets API."""
+        if not self._api_key or not self._entity_secret or not self._wallet_id:
+            logger.warning(
+                "Circle credentials not configured "
+                "(CIRCLE_API_KEY / CIRCLE_ENTITY_SECRET / WALLET_ID) — "
+                "skipping on-chain price push"
+            )
             return None
 
-        nonce = await chain_client.w3.eth.get_transaction_count(account.address)
-        tx_hashes: list[str] = []
+        from archimedes.chain.client import chain_client
 
-        for price in prices:
-            try:
-                oracle = self.loader.oracle_for(price.symbol)
-                # Price in USD with 6 decimals (matching PriceOracle.sol convention)
-                price_int = int(price.price_usd * 1e6)
+        oracle_addresses = chain_client.settings.oracle_addresses
+        tx_ids: list[str] = []
 
-                tx = await oracle.functions.setPrice(price_int).build_transaction(
-                    {
-                        "from": account.address,
-                        "nonce": nonce,
-                        "chainId": chain_client.settings.chain_id,
-                        "gas": 100_000,
-                        "gasPrice": await chain_client.w3.eth.gas_price,
+        async with aiohttp.ClientSession() as session:
+            public_key = await self._get_circle_public_key(session)
+            if not public_key:
+                logger.error("Failed to fetch Circle public key — aborting price push")
+                return None
+
+            for price in prices:
+                oracle_addr = oracle_addresses.get(price.symbol)
+                if not oracle_addr:
+                    logger.debug(f"No oracle address for {price.symbol} — skipping")
+                    continue
+
+                try:
+                    ciphertext = _encrypt_entity_secret(self._entity_secret, public_key)
+                    price_int = int(price.price_usd * 1e6)  # 6 decimals, matches PriceOracle.sol
+
+                    payload = {
+                        "idempotencyKey": str(uuid.uuid4()),
+                        "walletId": self._wallet_id,
+                        "contractAddress": oracle_addr,
+                        "abiFunctionSignature": "setPrice(uint256)",
+                        "abiParameters": [str(price_int)],
+                        "fee": {"type": "level", "config": {"feeLevel": "MEDIUM"}},
+                        "blockchain": CIRCLE_BLOCKCHAIN,
+                        "entitySecretCiphertext": ciphertext,
                     }
-                )
-                signed = account.sign_transaction(tx)
-                tx_hash = await chain_client.w3.eth.send_raw_transaction(signed.raw_transaction)
-                tx_hashes.append(tx_hash.hex())
-                nonce += 1
-                logger.info(f"Pushed {price.symbol} price {price.price_usd:.2f} → tx {tx_hash.hex()[:16]}...")
-            except Exception as e:
-                logger.error(f"Failed to push price for {price.symbol}: {e}")
 
-        return tx_hashes[0] if tx_hashes else None
+                    async with session.post(
+                        f"{CIRCLE_API_BASE}/developer/transactions/contractExecution",
+                        json=payload,
+                        headers={
+                            "Authorization": f"Bearer {self._api_key}",
+                            "Content-Type": "application/json",
+                        },
+                    ) as resp:
+                        body = await resp.json()
+                        if resp.status == 201:
+                            tx_id = body["data"]["id"]
+                            tx_ids.append(tx_id)
+                            logger.info(
+                                f"Pushed {price.symbol} "
+                                f"price {price.price_usd:.2f} → Circle tx {tx_id}"
+                            )
+                        else:
+                            logger.error(
+                                f"Circle API error for {price.symbol} "
+                                f"({resp.status}): {body}"
+                            )
+                except Exception:
+                    logger.exception(f"Failed to push price for {price.symbol}")
+
+        return tx_ids[0] if tx_ids else None
 
     async def fetch_market_snapshot(self) -> MarketSnapshot:
         """Fetch a full market snapshot with prices + regime signals."""
@@ -103,7 +171,6 @@ class OracleUpdater:
         price_map = {p.symbol: p.price_usd for p in prices}
         now = datetime.now(timezone.utc)
 
-        # Fetch regime signals
         vix = await self._fetch_yfinance_single("^VIX")
         sp500_data = await asyncio.to_thread(self._fetch_sp500_moving_averages)
 
@@ -120,6 +187,24 @@ class OracleUpdater:
 
     # ─── Private helpers ──────────────────────────────────────────
 
+    async def _get_circle_public_key(self, session: aiohttp.ClientSession) -> str | None:
+        """Fetch Circle's RSA public key (cached per instance)."""
+        if self._circle_public_key:
+            return self._circle_public_key
+        try:
+            async with session.get(
+                f"{CIRCLE_API_BASE}/config/entity/publicKey",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            ) as resp:
+                if resp.status == 200:
+                    body = await resp.json()
+                    self._circle_public_key = body["data"]["publicKey"]
+                    return self._circle_public_key
+                logger.error(f"Failed to fetch Circle public key: {resp.status}")
+        except Exception:
+            logger.exception("Error fetching Circle public key")
+        return None
+
     def _fetch_yfinance(
         self, symbols: dict[str, str], timestamp: datetime
     ) -> list[AssetPrice]:
@@ -135,7 +220,6 @@ class OracleUpdater:
                 try:
                     if data.empty:
                         continue
-                    # Get the latest close price
                     if len(symbols) == 1:
                         price = float(data["Close"].iloc[-1])
                     else:
@@ -165,8 +249,6 @@ class OracleUpdater:
         """Fetch crypto prices from CoinGecko API."""
         results: list[AssetPrice] = []
         try:
-            import aiohttp
-
             async with aiohttp.ClientSession() as session:
                 for symbol, cg_id in CRYPTO_MAP.items():
                     try:
@@ -185,16 +267,17 @@ class OracleUpdater:
                                 )
                     except Exception as e:
                         logger.warning(f"Failed to fetch {symbol} from CoinGecko: {e}")
-        except ImportError:
-            logger.warning("aiohttp not installed — skipping crypto prices")
+        except Exception as e:
+            logger.warning(f"Crypto fetch error: {e}")
         return results
 
     async def _fetch_yfinance_single(self, symbol: str) -> float | None:
         """Fetch a single yfinance price (e.g. VIX)."""
         try:
             import yfinance as yf
-
-            data = await asyncio.to_thread(yf.download, symbol, period="1d", interval="1m", progress=False)
+            data = await asyncio.to_thread(
+                yf.download, symbol, period="1d", interval="1m", progress=False
+            )
             if not data.empty:
                 return float(data["Close"].iloc[-1])
         except Exception as e:
@@ -205,7 +288,6 @@ class OracleUpdater:
         """Fetch S&P 500 50-day and 200-day moving averages."""
         try:
             import yfinance as yf
-            import pandas as pd
 
             spy = yf.Ticker("^GSPC")
             hist = spy.history(period="1y")
