@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from archimedes_backtest.cli import run_command
+from archimedes_analytics_engine.cli import run_command
 
 
 def _fake_fetch(symbol: str, start: str, end: str) -> pd.DataFrame:

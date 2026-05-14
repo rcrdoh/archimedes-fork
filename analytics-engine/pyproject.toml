@@ -1,7 +1,7 @@
 [project]
-name = "archimedes-backtest"
+name = "archimedes-analytics-engine"
 version = "0.1.0"
-description = "Archimedes backtesting MVP using backtrader"
+description = "Archimedes analytics engine (backtesting + strategy passport metrics) using backtrader"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-archimedes-backtest = "archimedes_backtest.cli:main"
+archimedes-analytics-engine = "archimedes_analytics_engine.cli:main"
 
 [dependency-groups]
 dev = [

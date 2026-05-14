@@ -1,6 +1,6 @@
 import pandas as pd
 
-from archimedes_backtest.data import normalize_ohlcv
+from archimedes_analytics_engine.data import normalize_ohlcv
 
 
 def test_normalize_ohlcv_handles_yfinance_multiindex() -> None:

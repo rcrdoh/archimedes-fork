@@ -1,6 +1,6 @@
 import pandas as pd
 
-from archimedes_backtest.engine import BacktestResult, run_buy_and_hold
+from archimedes_analytics_engine.engine import BacktestResult, run_buy_and_hold
 
 
 def _fixture_prices(periods: int = 8) -> pd.DataFrame:

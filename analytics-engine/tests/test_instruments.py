@@ -1,4 +1,4 @@
-from archimedes_backtest.instruments import OPERATION_TO_SYMBOL, resolve_operations
+from archimedes_analytics_engine.instruments import OPERATION_TO_SYMBOL, resolve_operations
 
 
 def test_operations_include_required_assets() -> None:

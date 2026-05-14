@@ -2,7 +2,7 @@ from pathlib import Path
 
 import backtrader as bt
 
-from archimedes_backtest.strategy_loader import load_strategy
+from archimedes_analytics_engine.strategy_loader import load_strategy
 
 
 def test_load_strategy_returns_class(tmp_path: Path) -> None:
