@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archimedes — Momentum Alpha</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo"><div class="logo-mark"><svg viewBox="0 0 16 16" fill="none"><path d="M8 1L14 5v6l-6 4-6-4V5l6-4z" stroke="#09090B" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" stroke="#09090B" stroke-width="1.5"/></svg></div><div><div class="logo-text">Archimedes</div><div class="logo-sub">Portfolio Intelligence</div></div></div></div>
+    <nav>
+      <div class="nav-group"><div class="nav-group-label">Markets</div><a href="01-marketplace.html" class="nav-link active">Explore</a><a href="04-strategy-explorer.html" class="nav-link">Strategies</a><a href="05-swap.html" class="nav-link">Trade</a></div>
+      <div class="nav-group"><div class="nav-group-label">Portfolio</div><a href="03-portfolio-dashboard.html" class="nav-link">Dashboard</a><a href="06-vault-creator.html" class="nav-link">Create Vault</a></div>
+      <div class="nav-group"><div class="nav-group-label">Intelligence</div><a href="08-reasoning-trace.html" class="nav-link">Reasoning</a></div>
+    </nav>
+    <div class="sidebar-footer"><div class="caption" style="display:flex;align-items:center;gap:6px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--positive);"></span>Arc · Block 1,247,892</div></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <a href="01-marketplace.html" class="caption" style="color:var(--text-3);">← Marketplace</a>
+      <div class="flex items-center gap-5">
+        <span class="caption">Regime <strong class="positive">Risk-On</strong></span>
+        <div class="wallet-chip"><span class="dot"></span> 0x1a2B…f3D4</div>
+      </div>
+    </div>
+
+    <div class="page">
+      <!-- Vault Header -->
+      <div class="flex items-center justify-between mb-7 fade-up fade-up-1">
+        <div>
+          <div class="flex items-center gap-4 mb-3">
+            <h1 class="serif" style="font-size:2.2rem;">Momentum Alpha</h1>
+            <span class="tier tier-verified">Verified</span>
+          </div>
+          <p class="body" style="max-width:560px;">AI-managed portfolio constructed from cross-sectional momentum and trend-following strategies extracted from peer-reviewed research. Autonomous rebalancing with on-chain provenance.</p>
+        </div>
+        <div class="flex gap-3">
+          <a href="#" class="btn btn-primary btn-lg">Invest</a>
+          <a href="05-swap.html" class="btn btn-outline">Buy on AMM</a>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="grid g-3 mb-7 fade-up fade-up-2" style="grid-template-columns: repeat(6, 1fr);">
+        <div>
+          <div class="label mb-2">AUM</div>
+          <div class="stat-sm">$524.2K</div>
+          <div class="caption positive mt-4">+$42.1K this week</div>
+        </div>
+        <div>
+          <div class="label mb-2">30-Day Return</div>
+          <div class="stat-sm positive">+12.3%</div>
+          <div class="caption mt-4">vs SPY +4.2%</div>
+        </div>
+        <div>
+          <div class="label mb-2">Sharpe Ratio</div>
+          <div class="stat-sm">1.84</div>
+        </div>
+        <div>
+          <div class="label mb-2">Max Drawdown</div>
+          <div class="stat-sm negative">−8.2%</div>
+          <div class="caption mt-4">Target: −20%</div>
+        </div>
+        <div>
+          <div class="label mb-2">Share Price</div>
+          <div class="stat-sm mono">$10.48</div>
+        </div>
+        <div>
+          <div class="label mb-2">Traces</div>
+          <div class="stat-sm accent">42</div>
+          <div class="caption accent mt-4">On-chain verified</div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active">Overview</div>
+        <div class="tab">Performance</div>
+        <div class="tab">Decisions</div>
+        <div class="tab">Strategies</div>
+        <div class="tab">Chat</div>
+      </div>
+
+      <div class="grid g-2" style="grid-template-columns: 1fr 380px;">
+        <!-- LEFT -->
+        <div class="flex-col gap-5">
+          <!-- Holdings -->
+          <div class="card fade-up fade-up-3">
+            <div class="flex items-center justify-between mb-5">
+              <div class="label">Current Holdings</div>
+              <span class="caption">Rebalanced 3 min ago</span>
+            </div>
+            <div class="alloc-bar mb-5" style="height:6px;border-radius:3px;">
+              <div class="seg" style="width:28%;background:#3B82F6;border-radius:3px 0 0 3px;"></div>
+              <div class="seg" style="width:25%;background:#6366F1;"></div>
+              <div class="seg" style="width:12%;background:#D4A853;"></div>
+              <div class="seg" style="width:5%;background:#F97316;"></div>
+              <div class="seg" style="width:30%;background:#22C55E;border-radius:0 3px 3px 0;"></div>
+            </div>
+            <div class="flex-col">
+              <div class="flex items-center justify-between" style="padding:10px 0;border-bottom:1px solid var(--glass-border);">
+                <div class="flex items-center gap-3"><span style="width:10px;height:10px;border-radius:2px;background:#3B82F6;"></span><span style="font-weight:500;">sTSLA</span></div>
+                <div class="flex items-center gap-5"><span class="caption">28%</span><span style="font-weight:600;">$146,776</span></div>
+              </div>
+              <div class="flex items-center justify-between" style="padding:10px 0;border-bottom:1px solid var(--glass-border);">
+                <div class="flex items-center gap-3"><span style="width:10px;height:10px;border-radius:2px;background:#6366F1;"></span><span style="font-weight:500;">sSPY</span></div>
+                <div class="flex items-center gap-5"><span class="caption">25%</span><span style="font-weight:600;">$131,050</span></div>
+              </div>
+              <div class="flex items-center justify-between" style="padding:10px 0;border-bottom:1px solid var(--glass-border);">
+                <div class="flex items-center gap-3"><span style="width:10px;height:10px;border-radius:2px;background:#D4A853;"></span><span style="font-weight:500;">sGLD</span></div>
+                <div class="flex items-center gap-5"><span class="caption">12%</span><span style="font-weight:600;">$62,904</span></div>
+              </div>
+              <div class="flex items-center justify-between" style="padding:10px 0;border-bottom:1px solid var(--glass-border);">
+                <div class="flex items-center gap-3"><span style="width:10px;height:10px;border-radius:2px;background:#F97316;"></span><span style="font-weight:500;">sBTC</span></div>
+                <div class="flex items-center gap-5"><span class="caption">5%</span><span style="font-weight:600;">$26,210</span></div>
+              </div>
+              <div class="flex items-center justify-between" style="padding:10px 0;">
+                <div class="flex items-center gap-3"><span style="width:10px;height:10px;border-radius:2px;background:#22C55E;"></span><span style="font-weight:500;">USYC</span></div>
+                <div class="flex items-center gap-5"><span class="caption">30%</span><span style="font-weight:600;">$157,260</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Performance Chart -->
+          <div class="card fade-up fade-up-4">
+            <div class="flex items-center justify-between mb-5">
+              <div class="label">NAV Performance</div>
+              <div class="flex gap-2">
+                <span class="tag tag-muted" style="cursor:pointer;">1W</span>
+                <span class="tag tag-accent" style="cursor:pointer;">1M</span>
+                <span class="tag tag-muted" style="cursor:pointer;">3M</span>
+                <span class="tag tag-muted" style="cursor:pointer;">All</span>
+              </div>
+            </div>
+            <div style="height:200px;background:var(--surface-2);border-radius:var(--radius-sm);overflow:hidden;position:relative;">
+              <svg width="100%" height="100%" viewBox="0 0 600 200" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#D4A853" stop-opacity="0.15"/>
+                    <stop offset="100%" stop-color="#D4A853" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <line x1="0" y1="50" x2="600" y2="50" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
+                <line x1="0" y1="100" x2="600" y2="100" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
+                <line x1="0" y1="150" x2="600" y2="150" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
+                <path d="M0,170 C40,168 80,160 120,150 S200,130 240,118 S320,100 360,88 S440,70 480,60 S560,42 600,32" stroke="var(--accent)" fill="none" stroke-width="1.5"/>
+                <path d="M0,170 C40,168 80,160 120,150 S200,130 240,118 S320,100 360,88 S440,70 480,60 S560,42 600,32 V200 H0 Z" fill="url(#navGrad)"/>
+                <path d="M0,170 C50,169 100,167 150,165 S250,162 300,158 S400,150 450,146 S550,140 600,136" stroke="var(--text-4)" fill="none" stroke-width="1" stroke-dasharray="3"/>
+              </svg>
+              <div style="position:absolute;bottom:10px;right:14px;display:flex;gap:16px;">
+                <span class="caption flex items-center gap-2"><span style="width:12px;height:1.5px;background:var(--accent);border-radius:1px;"></span>NAV</span>
+                <span class="caption flex items-center gap-2"><span style="width:12px;height:1px;background:var(--text-4);border-style:dashed;"></span>SPY</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Vault Details -->
+          <div class="card fade-up fade-up-5">
+            <div class="label mb-5">Vault Details</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;">
+              <div class="caption">Risk Profile</div><div style="font-weight:500;font-size:0.88rem;">Moderate</div>
+              <div class="caption">Target Volatility</div><div style="font-weight:500;font-size:0.88rem;">10–15%</div>
+              <div class="caption">USYC Floor</div><div style="font-weight:500;font-size:0.88rem;">20%</div>
+              <div class="caption">Management Fee</div><div style="font-weight:500;font-size:0.88rem;">1.50% annual</div>
+              <div class="caption">Performance Fee</div><div style="font-weight:500;font-size:0.88rem;">20% above HWM</div>
+              <div class="caption">Active Strategies</div><div style="font-weight:500;font-size:0.88rem;">4 of 5</div>
+              <div class="caption">Contract</div><div class="mono" style="font-size:0.82rem;color:var(--info);">0x7a3F…b2C1</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT -->
+        <div class="flex-col gap-5">
+          <!-- Invest Panel -->
+          <div class="card-elevated fade-up fade-up-2" style="border-color:rgba(212,168,83,0.15);">
+            <div class="label mb-5">Invest</div>
+            <div class="field">
+              <label>Deposit USDC</label>
+              <div style="position:relative;">
+                <input type="text" value="1,000.00" style="font-size:1.2rem;font-weight:600;padding-right:70px;">
+                <span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--text-4);font-size:0.82rem;font-weight:500;">USDC</span>
+              </div>
+            </div>
+            <div class="card-flat" style="padding:14px;margin-bottom:20px;">
+              <div class="flex justify-between caption mb-2"><span>You receive</span><span style="color:var(--text-1);font-weight:600;">≈ 95.42 vMOMENTUM</span></div>
+              <div class="flex justify-between caption mb-2"><span>Share price</span><span>$10.48</span></div>
+              <div class="flex justify-between caption"><span>Gas</span><span class="positive">~$0.01 Paymaster</span></div>
+            </div>
+            <button class="btn btn-primary w-full btn-lg">Deposit</button>
+            <div class="caption text-center mt-4">Non-custodial · Withdraw anytime</div>
+          </div>
+
+          <!-- Agent Decisions -->
+          <div class="card fade-up fade-up-3">
+            <div class="flex items-center justify-between mb-5">
+              <div class="label">Agent Decisions</div>
+              <a href="08-reasoning-trace.html" class="caption accent">All →</a>
+            </div>
+            <div class="timeline">
+              <div class="tl-item active">
+                <div class="flex justify-between mb-2"><span class="tag tag-positive">Rebalance</span><span class="caption">3m</span></div>
+                <div class="body" style="font-size:0.82rem;">sTSLA 33% → 28%, USYC 25% → 30%. Drift exceeded threshold.</div>
+                <a href="08-reasoning-trace.html" class="caption accent mt-4" style="display:inline-block;">Trace #247 →</a>
+              </div>
+              <div class="tl-item">
+                <div class="flex justify-between mb-2"><span class="tag tag-muted">Regime</span><span class="caption">1h</span></div>
+                <div class="body" style="font-size:0.82rem;">Risk-On confirmed. No action.</div>
+              </div>
+              <div class="tl-item">
+                <div class="flex justify-between mb-2"><span class="tag tag-accent">Rotation</span><span class="caption">6h</span></div>
+                <div class="body" style="font-size:0.82rem;">Out: Small Cap Mean Reversion. In: Cross-Sectional Momentum.</div>
+              </div>
+              <div class="tl-item">
+                <div class="flex justify-between mb-2"><span class="tag tag-muted">Skipped</span><span class="caption">12h</span></div>
+                <div class="body" style="font-size:0.82rem;">Calendar rebalance — cost > benefit. No action.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat -->
+          <div class="card fade-up fade-up-4" style="padding:0;overflow:hidden;">
+            <div class="flex items-center justify-between" style="padding:16px 20px;border-bottom:1px solid var(--glass-border);">
+              <div class="label" style="margin:0;">Vault Chat</div>
+              <span class="caption">12 online</span>
+            </div>
+            <div class="chat-panel" style="border:none;border-radius:0;height:320px;">
+              <div class="chat-messages">
+                <div class="msg">
+                  <div class="msg-avatar ai">A</div>
+                  <div class="msg-body">
+                    <div class="sender ai-name">Archimedes</div>
+                    <div>Rebalanced: sTSLA 33% → 28%, USYC 25% → 30%. Trigger: drift 6.2% > 5.0%. Cost-benefit: +$294 net. <a class="accent" href="08-reasoning-trace.html">Trace #247</a></div>
+                    <div class="ts">10:32 AM</div>
+                  </div>
+                </div>
+                <div class="msg">
+                  <div class="msg-avatar">4e</div>
+                  <div class="msg-body">
+                    <div class="sender">0x4e8A…c2F1</div>
+                    <div>@archimedes why reduce TSLA? Earnings next week and momentum looks strong</div>
+                    <div class="ts">10:35 AM</div>
+                  </div>
+                </div>
+                <div class="msg">
+                  <div class="msg-avatar ai">A</div>
+                  <div class="msg-body">
+                    <div class="sender ai-name">Archimedes</div>
+                    <div>This is a drift correction, not a directional call. sTSLA appreciated 8.3% in 5 days → overweight to 33%. Pre-earnings, tighter sizing limits event risk. Post-earnings, if momentum strengthens, may re-increase. Confidence: 0.78.</div>
+                    <div class="ts">10:35 AM</div>
+                  </div>
+                </div>
+              </div>
+              <div class="chat-input">
+                <input type="text" placeholder="Ask @archimedes or message the community…">
+                <button class="btn btn-primary btn-sm">Send</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

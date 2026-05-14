@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archimedes — Reasoning Trace #247</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo"><div class="logo-mark"><svg viewBox="0 0 16 16" fill="none"><path d="M8 1L14 5v6l-6 4-6-4V5l6-4z" stroke="#09090B" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" stroke="#09090B" stroke-width="1.5"/></svg></div><div><div class="logo-text">Archimedes</div><div class="logo-sub">Portfolio Intelligence</div></div></div></div>
+    <nav>
+      <div class="nav-group"><div class="nav-group-label">Markets</div><a href="01-marketplace.html" class="nav-link">Explore</a><a href="04-strategy-explorer.html" class="nav-link">Strategies</a><a href="05-swap.html" class="nav-link">Trade</a></div>
+      <div class="nav-group"><div class="nav-group-label">Portfolio</div><a href="03-portfolio-dashboard.html" class="nav-link">Dashboard</a><a href="06-vault-creator.html" class="nav-link">Create Vault</a></div>
+      <div class="nav-group"><div class="nav-group-label">Intelligence</div><a href="08-reasoning-trace.html" class="nav-link active">Reasoning</a></div>
+    </nav>
+    <div class="sidebar-footer"><div class="caption" style="display:flex;align-items:center;gap:6px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--positive);"></span>Arc · Block 1,247,892</div></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <a href="02-vault-detail.html" class="caption" style="color:var(--text-3);">← Momentum Alpha</a>
+      <div class="wallet-chip"><span class="dot"></span> 0x1a2B…f3D4</div>
+    </div>
+
+    <div class="page">
+      <!-- Header -->
+      <div class="mb-6 fade-up fade-up-1">
+        <div class="flex items-center gap-4 mb-3">
+          <h2 class="serif" style="font-size:2rem;">Trace #247</h2>
+          <span class="tag tag-positive">Rebalance</span>
+          <span class="tag tag-accent">Verified</span>
+        </div>
+        <div class="flex items-center gap-5 caption">
+          <span>Momentum Alpha</span>
+          <span>May 13, 2026 · 10:32 AM UTC</span>
+          <span>Confidence: <strong class="positive">0.78</strong></span>
+        </div>
+      </div>
+
+      <!-- VERIFICATION PANEL -->
+      <div class="verify-panel mb-7 fade-up fade-up-2">
+        <div class="flex items-center justify-between mb-5">
+          <div class="verify-badge" style="font-size:1rem;">
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            On-Chain Verification Passed
+          </div>
+          <a href="#" class="btn btn-outline btn-sm" style="color:var(--positive);border-color:rgba(34,197,94,0.2);">View on Arc Explorer</a>
+        </div>
+        <div class="grid g-2" style="gap:12px;">
+          <div class="card-flat" style="padding:14px;background:rgba(34,197,94,0.03);">
+            <div class="caption mb-2">Content Hash (keccak256)</div>
+            <div class="mono" style="font-size:0.78rem;color:var(--positive);word-break:break-all;line-height:1.6;">0x8a4f2e7b3c1d9e6f5a2b8c0d4e7f1a3b5c9d2e6f8a0b4c7d1e3f5a9b2c6d8e</div>
+          </div>
+          <div class="card-flat" style="padding:14px;background:rgba(34,197,94,0.03);">
+            <div class="caption mb-2">On-Chain Anchor (Arc Tx)</div>
+            <div class="mono" style="font-size:0.78rem;word-break:break-all;line-height:1.6;"><a href="#" style="color:var(--info);">0x9b2c4e7f1a3d5b8c0e2f6a4d7b9c1e3f5a8b0d2c6e4f7a1b3d5c9e2f8a0b4d</a></div>
+          </div>
+          <div class="card-flat" style="padding:14px;background:rgba(34,197,94,0.03);">
+            <div class="caption mb-2">Recomputed Hash (in-browser)</div>
+            <div class="mono" style="font-size:0.78rem;color:var(--positive);word-break:break-all;line-height:1.6;">0x8a4f2e7b3c1d9e6f5a2b8c0d4e7f1a3b5c9d2e6f8a0b4c7d1e3f5a9b2c6d8e</div>
+          </div>
+          <div class="card-flat" style="padding:14px;background:rgba(34,197,94,0.03);">
+            <div class="caption mb-2">Result</div>
+            <div class="positive" style="font-weight:700;">Hash Match — Authentic & Unmodified</div>
+            <div class="caption mt-4">Block #1,247,841 · 3 min ago · Gas: $0.01</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid g-2" style="grid-template-columns:1fr 380px;">
+        <!-- LEFT -->
+        <div class="flex-col gap-5">
+          <!-- Context -->
+          <div class="card fade-up fade-up-3">
+            <div class="label mb-5">Decision Context</div>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 20px;">
+              <span class="caption">Type</span><span class="tag tag-positive" style="width:fit-content;">Rebalance</span>
+              <span class="caption">Trigger</span><span style="font-weight:500;font-size:0.88rem;">Drift exceeded (6.2% > 5.0%)</span>
+              <span class="caption">Regime</span><span class="positive" style="font-weight:600;font-size:0.88rem;">Risk-On</span>
+              <span class="caption">VIX</span><span style="font-size:0.88rem;">14.2</span>
+              <span class="caption">S&P 500</span><span class="positive" style="font-size:0.88rem;">Above 50/200 MA</span>
+              <span class="caption">Credit</span><span class="positive" style="font-size:0.88rem;">Tight (1.12%)</span>
+              <span class="caption">BTC Dom.</span><span style="font-size:0.88rem;">54.2%</span>
+              <span class="caption">USYC</span><span style="font-size:0.88rem;">4.82% APY</span>
+            </div>
+          </div>
+
+          <!-- Reasoning -->
+          <div class="card fade-up fade-up-4">
+            <div class="label mb-5">Agent Reasoning</div>
+            <div class="card-flat" style="padding:24px;line-height:1.85;font-size:0.9rem;color:var(--text-2);">
+              <p style="margin-bottom:14px;">
+                <strong style="color:var(--text-1);">Trigger.</strong> sTSLA position grew from target 28% to 33.2% — an 8.3% price appreciation over 5 days. Exceeds the 5% drift threshold.
+              </p>
+              <p style="margin-bottom:14px;">
+                <strong style="color:var(--text-1);">Regime.</strong> Confirmed Risk-On: VIX 14.2, S&P above both MAs, credit spreads tight at 1.12%, cross-asset correlation normal (0.34). No regime change.
+              </p>
+              <p style="margin-bottom:14px;">
+                <strong style="color:var(--text-1);">Cost-benefit.</strong> Selling ~$27,200 sTSLA → USYC. Transaction cost: $18.40 (AMM fee + slippage). Expected risk reduction: volatility from 13.8% to 12.4%. Risk-adjusted benefit: $312 over 30d. Ratio: 17x (well above 2x minimum).
+              </p>
+              <p style="margin-bottom:14px;">
+                <strong style="color:var(--text-1);">Earnings note.</strong> TSLA earnings next week. Pre-earnings, tighter sizing limits event risk. Not exiting — rebalancing to target. Post-earnings, momentum may warrant re-increase.
+              </p>
+              <p>
+                <strong style="color:var(--text-1);">Action.</strong> Sell $27,200 sTSLA → Buy $27,200 USYC. Allocation: sTSLA 33.2% → 28%, USYC 25% → 30%.
+              </p>
+            </div>
+          </div>
+
+          <!-- Strategies -->
+          <div class="card fade-up fade-up-5">
+            <div class="label mb-5">Strategies Consulted</div>
+            <div class="flex-col gap-3">
+              <div class="card-flat flex items-center justify-between" style="padding:12px 16px;">
+                <div><div style="font-weight:600;font-size:0.85rem;">Cross-Sectional Momentum</div><div class="caption">Jegadeesh & Titman (1993)</div></div>
+                <span style="font-weight:600;">28%</span>
+              </div>
+              <div class="card-flat flex items-center justify-between" style="padding:12px 16px;">
+                <div><div style="font-weight:600;font-size:0.85rem;">Risk Parity</div><div class="caption">Asness, Frazzini & Pedersen (2012)</div></div>
+                <span style="font-weight:600;">25%</span>
+              </div>
+              <div class="card-flat flex items-center justify-between" style="padding:12px 16px;">
+                <div><div style="font-weight:600;font-size:0.85rem;">Trend Following CTA</div><div class="caption">Moskowitz, Ooi & Pedersen (2012)</div></div>
+                <span style="font-weight:600;">17%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT -->
+        <div class="flex-col gap-5">
+          <!-- Action -->
+          <div class="card fade-up fade-up-3">
+            <div class="label mb-5">Action Taken</div>
+            <div class="card-flat mb-4" style="padding:14px;">
+              <div class="label mb-3">Trades</div>
+              <div class="flex items-center justify-between" style="padding:8px 0;border-bottom:1px solid var(--glass-border);">
+                <div class="flex items-center gap-3"><span class="negative" style="font-weight:700;font-size:0.78rem;">SELL</span><span style="font-weight:600;">sTSLA</span></div>
+                <div class="text-right"><div style="font-weight:600;">94.62</div><div class="caption">≈ $27,200</div></div>
+              </div>
+              <div class="flex items-center justify-between" style="padding:8px 0;">
+                <div class="flex items-center gap-3"><span class="positive" style="font-weight:700;font-size:0.78rem;">BUY</span><span style="font-weight:600;">USYC</span></div>
+                <div class="text-right"><div style="font-weight:600;">27,167.40</div><div class="caption">≈ $27,200</div></div>
+              </div>
+            </div>
+            <div class="grid g-2" style="gap:8px;">
+              <div class="card-flat" style="padding:10px 14px;"><div class="caption">Cost</div><div style="font-weight:700;">$18.40</div></div>
+              <div class="card-flat" style="padding:10px 14px;"><div class="caption">Benefit</div><div class="positive" style="font-weight:700;">$312</div></div>
+              <div class="card-flat" style="padding:10px 14px;"><div class="caption">Vault Tx</div><div class="mono" style="font-size:0.75rem;color:var(--info);">0x3f1a…8b2c</div></div>
+              <div class="card-flat" style="padding:10px 14px;"><div class="caption">Gas</div><div class="positive" style="font-weight:700;">$0.01</div></div>
+            </div>
+          </div>
+
+          <!-- Before/After -->
+          <div class="card fade-up fade-up-4">
+            <div class="label mb-4">Before → After</div>
+            <table style="width:100%;">
+              <thead>
+                <tr><th>Asset</th><th class="text-right">Before</th><th class="text-right">After</th><th class="text-right">Δ</th></tr>
+              </thead>
+              <tbody>
+                <tr><td style="font-weight:500;">sTSLA</td><td class="text-right">33.2%</td><td class="text-right" style="font-weight:600;">28.0%</td><td class="text-right negative" style="font-weight:600;">−5.2%</td></tr>
+                <tr><td style="font-weight:500;">sSPY</td><td class="text-right">25.0%</td><td class="text-right" style="font-weight:600;">25.0%</td><td class="text-right caption">—</td></tr>
+                <tr><td style="font-weight:500;">sGLD</td><td class="text-right">12.0%</td><td class="text-right" style="font-weight:600;">12.0%</td><td class="text-right caption">—</td></tr>
+                <tr><td style="font-weight:500;">sBTC</td><td class="text-right">5.0%</td><td class="text-right" style="font-weight:600;">5.0%</td><td class="text-right caption">—</td></tr>
+                <tr style="background:rgba(34,197,94,0.03);"><td style="font-weight:500;">USYC</td><td class="text-right">24.8%</td><td class="text-right positive" style="font-weight:600;">30.0%</td><td class="text-right positive" style="font-weight:600;">+5.2%</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Tool Calls -->
+          <div class="card fade-up fade-up-5">
+            <div class="flex items-center justify-between mb-4">
+              <div class="label">Tool Call Provenance</div>
+              <span class="caption">6 calls · 842ms</span>
+            </div>
+            <div class="flex-col gap-2">
+              <div class="card-flat flex items-center justify-between" style="padding:8px 12px;">
+                <div class="flex items-center gap-3"><span class="tag tag-muted" style="font-size:0.6rem;padding:2px 6px;">GET</span><span style="font-size:0.82rem;font-weight:500;">market_data.vix</span></div>
+                <div class="flex items-center gap-3"><span class="caption">→ 14.2</span><span class="caption">48ms</span></div>
+              </div>
+              <div class="card-flat flex items-center justify-between" style="padding:8px 12px;">
+                <div class="flex items-center gap-3"><span class="tag tag-muted" style="font-size:0.6rem;padding:2px 6px;">GET</span><span style="font-size:0.82rem;font-weight:500;">market_data.sp500_ma</span></div>
+                <div class="flex items-center gap-3"><span class="caption">→ above_both</span><span class="caption">52ms</span></div>
+              </div>
+              <div class="card-flat flex items-center justify-between" style="padding:8px 12px;">
+                <div class="flex items-center gap-3"><span class="tag tag-muted" style="font-size:0.6rem;padding:2px 6px;">GET</span><span style="font-size:0.82rem;font-weight:500;">portfolio.get_drift</span></div>
+                <div class="flex items-center gap-3"><span class="caption">→ sTSLA 6.2%</span><span class="caption">12ms</span></div>
+              </div>
+              <div class="card-flat flex items-center justify-between" style="padding:8px 12px;">
+                <div class="flex items-center gap-3"><span class="tag tag-muted" style="font-size:0.6rem;padding:2px 6px;">GET</span><span style="font-size:0.82rem;font-weight:500;">usyc.yield</span></div>
+                <div class="flex items-center gap-3"><span class="caption">→ 4.82%</span><span class="caption">38ms</span></div>
+              </div>
+              <div class="card-flat flex items-center justify-between" style="padding:8px 12px;">
+                <div class="flex items-center gap-3"><span class="tag tag-accent" style="font-size:0.6rem;padding:2px 6px;">CALC</span><span style="font-size:0.82rem;font-weight:500;">optimizer.cost_benefit</span></div>
+                <div class="flex items-center gap-3"><span class="caption">→ +$294</span><span class="caption">145ms</span></div>
+              </div>
+              <div class="card-flat flex items-center justify-between" style="padding:8px 12px;">
+                <div class="flex items-center gap-3"><span class="tag tag-positive" style="font-size:0.6rem;padding:2px 6px;">EXEC</span><span style="font-size:0.82rem;font-weight:500;">vault.rebalance</span></div>
+                <div class="flex items-center gap-3"><span class="positive caption">success</span><span class="caption">547ms</span></div>
+              </div>
+            </div>
+            <div class="caption mt-4">All inputs/outputs hashed into content hash. Each tool call independently verifiable.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nav -->
+      <div class="flex justify-between mt-7">
+        <a href="#" class="btn btn-ghost">← Trace #246</a>
+        <a href="#" class="btn btn-outline btn-sm accent">Download Trace JSON</a>
+        <a href="#" class="btn btn-ghost">Trace #248 →</a>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

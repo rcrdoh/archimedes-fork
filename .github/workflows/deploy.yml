@@ -1,0 +1,64 @@
+# Archimedes — Deploy to EC2 on merge to main
+#
+# Required GitHub Secrets (Settings → Secrets → Actions):
+#   EC2_HOST          — Public IP or DNS of the EC2 instance
+#   SSH_PRIVATE_KEY   — Contents of the deploy SSH private key (infra/archimedes-deploy-key.pem)
+#
+# The workflow SSHes into the instance, pulls the latest main, and
+# rebuilds/restarts all Docker services.
+
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+# Only one deploy at a time — cancel in-flight deploys if a new push lands
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -euxo pipefail
+
+            cd /opt/archimedes
+
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Rebuild and restart services (detached)
+            docker compose up --build -d --remove-orphans
+
+            # Prune old images to save disk
+            docker image prune -f
+
+            # Verify services are healthy
+            sleep 10
+            curl -sf http://localhost:8000/health || {
+              echo "❌ Backend health check failed"
+              docker compose logs --tail=50 backend
+              exit 1
+            }
+            curl -sf http://localhost/ | grep -q 'Archimedes' || {
+              echo "❌ Homepage check failed"
+              docker compose logs --tail=50 nginx
+              exit 1
+            }
+
+            echo "✅ Deploy complete"

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archimedes — Portfolio</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo"><div class="logo-mark"><svg viewBox="0 0 16 16" fill="none"><path d="M8 1L14 5v6l-6 4-6-4V5l6-4z" stroke="#09090B" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" stroke="#09090B" stroke-width="1.5"/></svg></div><div><div class="logo-text">Archimedes</div><div class="logo-sub">Portfolio Intelligence</div></div></div></div>
+    <nav>
+      <div class="nav-group"><div class="nav-group-label">Markets</div><a href="01-marketplace.html" class="nav-link">Explore</a><a href="04-strategy-explorer.html" class="nav-link">Strategies</a><a href="05-swap.html" class="nav-link">Trade</a></div>
+      <div class="nav-group"><div class="nav-group-label">Portfolio</div><a href="03-portfolio-dashboard.html" class="nav-link active">Dashboard</a><a href="06-vault-creator.html" class="nav-link">Create Vault</a></div>
+      <div class="nav-group"><div class="nav-group-label">Intelligence</div><a href="08-reasoning-trace.html" class="nav-link">Reasoning</a></div>
+    </nav>
+    <div class="sidebar-footer"><div class="caption" style="display:flex;align-items:center;gap:6px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--positive);"></span>Arc · Block 1,247,892</div></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="label">My Portfolio</span>
+      <div class="flex items-center gap-5">
+        <div class="wallet-chip"><span class="dot"></span> 0x1a2B…f3D4</div>
+      </div>
+    </div>
+
+    <div class="page">
+      <!-- Hero Value -->
+      <div class="mb-7 fade-up fade-up-1" style="padding:var(--space-7) 0 var(--space-6);border-bottom:1px solid var(--glass-border);">
+        <div class="label mb-3">Total Portfolio Value</div>
+        <div style="font-family:var(--sans);font-size:3.5rem;font-weight:700;letter-spacing:-0.04em;line-height:1;">$12,842.60</div>
+        <div class="flex items-center gap-4 mt-4">
+          <span class="positive" style="font-size:1.05rem;font-weight:600;">+$1,342.60 (+11.7%)</span>
+          <span class="caption">since May 13</span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="grid g-4 mb-7 fade-up fade-up-2">
+        <div>
+          <div class="label mb-2">Vault Positions</div>
+          <div class="stat-sm">3</div>
+          <div class="caption mt-4">Across 3 vaults</div>
+        </div>
+        <div>
+          <div class="label mb-2">Unallocated</div>
+          <div class="stat-sm mono">$1,240</div>
+          <div class="caption mt-4">USDC ready to invest</div>
+        </div>
+        <div>
+          <div class="label mb-2">Yield Earned</div>
+          <div class="stat-sm" style="color:var(--positive);">$48.20</div>
+          <div class="caption mt-4">USYC · 4.82% APY</div>
+        </div>
+        <div>
+          <div class="label mb-2">LP Fees</div>
+          <div class="stat-sm" style="color:var(--positive);">$12.40</div>
+          <div class="caption mt-4">From 2 pools</div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="card mb-7 fade-up fade-up-3">
+        <div class="flex items-center justify-between mb-5">
+          <div class="label">Portfolio Value</div>
+          <div class="flex gap-2">
+            <span class="tag tag-muted" style="cursor:pointer;">1D</span>
+            <span class="tag tag-muted" style="cursor:pointer;">1W</span>
+            <span class="tag tag-accent" style="cursor:pointer;">1M</span>
+            <span class="tag tag-muted" style="cursor:pointer;">All</span>
+          </div>
+        </div>
+        <div style="height:220px;background:var(--surface-2);border-radius:var(--radius-sm);overflow:hidden;">
+          <svg width="100%" height="100%" viewBox="0 0 800 220" preserveAspectRatio="none">
+            <defs><linearGradient id="pGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#D4A853" stop-opacity="0.15"/><stop offset="100%" stop-color="#D4A853" stop-opacity="0"/></linearGradient></defs>
+            <line x1="0" y1="55" x2="800" y2="55" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
+            <line x1="0" y1="110" x2="800" y2="110" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
+            <line x1="0" y1="165" x2="800" y2="165" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
+            <path d="M0,190 C50,188 100,182 150,175 S250,160 300,150 S400,130 450,118 S550,95 600,80 S700,55 800,40" stroke="var(--accent)" fill="none" stroke-width="1.5"/>
+            <path d="M0,190 C50,188 100,182 150,175 S250,160 300,150 S400,130 450,118 S550,95 600,80 S700,55 800,40 V220 H0 Z" fill="url(#pGrad)"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Holdings -->
+      <div class="fade-up fade-up-4">
+        <div class="label mb-5">Holdings</div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Type</th>
+                <th class="text-right">Balance</th>
+                <th class="text-right">Value</th>
+                <th class="text-right">Weight</th>
+                <th class="text-right">PnL</th>
+                <th class="text-right">24h</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="pointer" onclick="window.location='02-vault-detail.html'">
+                <td>
+                  <div style="font-weight:600;">Momentum Alpha</div>
+                  <div class="mono caption">vMOMENTUM</div>
+                </td>
+                <td><span class="tier tier-verified">Verified</span></td>
+                <td class="text-right mono">476.23</td>
+                <td class="text-right" style="font-weight:600;">$4,990.84</td>
+                <td class="text-right">38.9%</td>
+                <td class="text-right positive" style="font-weight:600;">+$490.84</td>
+                <td class="text-right positive">+1.8%</td>
+              </tr>
+              <tr class="pointer">
+                <td>
+                  <div style="font-weight:600;">Yield Optimizer</div>
+                  <div class="mono caption">vYIELD</div>
+                </td>
+                <td><span class="tier tier-verified">Verified</span></td>
+                <td class="text-right mono">290.15</td>
+                <td class="text-right" style="font-weight:600;">$3,201.46</td>
+                <td class="text-right">24.9%</td>
+                <td class="text-right positive" style="font-weight:600;">+$201.46</td>
+                <td class="text-right positive">+0.4%</td>
+              </tr>
+              <tr class="pointer">
+                <td>
+                  <div style="font-weight:600;">DeFi Degen</div>
+                  <div class="mono caption">vDEGEN</div>
+                </td>
+                <td><span class="tier tier-community">Community</span></td>
+                <td class="text-right mono">122.80</td>
+                <td class="text-right" style="font-weight:600;">$2,170.30</td>
+                <td class="text-right">16.9%</td>
+                <td class="text-right positive" style="font-weight:600;">+$370.30</td>
+                <td class="text-right negative">−2.1%</td>
+              </tr>
+              <tr>
+                <td>
+                  <div style="font-weight:600;">USDC</div>
+                  <div class="caption">Unallocated</div>
+                </td>
+                <td><span class="tag tag-muted">Stable</span></td>
+                <td class="text-right mono">1,240.00</td>
+                <td class="text-right" style="font-weight:600;">$1,240.00</td>
+                <td class="text-right">9.7%</td>
+                <td class="text-right caption">—</td>
+                <td class="text-right caption">—</td>
+              </tr>
+              <tr>
+                <td>
+                  <div style="font-weight:600;">USYC</div>
+                  <div class="caption">Circle Yield</div>
+                </td>
+                <td><span class="tag tag-positive">Yield</span></td>
+                <td class="text-right mono">1,238.40</td>
+                <td class="text-right" style="font-weight:600;">$1,240.00</td>
+                <td class="text-right">9.7%</td>
+                <td class="text-right positive" style="font-weight:600;">+$48.20</td>
+                <td class="text-right positive">+0.01%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Activity -->
+      <div class="mt-6 fade-up fade-up-5">
+        <div class="label mb-5">Recent Activity</div>
+        <div class="flex-col gap-3">
+          <div class="card-flat flex items-center justify-between" style="padding:14px 20px;">
+            <div><div style="font-weight:500;font-size:0.88rem;">Deposited 1,000 USDC → vMOMENTUM</div><div class="caption">Received 95.42 vMOMENTUM</div></div>
+            <div class="text-right"><div style="font-weight:600;">$1,000</div><div class="caption">2h ago</div></div>
+          </div>
+          <div class="card-flat flex items-center justify-between" style="padding:14px 20px;">
+            <div><div style="font-weight:500;font-size:0.88rem;">Swapped 500 USDC → USYC</div><div class="caption">Via AMM · 0.3% fee</div></div>
+            <div class="text-right"><div style="font-weight:600;">499.25 USYC</div><div class="caption">5h ago</div></div>
+          </div>
+          <div class="card-flat flex items-center justify-between" style="padding:14px 20px;">
+            <div><div style="font-weight:500;font-size:0.88rem;">Added liquidity — USDC/sBTC pool</div><div class="caption">500 USDC + 0.0074 sBTC · Earned $3.20</div></div>
+            <div class="text-right"><div style="font-weight:600;">$1,000</div><div class="caption">1d ago</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

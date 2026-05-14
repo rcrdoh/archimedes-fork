@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archimedes — Create Vault</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo"><div class="logo-mark"><svg viewBox="0 0 16 16" fill="none"><path d="M8 1L14 5v6l-6 4-6-4V5l6-4z" stroke="#09090B" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" stroke="#09090B" stroke-width="1.5"/></svg></div><div><div class="logo-text">Archimedes</div><div class="logo-sub">Portfolio Intelligence</div></div></div></div>
+    <nav>
+      <div class="nav-group"><div class="nav-group-label">Markets</div><a href="01-marketplace.html" class="nav-link">Explore</a><a href="04-strategy-explorer.html" class="nav-link">Strategies</a><a href="05-swap.html" class="nav-link">Trade</a></div>
+      <div class="nav-group"><div class="nav-group-label">Portfolio</div><a href="03-portfolio-dashboard.html" class="nav-link">Dashboard</a><a href="06-vault-creator.html" class="nav-link active">Create Vault</a></div>
+      <div class="nav-group"><div class="nav-group-label">Intelligence</div><a href="08-reasoning-trace.html" class="nav-link">Reasoning</a></div>
+    </nav>
+    <div class="sidebar-footer"><div class="caption" style="display:flex;align-items:center;gap:6px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--positive);"></span>Arc · Block 1,247,892</div></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="label">Create Vault</span>
+      <div class="wallet-chip"><span class="dot"></span> 0x1a2B…f3D4</div>
+    </div>
+
+    <div class="page" style="max-width:780px;">
+      <!-- Stepper -->
+      <div class="stepper fade-up fade-up-1">
+        <div class="step done"><div class="step-dot">✓</div><div class="step-text">Name</div></div>
+        <div class="step-line done"></div>
+        <div class="step done"><div class="step-dot">✓</div><div class="step-text">Assets</div></div>
+        <div class="step-line done"></div>
+        <div class="step active"><div class="step-dot">3</div><div class="step-text">Weights</div></div>
+        <div class="step-line"></div>
+        <div class="step"><div class="step-dot">4</div><div class="step-text">Fees</div></div>
+        <div class="step-line"></div>
+        <div class="step"><div class="step-dot">5</div><div class="step-text">Deploy</div></div>
+      </div>
+
+      <!-- Step 1 (done) -->
+      <div class="card mb-5 fade-up fade-up-1" style="opacity:0.5;">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-4">
+            <span class="tag tag-positive">Done</span>
+            <div><span style="font-weight:600;">AI & Defense</span><span class="caption" style="margin-left:8px;">vAIDEF · Community</span></div>
+          </div>
+          <button class="btn btn-ghost btn-sm">Edit</button>
+        </div>
+      </div>
+
+      <!-- Step 2 (done) -->
+      <div class="card mb-5 fade-up fade-up-2" style="opacity:0.5;">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-4">
+            <span class="tag tag-positive">Done</span>
+            <div><span style="font-weight:600;">3 assets selected</span><span class="caption" style="margin-left:8px;">sTSLA · sSPY · USYC</span></div>
+          </div>
+          <button class="btn btn-ghost btn-sm">Edit</button>
+        </div>
+      </div>
+
+      <!-- Step 3 (active) -->
+      <div class="card-elevated mb-5 fade-up fade-up-3" style="border-color:rgba(212,168,83,0.15);">
+        <div class="flex items-center justify-between mb-6">
+          <h3>Set Target Weights</h3>
+          <span class="caption">Remaining: <strong class="accent">0%</strong></span>
+        </div>
+
+        <div class="alloc-bar mb-6" style="height:6px;border-radius:3px;">
+          <div class="seg" style="width:40%;background:#3B82F6;border-radius:3px 0 0 3px;"></div>
+          <div class="seg" style="width:30%;background:#6366F1;"></div>
+          <div class="seg" style="width:30%;background:#22C55E;border-radius:0 3px 3px 0;"></div>
+        </div>
+
+        <!-- Sliders -->
+        <div style="border-bottom:1px solid var(--glass-border);padding:16px 0;">
+          <div class="flex items-center gap-4" style="margin-bottom:8px;">
+            <div class="asset-dot" style="background:#3B82F6;width:28px;height:28px;font-size:0.68rem;">T</div>
+            <div style="width:120px;"><div style="font-weight:600;font-size:0.88rem;">sTSLA</div><div class="caption">Synthetic Tesla</div></div>
+            <div style="flex:1;"><input type="range" min="0" max="100" value="40"></div>
+            <div style="width:48px;text-align:right;font-weight:700;color:#3B82F6;">40%</div>
+          </div>
+        </div>
+        <div style="border-bottom:1px solid var(--glass-border);padding:16px 0;">
+          <div class="flex items-center gap-4" style="margin-bottom:8px;">
+            <div class="asset-dot" style="background:#6366F1;width:28px;height:28px;font-size:0.68rem;">S</div>
+            <div style="width:120px;"><div style="font-weight:600;font-size:0.88rem;">sSPY</div><div class="caption">Synthetic S&P 500</div></div>
+            <div style="flex:1;"><input type="range" min="0" max="100" value="30"></div>
+            <div style="width:48px;text-align:right;font-weight:700;color:#6366F1;">30%</div>
+          </div>
+        </div>
+        <div style="padding:16px 0;">
+          <div class="flex items-center gap-4" style="margin-bottom:8px;">
+            <div class="asset-dot" style="background:#22C55E;width:28px;height:28px;font-size:0.68rem;">Y</div>
+            <div style="width:120px;"><div style="font-weight:600;font-size:0.88rem;">USYC</div><div class="caption">Circle Yield</div></div>
+            <div style="flex:1;"><input type="range" min="0" max="100" value="30"></div>
+            <div style="width:48px;text-align:right;font-weight:700;color:#22C55E;">30%</div>
+          </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="card-flat mt-5" style="padding:14px;">
+          <div class="flex items-center gap-3 mb-2" style="font-size:0.82rem;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="var(--positive)" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="var(--positive)" stroke-width="1.5" stroke-linecap="round"/></svg> Weights sum to 100%</div>
+          <div class="flex items-center gap-3 mb-2" style="font-size:0.82rem;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="var(--positive)" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="var(--positive)" stroke-width="1.5" stroke-linecap="round"/></svg> No single asset > 50%</div>
+          <div class="flex items-center gap-3" style="font-size:0.82rem;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="var(--positive)" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="var(--positive)" stroke-width="1.5" stroke-linecap="round"/></svg> USYC floor 30% (above 5% min)</div>
+        </div>
+
+        <div class="flex justify-between mt-6">
+          <button class="btn btn-ghost">← Assets</button>
+          <button class="btn btn-primary">Fees →</button>
+        </div>
+      </div>
+
+      <!-- Step 4 (preview) -->
+      <div class="card mb-5 fade-up fade-up-4" style="opacity:0.4;">
+        <h3 class="mb-5">Fee Structure</h3>
+        <div class="grid g-2">
+          <div class="field"><label>Management Fee (Annual)</label><input type="number" value="1.00" disabled></div>
+          <div class="field"><label>Performance Fee (Above HWM)</label><input type="number" value="15.00" disabled></div>
+        </div>
+      </div>
+
+      <!-- Step 5 (preview) -->
+      <div class="card fade-up fade-up-5" style="opacity:0.4;">
+        <h3 class="mb-5">Deploy</h3>
+        <div class="card-flat mb-5" style="padding:16px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <span class="caption">Vault</span><span style="font-weight:500;font-size:0.88rem;">AI & Defense (vAIDEF)</span>
+            <span class="caption">Tier</span><span class="tier tier-community" style="width:fit-content;">Community</span>
+            <span class="caption">Assets</span><span style="font-size:0.88rem;">sTSLA 40% · sSPY 30% · USYC 30%</span>
+            <span class="caption">Fees</span><span style="font-size:0.88rem;">1.00% mgmt · 15% perf</span>
+            <span class="caption">Agent</span><span class="positive" style="font-size:0.88rem;">Enabled (5% drift)</span>
+            <span class="caption">Deploy cost</span><span class="positive" style="font-size:0.88rem;">~$0.05 Paymaster</span>
+          </div>
+        </div>
+        <button class="btn btn-primary w-full btn-lg" disabled style="opacity:0.4;">Deploy Vault to Arc</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

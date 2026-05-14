@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archimedes — UI Mockups</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    .ix { max-width: 800px; margin: 0 auto; padding: 80px 40px; }
+    .ix-card {
+      display: flex; align-items: center; gap: 20px;
+      padding: 20px 24px;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-md);
+      transition: all 0.2s;
+      text-decoration: none; color: inherit;
+    }
+    .ix-card:hover {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+      transform: translateX(4px);
+    }
+    .ix-card .num {
+      width: 40px; height: 40px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.78rem; font-weight: 700; flex-shrink: 0;
+      color: var(--canvas);
+    }
+    .ix-card .info { flex: 1; }
+    .ix-card .arrow { color: var(--text-4); transition: color 0.15s; }
+    .ix-card:hover .arrow { color: var(--accent); }
+  </style>
+</head>
+<body>
+<div class="ix">
+  <div class="text-center mb-8 fade-up fade-up-1">
+    <div class="flex items-center justify-center gap-4 mb-5">
+      <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#B8892E);display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><path d="M8 1L14 5v6l-6 4-6-4V5l6-4z" stroke="#09090B" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" stroke="#09090B" stroke-width="1.5"/></svg>
+      </div>
+      <h1 class="serif" style="font-size:2.5rem;">Archimedes</h1>
+    </div>
+    <p class="body">UI Mockups — Complete Ecosystem</p>
+    <p class="caption mt-4">8 pages · Open any file in a browser</p>
+  </div>
+
+  <div class="flex-col gap-3">
+    <div class="caption mb-2" style="padding-left:4px;">User Journey: Explore → Invest → Create → Trade</div>
+
+    <a href="07-onboarding.html" class="ix-card fade-up fade-up-2" style="border-color:rgba(212,168,83,0.12);">
+      <div class="num" style="background:var(--accent);">01</div>
+      <div class="info">
+        <h3>Onboarding & Risk Profile</h3>
+        <div class="caption">Landing, wallet connect, risk profiles, initial deposit</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+
+    <a href="01-marketplace.html" class="ix-card fade-up fade-up-2">
+      <div class="num" style="background:#6366F1;">02</div>
+      <div class="info">
+        <h3>Marketplace</h3>
+        <div class="caption">Ecosystem stats, asset prices, vault leaderboard, agent activity</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+
+    <a href="02-vault-detail.html" class="ix-card fade-up fade-up-3">
+      <div class="num" style="background:#3B82F6;">03</div>
+      <div class="info">
+        <h3>Vault Detail</h3>
+        <div class="caption">Holdings, NAV chart, invest panel, decision timeline, AI chat</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+
+    <a href="03-portfolio-dashboard.html" class="ix-card fade-up fade-up-3">
+      <div class="num" style="background:#22C55E;">04</div>
+      <div class="info">
+        <h3>Portfolio Dashboard</h3>
+        <div class="caption">Total value, vault tokens, PnL, yield, LP fees, activity</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+
+    <a href="04-strategy-explorer.html" class="ix-card fade-up fade-up-4">
+      <div class="num" style="background:#8B5CF6;">05</div>
+      <div class="info">
+        <h3>Strategy Explorer & Passport</h3>
+        <div class="caption">Paper-grounded library, full passport, equity curves, corpus</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+
+    <a href="05-swap.html" class="ix-card fade-up fade-up-4">
+      <div class="num" style="background:#60A5FA;">06</div>
+      <div class="info">
+        <h3>Trade & Liquidity</h3>
+        <div class="caption">AMM swap, price impact, pool list, vault token trading</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+
+    <a href="06-vault-creator.html" class="ix-card fade-up fade-up-5">
+      <div class="num" style="background:#D4A853;">07</div>
+      <div class="info">
+        <h3>Vault Creator</h3>
+        <div class="caption">5-step wizard: name → assets → weights → fees → deploy</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+
+    <a href="08-reasoning-trace.html" class="ix-card fade-up fade-up-5" style="border-color:rgba(34,197,94,0.12);">
+      <div class="num" style="background:var(--positive);">08</div>
+      <div class="info">
+        <h3>Reasoning Trace Detail</h3>
+        <div class="caption">On-chain hash verification, reasoning, tool provenance, before/after</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+  </div>
+
+  <div style="margin-top:64px;padding-top:24px;border-top:1px solid var(--glass-border);">
+    <div class="caption text-center">Near-black canvas · Warm amber accent · Inter + Instrument Serif · JetBrains Mono</div>
+    <div class="caption text-center mt-4" style="color:var(--text-4);">All pages share <code>shared.css</code> · Cross-linked navigation · Realistic mock data</div>
+  </div>
+</div>
+</body>
+</html>

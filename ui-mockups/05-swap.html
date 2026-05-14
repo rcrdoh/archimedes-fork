@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archimedes — Trade</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    .swap-box { max-width: 440px; margin: 0 auto; }
+    .swap-arrow {
+      display: flex; justify-content: center; margin: -6px 0; position: relative; z-index: 2;
+    }
+    .swap-arrow button {
+      width: 36px; height: 36px; border-radius: 10px; border: 3px solid var(--canvas);
+      background: var(--surface-2); color: var(--text-3); font-size: 1rem;
+      cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center;
+    }
+    .swap-arrow button:hover { color: var(--text-1); transform: rotate(180deg); }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo"><div class="logo-mark"><svg viewBox="0 0 16 16" fill="none"><path d="M8 1L14 5v6l-6 4-6-4V5l6-4z" stroke="#09090B" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" stroke="#09090B" stroke-width="1.5"/></svg></div><div><div class="logo-text">Archimedes</div><div class="logo-sub">Portfolio Intelligence</div></div></div></div>
+    <nav>
+      <div class="nav-group"><div class="nav-group-label">Markets</div><a href="01-marketplace.html" class="nav-link">Explore</a><a href="04-strategy-explorer.html" class="nav-link">Strategies</a><a href="05-swap.html" class="nav-link active">Trade</a></div>
+      <div class="nav-group"><div class="nav-group-label">Portfolio</div><a href="03-portfolio-dashboard.html" class="nav-link">Dashboard</a><a href="06-vault-creator.html" class="nav-link">Create Vault</a></div>
+      <div class="nav-group"><div class="nav-group-label">Intelligence</div><a href="08-reasoning-trace.html" class="nav-link">Reasoning</a></div>
+    </nav>
+    <div class="sidebar-footer"><div class="caption" style="display:flex;align-items:center;gap:6px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--positive);"></span>Arc · Block 1,247,892</div></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="label">Trade</span>
+      <div class="wallet-chip"><span class="dot"></span> 0x1a2B…f3D4</div>
+    </div>
+
+    <div class="page">
+      <div class="tabs">
+        <div class="tab active">Swap</div>
+        <div class="tab">Pools</div>
+        <div class="tab">My Positions</div>
+      </div>
+
+      <div class="grid g-2" style="grid-template-columns:1fr 1fr;gap:48px;">
+        <!-- Swap Interface -->
+        <div>
+          <div class="swap-box fade-up fade-up-1">
+            <div class="swap-token-input mb-2">
+              <div class="flex justify-between mb-3">
+                <span class="caption">From</span>
+                <span class="caption">Balance: <strong style="color:var(--text-2);">3,240.00</strong></span>
+              </div>
+              <div class="flex items-center justify-between">
+                <input type="text" class="swap-amount" value="1,000">
+                <div class="token-pill">
+                  <div class="token-dot" style="background:#3B82F6;color:white;">U</div>
+                  USDC ▾
+                </div>
+              </div>
+              <div class="caption mt-4">≈ $1,000.00</div>
+            </div>
+
+            <div class="swap-arrow"><button>↕</button></div>
+
+            <div class="swap-token-input mb-5" style="margin-top:-6px;">
+              <div class="flex justify-between mb-3">
+                <span class="caption">To</span>
+                <span class="caption">Balance: <strong style="color:var(--text-2);">0.00</strong></span>
+              </div>
+              <div class="flex items-center justify-between">
+                <input type="text" class="swap-amount" value="3.481" readonly style="color:var(--positive);">
+                <div class="token-pill">
+                  <div class="token-dot" style="background:#3B82F6;color:white;">T</div>
+                  sTSLA ▾
+                </div>
+              </div>
+              <div class="caption mt-4">≈ $1,000.47</div>
+            </div>
+
+            <div class="card-flat" style="padding:14px;margin-bottom:20px;">
+              <div class="flex justify-between caption mb-2"><span>Rate</span><span style="color:var(--text-2);">1 sTSLA = 287.42 USDC</span></div>
+              <div class="flex justify-between caption mb-2"><span>Price impact</span><span class="positive">< 0.01%</span></div>
+              <div class="flex justify-between caption mb-2"><span>Fee (0.3%)</span><span style="color:var(--text-2);">3.00 USDC</span></div>
+              <div class="flex justify-between caption mb-2"><span>Min received</span><span style="color:var(--text-2);">3.464 sTSLA</span></div>
+              <div class="flex justify-between caption"><span>Gas</span><span class="positive">~$0.01 Paymaster</span></div>
+            </div>
+
+            <button class="btn btn-primary w-full btn-lg">Swap</button>
+            <div class="caption text-center mt-4">AMM · Constant Product · USDC/sTSLA</div>
+          </div>
+        </div>
+
+        <!-- Pools -->
+        <div>
+          <div class="label mb-5 fade-up fade-up-2">Liquidity Pools</div>
+          <div class="flex-col gap-3">
+            <div class="card fade-up fade-up-2">
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <div style="font-weight:600;font-size:0.9rem;">USDC / sTSLA</div>
+                  <div class="caption">Fee: 0.3%</div>
+                </div>
+                <button class="btn btn-outline btn-sm">+ Add</button>
+              </div>
+              <div class="flex gap-5">
+                <div><div class="caption">TVL</div><div style="font-weight:700;">$842K</div></div>
+                <div><div class="caption">24h Vol</div><div style="font-weight:700;">$124K</div></div>
+                <div><div class="caption">APR</div><div class="positive" style="font-weight:700;">16.2%</div></div>
+              </div>
+            </div>
+            <div class="card fade-up fade-up-3">
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <div style="font-weight:600;font-size:0.9rem;">USDC / sBTC</div>
+                  <div class="caption">Fee: 0.3%</div>
+                </div>
+                <button class="btn btn-outline btn-sm">+ Add</button>
+              </div>
+              <div class="flex gap-5">
+                <div><div class="caption">TVL</div><div style="font-weight:700;">$1.2M</div></div>
+                <div><div class="caption">24h Vol</div><div style="font-weight:700;">$342K</div></div>
+                <div><div class="caption">APR</div><div class="positive" style="font-weight:700;">24.8%</div></div>
+              </div>
+            </div>
+            <div class="card fade-up fade-up-3">
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <div style="font-weight:600;font-size:0.9rem;">USDC / sSPY</div>
+                  <div class="caption">Fee: 0.3%</div>
+                </div>
+                <button class="btn btn-outline btn-sm">+ Add</button>
+              </div>
+              <div class="flex gap-5">
+                <div><div class="caption">TVL</div><div style="font-weight:700;">$621K</div></div>
+                <div><div class="caption">24h Vol</div><div style="font-weight:700;">$89K</div></div>
+                <div><div class="caption">APR</div><div class="positive" style="font-weight:700;">12.4%</div></div>
+              </div>
+            </div>
+            <div class="card fade-up fade-up-4">
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <div style="font-weight:600;font-size:0.9rem;">USDC / USYC</div>
+                  <div class="caption">Fee: 0.05%</div>
+                </div>
+                <button class="btn btn-outline btn-sm">+ Add</button>
+              </div>
+              <div class="flex gap-5">
+                <div><div class="caption">TVL</div><div style="font-weight:700;">$2.1M</div></div>
+                <div><div class="caption">24h Vol</div><div style="font-weight:700;">$421K</div></div>
+                <div><div class="caption">APR</div><div class="positive" style="font-weight:700;">5.4%</div></div>
+              </div>
+            </div>
+            <div class="card fade-up fade-up-5" style="border-color:rgba(212,168,83,0.12);">
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <div style="font-weight:600;font-size:0.9rem;">USDC / vMOMENTUM</div>
+                  <div class="caption accent">Vault Token · 0.3%</div>
+                </div>
+                <button class="btn btn-outline btn-sm">+ Add</button>
+              </div>
+              <div class="flex gap-5">
+                <div><div class="caption">TVL</div><div style="font-weight:700;">$182K</div></div>
+                <div><div class="caption">24h Vol</div><div style="font-weight:700;">$28K</div></div>
+                <div><div class="caption">Prem.</div><div class="positive" style="font-weight:700;">+0.4%</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

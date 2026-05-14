@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archimedes — Get Started</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    .ob-shell { min-height: 100vh; display: flex; flex-direction: column; }
+    .ob-nav {
+      padding: 20px 40px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .ob-hero {
+      text-align: center;
+      padding: 80px 40px 48px;
+      max-width: 680px;
+      margin: 0 auto;
+    }
+    .ob-hero h1 {
+      font-family: var(--serif);
+      font-size: 3.8rem;
+      font-weight: 400;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      margin-bottom: 20px;
+    }
+    .ob-hero h1 em {
+      font-style: italic;
+      color: var(--accent);
+    }
+    .features { max-width: 900px; margin: 0 auto; padding: 0 40px; }
+    .feature {
+      text-align: center;
+      padding: 32px 24px;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-lg);
+    }
+    .feature .f-icon {
+      width: 48px; height: 48px; border-radius: 12px;
+      margin: 0 auto 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.85rem; font-weight: 700;
+    }
+    .profiles { max-width: 900px; margin: 0 auto; padding: 0 40px; }
+    .connect { max-width: 440px; margin: 0 auto; padding: 0 40px; }
+    .connect-btn {
+      display: flex; align-items: center; gap: 12px;
+      width: 100%; padding: 14px 20px;
+      background: var(--surface-2); border: 1px solid var(--glass-border);
+      border-radius: var(--radius-sm);
+      color: var(--text-1); font-size: 0.9rem; font-weight: 600;
+      font-family: var(--sans);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .connect-btn:hover { border-color: var(--accent); }
+    .connect-btn .c-dot {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; font-weight: 700;
+    }
+    .ob-footer {
+      padding: 40px;
+      text-align: center;
+      border-top: 1px solid var(--glass-border);
+      margin-top: 64px;
+    }
+  </style>
+</head>
+<body>
+<div class="ob-shell">
+
+  <!-- Nav -->
+  <div class="ob-nav">
+    <div class="flex items-center gap-3">
+      <div class="logo-mark" style="width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,var(--accent),#B8892E);display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="0 0 16 16" fill="none" width="16" height="16"><path d="M8 1L14 5v6l-6 4-6-4V5l6-4z" stroke="#09090B" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" stroke="#09090B" stroke-width="1.5"/></svg>
+      </div>
+      <span style="font-weight:700;letter-spacing:-0.02em;">Archimedes</span>
+    </div>
+    <div class="flex items-center gap-5">
+      <a href="01-marketplace.html" class="caption">Explore</a>
+      <a href="04-strategy-explorer.html" class="caption">Strategies</a>
+    </div>
+  </div>
+
+  <!-- Hero -->
+  <div class="ob-hero fade-up fade-up-1">
+    <h1>Your portfolio,<br>grounded in <em>research</em></h1>
+    <p class="body" style="font-size:1.05rem;max-width:480px;margin:0 auto;">
+      AI-managed portfolios backed by published academic research. Every decision verifiable. Every strategy traceable to a paper.
+    </p>
+  </div>
+
+  <!-- Features -->
+  <div class="features grid g-3 mb-8 fade-up fade-up-2">
+    <div class="feature">
+      <div class="f-icon" style="background:var(--surface-3);color:var(--text-2);">P</div>
+      <h4 class="mb-3" style="color:var(--text-1);text-transform:none;letter-spacing:0;">Paper-Grounded</h4>
+      <div class="body" style="font-size:0.82rem;">Every strategy traces to peer-reviewed research. No vibes, no black boxes.</div>
+    </div>
+    <div class="feature">
+      <div class="f-icon" style="background:var(--accent-muted);color:var(--accent);">A</div>
+      <h4 class="mb-3" style="color:var(--text-1);text-transform:none;letter-spacing:0;">Autonomous</h4>
+      <div class="body" style="font-size:0.82rem;">Regime detection, strategy rotation, rebalancing — all handled by the agent.</div>
+    </div>
+    <div class="feature">
+      <div class="f-icon" style="background:rgba(34,197,94,0.1);color:var(--positive);">V</div>
+      <h4 class="mb-3" style="color:var(--text-1);text-transform:none;letter-spacing:0;">Verifiable</h4>
+      <div class="body" style="font-size:0.82rem;">Every reasoning trace hashed to Arc. Verify any decision on-chain.</div>
+    </div>
+  </div>
+
+  <!-- Connect Wallet -->
+  <div class="connect mb-8 fade-up fade-up-3">
+    <div class="card-elevated text-center" style="padding:36px;">
+      <h2 class="serif mb-3" style="font-size:1.6rem;">Connect Your Wallet</h2>
+      <p class="body mb-6" style="font-size:0.85rem;">Non-custodial — you always control your keys.</p>
+      <div class="flex-col gap-3" style="max-width:300px;margin:0 auto;">
+        <button class="connect-btn"><div class="c-dot" style="background:var(--accent);color:var(--canvas);">C</div> Create with Circle</button>
+        <button class="connect-btn"><div class="c-dot" style="background:#F97316;color:white;">M</div> MetaMask</button>
+        <button class="connect-btn"><div class="c-dot" style="background:#3B82F6;color:white;">W</div> WalletConnect</button>
+      </div>
+      <div class="caption mt-5">Testnet only — no real funds at risk.</div>
+    </div>
+  </div>
+
+  <!-- Risk Profiles -->
+  <div class="text-center mb-6 fade-up fade-up-4">
+    <h2 class="serif mb-3" style="font-size:1.6rem;">Choose Your Risk Profile</h2>
+    <p class="body" style="font-size:0.85rem;max-width:480px;margin:0 auto;">Determines which strategies and weights the AI uses.</p>
+  </div>
+
+  <div class="profiles grid g-4 mb-8 fade-up fade-up-5">
+    <div class="risk-option">
+      <div class="label mb-3" style="font-size:1.8rem;color:var(--text-2);text-transform:none;letter-spacing:0;">C</div>
+      <div style="font-weight:700;margin-bottom:4px;">Conservative</div>
+      <div class="caption mb-5">Capital preservation</div>
+      <div class="flex justify-between caption mb-1"><span>Vol</span><span>5–8%</span></div>
+      <div class="flex justify-between caption mb-1"><span>Max DD</span><span>10%</span></div>
+      <div class="flex justify-between caption"><span>USYC</span><span>40–60%</span></div>
+    </div>
+    <div class="risk-option selected">
+      <div class="label mb-3" style="font-size:1.8rem;color:var(--accent);text-transform:none;letter-spacing:0;">M</div>
+      <div style="font-weight:700;margin-bottom:4px;">Moderate</div>
+      <div class="caption mb-5">Balanced growth</div>
+      <div class="flex justify-between caption mb-1"><span>Vol</span><span>10–15%</span></div>
+      <div class="flex justify-between caption mb-1"><span>Max DD</span><span>20%</span></div>
+      <div class="flex justify-between caption"><span>USYC</span><span>20–40%</span></div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(212,168,83,0.2);">
+        <span class="caption accent" style="font-weight:600;">Selected</span>
+      </div>
+    </div>
+    <div class="risk-option">
+      <div class="label mb-3" style="font-size:1.8rem;color:var(--text-2);text-transform:none;letter-spacing:0;">A</div>
+      <div style="font-weight:700;margin-bottom:4px;">Aggressive</div>
+      <div class="caption mb-5">Growth-focused</div>
+      <div class="flex justify-between caption mb-1"><span>Vol</span><span>20–30%</span></div>
+      <div class="flex justify-between caption mb-1"><span>Max DD</span><span>35%</span></div>
+      <div class="flex justify-between caption"><span>USYC</span><span>5–15%</span></div>
+    </div>
+    <div class="risk-option">
+      <div class="label mb-3" style="font-size:1.8rem;color:var(--text-2);text-transform:none;letter-spacing:0;">H</div>
+      <div style="font-weight:700;margin-bottom:4px;">Hyper-Risky</div>
+      <div class="caption mb-5">Maximum growth</div>
+      <div class="flex justify-between caption mb-1"><span>Vol</span><span>30%+</span></div>
+      <div class="flex justify-between caption mb-1"><span>Max DD</span><span>50%</span></div>
+      <div class="flex justify-between caption"><span>USYC</span><span>0–5%</span></div>
+    </div>
+  </div>
+
+  <!-- Deposit -->
+  <div class="connect mb-8">
+    <div class="card-elevated text-center" style="padding:36px;">
+      <h2 class="serif mb-3" style="font-size:1.6rem;">Initial Deposit</h2>
+      <p class="body mb-5" style="font-size:0.85rem;">The AI agent will construct your portfolio based on your risk profile.</p>
+      <div class="field" style="max-width:280px;margin:0 auto;">
+        <input type="text" value="1,000" style="font-size:1.4rem;font-weight:700;text-align:center;">
+      </div>
+      <button class="btn btn-primary btn-lg" style="margin-top:12px;">Build My Portfolio</button>
+      <div class="caption mt-5">Non-custodial · Withdraw anytime · Full reasoning traces</div>
+    </div>
+  </div>
+
+  <!-- Trust Metrics -->
+  <div class="grid g-4 text-center" style="max-width:600px;margin:0 auto;padding:0 40px;">
+    <div><div class="stat-sm accent">247</div><div class="caption mt-4">On-chain traces</div></div>
+    <div><div class="stat-sm positive">$2.4M</div><div class="caption mt-4">Total AUM</div></div>
+    <div><div class="stat-sm">1.82</div><div class="caption mt-4">Avg Sharpe</div></div>
+    <div><div class="stat-sm" style="color:var(--info);">8</div><div class="caption mt-4">Curated papers</div></div>
+  </div>
+
+  <!-- Footer -->
+  <div class="ob-footer">
+    <div class="caption">Built for Agora Agents Hackathon · Canteen × Circle × Arc · May 2026</div>
+    <div class="caption mt-4" style="color:var(--text-4);">
+      <a href="01-marketplace.html">Marketplace</a> · <a href="04-strategy-explorer.html">Strategies</a> · <a href="08-reasoning-trace.html">Traces</a> · <a href="https://github.com/hackagora/archimedes-arcadia">GitHub</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

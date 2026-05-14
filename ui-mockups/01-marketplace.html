@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archimedes — Marketplace</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">
+        <div class="logo-mark"><svg viewBox="0 0 16 16" fill="none"><path d="M8 1L14 5v6l-6 4-6-4V5l6-4z" stroke="#09090B" stroke-width="1.5"/><circle cx="8" cy="8" r="2.5" stroke="#09090B" stroke-width="1.5"/></svg></div>
+        <div>
+          <div class="logo-text">Archimedes</div>
+          <div class="logo-sub">Portfolio Intelligence</div>
+        </div>
+      </div>
+    </div>
+    <nav>
+      <div class="nav-group">
+        <div class="nav-group-label">Markets</div>
+        <a href="01-marketplace.html" class="nav-link active">Explore</a>
+        <a href="04-strategy-explorer.html" class="nav-link">Strategies</a>
+        <a href="05-swap.html" class="nav-link">Trade</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-label">Portfolio</div>
+        <a href="03-portfolio-dashboard.html" class="nav-link">Dashboard</a>
+        <a href="06-vault-creator.html" class="nav-link">Create Vault</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-label">Intelligence</div>
+        <a href="08-reasoning-trace.html" class="nav-link">Reasoning</a>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="caption" style="display:flex;align-items:center;gap:6px;">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--positive);"></span>
+        Arc · Block 1,247,892
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <!-- Top Bar -->
+    <div class="topbar">
+      <div class="flex items-center gap-4">
+        <span class="label">Marketplace</span>
+      </div>
+      <div class="flex items-center gap-5">
+        <span class="caption">Regime <strong style="color:var(--positive);">Risk-On</strong></span>
+        <div class="wallet-chip"><span class="dot"></span> 0x1a2B…f3D4</div>
+      </div>
+    </div>
+
+    <div class="page">
+      <!-- Hero Stats -->
+      <div class="grid g-4 mb-7 fade-up fade-up-1">
+        <div>
+          <div class="label mb-2">Ecosystem AUM</div>
+          <div class="stat">$2.4M</div>
+          <div class="caption positive" style="margin-top:6px;">+12.3% this week</div>
+        </div>
+        <div>
+          <div class="label mb-2">Active Vaults</div>
+          <div class="stat">18</div>
+          <div class="caption" style="margin-top:6px;">12 verified · 6 community</div>
+        </div>
+        <div>
+          <div class="label mb-2">On-Chain Traces</div>
+          <div class="stat">247</div>
+          <div class="caption accent" style="margin-top:6px;">All verifiable</div>
+        </div>
+        <div>
+          <div class="label mb-2">Avg Sharpe (T1)</div>
+          <div class="stat">1.82</div>
+          <div class="caption positive" style="margin-top:6px;">+0.14 vs benchmark</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Synthetic Prices -->
+      <div class="mb-7 fade-up fade-up-2">
+        <div class="flex items-center justify-between mb-5">
+          <div class="label">Synthetic Assets</div>
+          <span class="caption">Oracle updated 12s ago</span>
+        </div>
+        <div class="grid g-5">
+          <div class="card-flat" style="padding:20px;">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="asset-dot" style="background:#3B82F6;">T</div>
+              <div>
+                <div style="font-weight:600;font-size:0.88rem;">sTSLA</div>
+                <div class="caption">Synthetic Tesla</div>
+              </div>
+            </div>
+            <div style="font-size:1.3rem;font-weight:700;letter-spacing:-0.02em;">$287.42</div>
+            <div class="caption positive">+3.21%</div>
+          </div>
+          <div class="card-flat" style="padding:20px;">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="asset-dot" style="background:#6366F1;">S</div>
+              <div>
+                <div style="font-weight:600;font-size:0.88rem;">sSPY</div>
+                <div class="caption">Synthetic S&P 500</div>
+              </div>
+            </div>
+            <div style="font-size:1.3rem;font-weight:700;letter-spacing:-0.02em;">$532.18</div>
+            <div class="caption positive">+0.87%</div>
+          </div>
+          <div class="card-flat" style="padding:20px;">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="asset-dot" style="background:#D4A853;">G</div>
+              <div>
+                <div style="font-weight:600;font-size:0.88rem;">sGLD</div>
+                <div class="caption">Synthetic Gold</div>
+              </div>
+            </div>
+            <div style="font-size:1.3rem;font-weight:700;letter-spacing:-0.02em;">$2,341</div>
+            <div class="caption negative">−0.32%</div>
+          </div>
+          <div class="card-flat" style="padding:20px;">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="asset-dot" style="background:#F97316;">B</div>
+              <div>
+                <div style="font-weight:600;font-size:0.88rem;">sBTC</div>
+                <div class="caption">Synthetic Bitcoin</div>
+              </div>
+            </div>
+            <div style="font-size:1.3rem;font-weight:700;letter-spacing:-0.02em;">$67,842</div>
+            <div class="caption positive">+2.14%</div>
+          </div>
+          <div class="card-flat" style="padding:20px;">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="asset-dot" style="background:#22C55E;">Y</div>
+              <div>
+                <div style="font-weight:600;font-size:0.88rem;">USYC</div>
+                <div class="caption">Circle Yield</div>
+              </div>
+            </div>
+            <div style="font-size:1.3rem;font-weight:700;letter-spacing:-0.02em;">$1.0012</div>
+            <div class="caption" style="color:var(--text-3);">4.82% APY</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vault Leaderboard -->
+      <div class="fade-up fade-up-3">
+        <div class="flex items-center justify-between mb-5">
+          <div class="label">Vault Leaderboard</div>
+          <div class="flex gap-2">
+            <span class="tag tag-accent" style="cursor:pointer;">All</span>
+            <span class="tag tag-muted" style="cursor:pointer;">Verified</span>
+            <span class="tag tag-muted" style="cursor:pointer;">Community</span>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:32px">#</th>
+                <th>Vault</th>
+                <th>Tier</th>
+                <th class="text-right">AUM</th>
+                <th class="text-right">30d Return</th>
+                <th class="text-right">Sharpe</th>
+                <th class="text-right">Max DD</th>
+                <th>Allocation</th>
+                <th class="text-right">Fees</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="pointer" onclick="window.location='02-vault-detail.html'">
+                <td style="font-weight:700;color:var(--accent);">1</td>
+                <td>
+                  <div><span style="font-weight:600;">Momentum Alpha</span></div>
+                  <div class="mono caption">vMOMENTUM</div>
+                </td>
+                <td><span class="tier tier-verified">Verified</span></td>
+                <td class="text-right" style="font-weight:600;">$524,200</td>
+                <td class="text-right positive" style="font-weight:600;">+12.3%</td>
+                <td class="text-right" style="font-weight:600;">1.84</td>
+                <td class="text-right negative">−8.2%</td>
+                <td>
+                  <div class="alloc-bar" style="width:100px;">
+                    <div class="seg" style="width:28%;background:#3B82F6;"></div>
+                    <div class="seg" style="width:25%;background:#6366F1;"></div>
+                    <div class="seg" style="width:12%;background:#D4A853;"></div>
+                    <div class="seg" style="width:5%;background:#F97316;"></div>
+                    <div class="seg" style="width:30%;background:#22C55E;"></div>
+                  </div>
+                </td>
+                <td class="text-right caption">1.5% + 20%</td>
+                <td><a href="02-vault-detail.html" class="btn btn-primary btn-sm">Invest</a></td>
+              </tr>
+              <tr class="pointer">
+                <td style="font-weight:700;color:var(--text-3);">2</td>
+                <td>
+                  <div><span style="font-weight:600;">Yield Optimizer</span></div>
+                  <div class="mono caption">vYIELD</div>
+                </td>
+                <td><span class="tier tier-verified">Verified</span></td>
+                <td class="text-right" style="font-weight:600;">$312,800</td>
+                <td class="text-right positive" style="font-weight:600;">+8.1%</td>
+                <td class="text-right" style="font-weight:600;">2.12</td>
+                <td class="text-right negative">−4.1%</td>
+                <td>
+                  <div class="alloc-bar" style="width:100px;">
+                    <div class="seg" style="width:55%;background:#22C55E;"></div>
+                    <div class="seg" style="width:20%;background:#6366F1;"></div>
+                    <div class="seg" style="width:15%;background:#D4A853;"></div>
+                    <div class="seg" style="width:10%;background:#3B82F6;"></div>
+                  </div>
+                </td>
+                <td class="text-right caption">1.0% + 15%</td>
+                <td><a href="#" class="btn btn-primary btn-sm">Invest</a></td>
+              </tr>
+              <tr class="pointer">
+                <td style="font-weight:700;color:var(--text-3);">3</td>
+                <td>
+                  <div><span style="font-weight:600;">DeFi Degen</span></div>
+                  <div class="mono caption">vDEGEN</div>
+                </td>
+                <td><span class="tier tier-community">Community</span></td>
+                <td class="text-right" style="font-weight:600;">$87,400</td>
+                <td class="text-right positive" style="font-weight:600;">+18.7%</td>
+                <td class="text-right" style="font-weight:600;">0.94</td>
+                <td class="text-right negative">−22.1%</td>
+                <td>
+                  <div class="alloc-bar" style="width:100px;">
+                    <div class="seg" style="width:60%;background:#F97316;"></div>
+                    <div class="seg" style="width:25%;background:#3B82F6;"></div>
+                    <div class="seg" style="width:15%;background:#22C55E;"></div>
+                  </div>
+                </td>
+                <td class="text-right caption">2.0% + 25%</td>
+                <td><a href="#" class="btn btn-outline btn-sm">Invest</a></td>
+              </tr>
+              <tr class="pointer">
+                <td style="font-weight:700;color:var(--text-3);">4</td>
+                <td>
+                  <div><span style="font-weight:600;">Safe Haven</span></div>
+                  <div class="mono caption">vSAFE</div>
+                </td>
+                <td><span class="tier tier-community">Community</span></td>
+                <td class="text-right" style="font-weight:600;">$145,600</td>
+                <td class="text-right positive" style="font-weight:600;">+5.2%</td>
+                <td class="text-right" style="font-weight:600;">1.54</td>
+                <td class="text-right negative">−3.8%</td>
+                <td>
+                  <div class="alloc-bar" style="width:100px;">
+                    <div class="seg" style="width:60%;background:#22C55E;"></div>
+                    <div class="seg" style="width:25%;background:#D4A853;"></div>
+                    <div class="seg" style="width:15%;background:#6366F1;"></div>
+                  </div>
+                </td>
+                <td class="text-right caption">0.5% + 10%</td>
+                <td><a href="#" class="btn btn-outline btn-sm">Invest</a></td>
+              </tr>
+              <tr class="pointer">
+                <td style="font-weight:700;color:var(--text-3);">5</td>
+                <td>
+                  <div><span style="font-weight:600;">Multi-Factor Quant</span></div>
+                  <div class="mono caption">vMFQ</div>
+                </td>
+                <td><span class="tier tier-verified">Verified</span></td>
+                <td class="text-right" style="font-weight:600;">$298,100</td>
+                <td class="text-right positive" style="font-weight:600;">+9.8%</td>
+                <td class="text-right" style="font-weight:600;">1.67</td>
+                <td class="text-right negative">−11.4%</td>
+                <td>
+                  <div class="alloc-bar" style="width:100px;">
+                    <div class="seg" style="width:35%;background:#3B82F6;"></div>
+                    <div class="seg" style="width:25%;background:#6366F1;"></div>
+                    <div class="seg" style="width:20%;background:#D4A853;"></div>
+                    <div class="seg" style="width:20%;background:#22C55E;"></div>
+                  </div>
+                </td>
+                <td class="text-right caption">1.5% + 20%</td>
+                <td><a href="#" class="btn btn-primary btn-sm">Invest</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Agent Activity -->
+      <div class="mt-6 fade-up fade-up-4">
+        <div class="flex items-center justify-between mb-5">
+          <div class="label">Agent Activity</div>
+          <a href="08-reasoning-trace.html" class="caption accent">All traces →</a>
+        </div>
+        <div class="timeline">
+          <div class="tl-item active">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-3">
+                <span class="tag tag-positive">Rebalance</span>
+                <span style="font-weight:600;font-size:0.88rem;">Momentum Alpha</span>
+              </div>
+              <span class="caption">3 min ago</span>
+            </div>
+            <div class="body">Reduced sTSLA 33% → 28%, shifted to USYC. Drift threshold exceeded. Cost-benefit: +$294 net. <a href="08-reasoning-trace.html" class="accent">Trace #247 →</a></div>
+          </div>
+          <div class="tl-item">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-3">
+                <span class="tag tag-muted">Regime</span>
+                <span style="font-weight:600;font-size:0.88rem;">Global Detection</span>
+              </div>
+              <span class="caption">1 hr ago</span>
+            </div>
+            <div class="body">Regime confirmed Risk-On. VIX 14.2, positive equity momentum, tight credit spreads. No action.</div>
+          </div>
+          <div class="tl-item">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-3">
+                <span class="tag tag-accent">Rotation</span>
+                <span style="font-weight:600;font-size:0.88rem;">Multi-Factor Quant</span>
+              </div>
+              <span class="caption">4 hrs ago</span>
+            </div>
+            <div class="body">Rotated out "Mean Reversion Small Cap" (Sharpe 0.38) → "Cross-Sectional Momentum" (Sharpe 1.42, correlation 0.12).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
