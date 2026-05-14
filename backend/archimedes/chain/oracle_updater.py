@@ -22,6 +22,8 @@ YFINANCE_MAP = {
     "sNVDA": "NVDA",
     "sSPY": "SPY",
     "sGOLD": "GC=F",  # Gold futures
+    "sOIL": "CL=F",   # WTI crude oil futures
+    "sNKY": "^N225",  # Nikkei 225
     "^GSPC": "^GSPC",  # S&P 500 index
     "^VIX": "^VIX",    # VIX index
 }
@@ -44,7 +46,7 @@ class OracleUpdater:
         prices: list[AssetPrice] = []
         now = datetime.now(timezone.utc)
 
-        # Fetch equity/ETF prices via yfinance (in thread pool — yfinance is sync)
+        # Fetch equity/ETF/futures prices via yfinance (in thread pool — yfinance is sync)
         equity_symbols = {k: v for k, v in YFINANCE_MAP.items() if k.startswith("s")}
         equity_prices = await asyncio.to_thread(self._fetch_yfinance, equity_symbols, now)
         prices.extend(equity_prices)
