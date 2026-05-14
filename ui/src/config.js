@@ -108,19 +108,19 @@ export const VAULT_FACTORY_ABI = [
 export const USDC = "0x3600000000000000000000000000000000000000"
 
 export const ASSETS = [
-  { id: 'TSLA',   name: 'Tesla',      sym: 'sTSLA',   emoji: '🚗', oracle: '0x8c77f2920a7d440dc07d824fbe7e39166c5a27a0', vault: '0x0dee733b938fac420e3c7feefc031d620f5430a4', token: '0x18e711913f7aa89556d4146c2b3b0bbc24241e74' },
-  { id: 'NVDA',   name: 'Nvidia',     sym: 'sNVDA',   emoji: '🎮', oracle: '0x04e75590f1a37fe05714d9f7d48b2b8ad5c176e8', vault: '0x2ace30d41f35b74b65c31aa9a58439fb7647f757', token: '0x0a0d4719afcadf76a4be72bfcfa1c11d372a8894' },
-  { id: 'SPY',    name: 'S&P 500',    sym: 'sSPY',    emoji: '📈', oracle: '0x3c6e67d264b2f1275ddbf1c1354eb0b6d2747c2d', vault: '0x39ad3053c744d85b7bba21c3ef199da9e838e7a2', token: '0xcdf63eeb1a0e96d0c0b372881795dca8d5055d23' },
-  { id: 'BTC',    name: 'Bitcoin',    sym: 'sBTC',    emoji: '₿',  oracle: '0xfb0d998fac772b3e06ca655753a885c85a108517', vault: '0x18c1748d48cf4931c4b480f94da1767c36beeb2a', token: '0xca4acd88ef5da78e405d78e6a388e329038816c2' },
-  { id: 'GOLD',   name: 'Gold ETF',   sym: 'sGOLD',   emoji: '🥇', oracle: '0x38bbb0f02cf3a7c95fbec8d51dc57d24fc0d541f', vault: '0xe647251ed8996a7f34c7ac84546073a05194a38c', token: '0xf85aab5c6b17957a9b824a7571697a65092eb258' },
-  { id: 'OIL',    name: 'Oil ETF',    sym: 'sOIL',    emoji: '🛢️', oracle: '0x134d4dc3329d8b474916697e1440755c052b4dbd', vault: '0xafcaad69a3eaa1c6695b7b101a4c3ee789a68724', token: '0x5d0d1a2f0ba848358577403fddec649475f248e8' },
-  { id: 'NIKKEI', name: 'Nikkei ETF', sym: 'sNKY',    emoji: '🗾', oracle: '0x2a7e0259174674374759b4c3cd0b5ae74bae5023', vault: '0xaf13034e4a294d21143e76ce4690bb1defd8cd53', token: '0x95d75fdeca8d2806b7371444d85346b8a8295cf7' },
+  { id: 'TSLA',   name: 'Tesla',      sym: 'sTSLA',   emoji: '🚗', oracle: '0xe1c9f2b11be97097223a66a188fca541e07873a6', vault: '0xf0356600e26c6c403ec4f5b36b0e3380bb0609ab', token: '0xd514cd27baf762c650536765cde9b61c876abacd' },
+  { id: 'NVDA',   name: 'Nvidia',     sym: 'sNVDA',   emoji: '🎮', oracle: '0xeb36acf88e739dd312de8278985262146a017374', vault: '0x4c3cdc2bf44195ad8a4d201c8afbd453949a8781', token: '0x805e75019a1291a598dfc134ad2519121a35fb11' },
+  { id: 'SPY',    name: 'S&P 500',    sym: 'sSPY',    emoji: '📈', oracle: '0xd8161a8eeab7c7100e2863abe3d5f346b5ff9e52', vault: '0xd8d7855f76c384638cf1dfc3575ecff3538764b4', token: '0x6fea38dedea0c6bb66ce93e5383c34385d8b889f' },
+  { id: 'BTC',    name: 'Bitcoin',    sym: 'sBTC',    emoji: '₿',  oracle: '0x6cc5f621c4e3b46152e69e5c9873689cbb4a85e8', vault: '0x92990ed6f5c8cd72752ca9aeafad422269225c43', token: '0x317e82be8f7cba6c162ab968fcf695d88e8e0359' },
+  { id: 'GOLD',   name: 'Gold ETF',   sym: 'sGOLD',   emoji: '🥇', oracle: '0x35fccde01ae8728c7a7cb83c3f59c701ebecc633', vault: '0x124b5c5da57d209b28d4997aaf6d4e96711efd5a', token: '0xf384562c8bdafce52400eb6839f195695f6fa276' },
+  { id: 'OIL',    name: 'Oil ETF',    sym: 'sOIL',    emoji: '🛢️', oracle: '0x79f354524fd09af16d841a2221af2b2b7bc432c8', vault: '0xfa942399e36959c8060c3a82a610d680a7ac6d22', token: '0x46cead4120f17a968ba1168f1a56563962cf3c4b' },
+  { id: 'NIKKEI', name: 'Nikkei ETF', sym: 'sNKY',    emoji: '🗾', oracle: '0xcd34a4103ad64a3cf729b1b1a58295ccc957fcee', vault: '0xb26029ca37c09400ca921f00fc541cd42143b508', token: '0x445b8f0f827a0d384d1b8ccf18cbc6ec8a543376' },
 ]
 
 // New contract addresses — set these after deploying via deploy-new.mjs
 export const NEW_CONTRACTS = {
-  ammRouter:       '',  // AMM_ROUTER from .env
-  vaultFactory:    '',  // VAULT_FACTORY from .env
-  traceRegistry:   '',  // TRACE_REGISTRY from .env
-  assetRegistry:   '',  // ASSET_REGISTRY from .env
+  ammRouter:       '0xd5b829f9d364a8bbe1caf6c8b19cb05371b178f4',
+  vaultFactory:    '0xca873414070844aeb98b0bf1051f81969c79cc32',
+  traceRegistry:   '0x42d8a23edb897cbee203e9fa197eb05ab5106ca6',
+  assetRegistry:   '0x2d44550711137916df6175587d17886281a0fbc7',
 }
