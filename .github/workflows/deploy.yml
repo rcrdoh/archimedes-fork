@@ -32,7 +32,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script_stop: true
+          command_timeout: 10m
           script: |
             set -euxo pipefail
 
@@ -55,10 +55,11 @@ jobs:
               docker compose logs --tail=50 backend
               exit 1
             }
-            curl -sf http://localhost/ | grep -q 'Archimedes' || {
-              echo "❌ Homepage check failed"
+            homepage_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/)
+            if [ "$homepage_status" != "200" ]; then
+              echo "❌ Homepage check failed (HTTP $homepage_status)"
               docker compose logs --tail=50 nginx
               exit 1
-            }
+            fi
 
             echo "✅ Deploy complete"
