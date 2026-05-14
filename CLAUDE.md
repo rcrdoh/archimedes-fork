@@ -1,10 +1,20 @@
 # Archimedes — Claude Code Context
 
-> **Status:** Draft proposal, written 2026-05-12 (Day 2). Intent: drop at the root of the
-> `archimedes` repo and read at the start of every Claude Code session. Several sections
-> (license confirmation, demo wow-moment, weekly milestones) reference Chuan's
-> [`docs/design.md`](docs/design.md) — read both together; this file is project context,
-> design.md is the architecture spec.
+o> **Status:** Living context doc, written 2026-05-12 (Day 2), revised 2026-05-13 (Day 3)
+> for the marketplace pivot and rigor-as-wedge decision. Intent: drop at the root of the
+> `archimedes` repo and read at the start of every Claude Code session.
+>
+> **Architecture lineage to read together:**
+> - [`docs/design.md`](docs/design.md) — original single-vault architecture
+> - [`docs/specs/ecosystem-design-spec.md`](docs/specs/ecosystem-design-spec.md) — Day-3
+>   two-tier marketplace pivot (synthetic protocol + AMM + VaultFactory + agent-as-a-service)
+> - [`docs/specs/component-interfaces-spec.md`](docs/specs/component-interfaces-spec.md) —
+>   frozen-interface contract for the 5-person concurrent build (Dan owns `IStrategyProvider`)
+> - [`docs/specs/strategy-passport-spec.md`](docs/specs/strategy-passport-spec.md) +
+>   [`docs/specs/selection-bias-corrections-spec.md`](docs/specs/selection-bias-corrections-spec.md)
+>   — the four-primitive admission gate for Tier 1 strategies
+> - [`docs/agora_project_analysis.md`](docs/agora_project_analysis.md) — red-team synthesis
+>   driving the Day-3 rigor-as-wedge framing
 
 ## Project
 
@@ -93,8 +103,69 @@ end of Day 3 whether to spread it across the four engineers or hire externally.
 
 Read [`README.md`](README.md) for the full setup walkthrough — Python conda env via
 [`environment.yml`](environment.yml), Node.js frontend, Foundry for contracts, the
-[arc-canteen CLI](https://github.com/the-canteen-dev/ARC-cli) for traction tracking.
+[arc-canteen CLI](https://github.com/the-canteen-dev/ARC-cli) for traction tracking,
+and a Docker-compose-driven local stack that mirrors the production EC2 deployment.
 Platform-specific notes for macOS / Linux / Windows (WSL2 recommended for Marten).
+
+**Spinning up locally is one command** once `.env` is filled in:
+
+```bash
+cp .env.example .env       # fill in ANTHROPIC_API_KEY + RPC at minimum
+docker compose up -d --build
+```
+
+Then <http://localhost> for the UI mockups and <http://localhost:8000/docs> for the
+backend API. See README § "Run Archimedes locally" for the full walkthrough.
+
+## External references — submodules
+
+The repo carries three git submodules at [`submodules/`](submodules/):
+
+- **[`submodules/context-arc/`](submodules/context-arc/)** — Circle's agent-facing
+  developer docs and 5 reference codebases for Arc + Circle. **This is the canonical
+  reference for any Arc/Circle integration question.** Start with
+  [`submodules/context-arc/AGENTS.md`](submodules/context-arc/AGENTS.md) for the
+  task-indexed entry-point table. Highest-leverage files for our build:
+    - `circlefin-skills/use-smart-contract-platform.md` — contract deploy + monitor (Chuan's lane)
+    - `circlefin-skills/bridge-stablecoin.md` — CCTP + Gateway for RWA bridging (Marten's lane)
+    - `circlefin-skills/use-gateway.md` — unified balance + nanopayments
+    - `samples/arc-escrow/` — closest existing pattern to our vault contract
+    - `samples/arc-multichain-wallet/` — CCTP integration patterns
+    - `samples/arc-p2p-payments/` — Paymaster + USDC patterns
+  Refresh upstream with `git submodule update --remote submodules/context-arc` or
+  `arc-canteen context sync` (drops into `~/.arc-canteen/context/`).
+- **[`submodules/KnowledgeBase/`](submodules/KnowledgeBase/)** — Dan's scientific-
+  paper analysis pipeline (PyMuPDF extract + SPECTER2 embeddings + HDBSCAN/BERTopic
+  clustering + REBEL/SciSpacy knowledge graph). For Archimedes, **don't port wholesale**
+  — read it as a reference implementation. The patterns worth lifting for the
+  Tier-1 arxiv extraction pipeline:
+    - `papers_analysis/extract.py` — PyMuPDF caching pattern (~71 files/s)
+    - `papers_analysis/metadata.py` — paper-corpus schema (maps to our `paper_corpus` table)
+    - `papers_analysis/summarize.py` — Ollama-driven methodology synthesis (we'd use Claude)
+- **[`submodules/Linus/`](submodules/Linus/)** — Dan's personal AI orchestration
+  project. Reference only; nothing to port to Archimedes. The
+  [`experiments/archimedes/`](submodules/Linus/experiments/archimedes/) and
+  [`experiments/agora-hackathon/`](submodules/Linus/experiments/agora-hackathon/)
+  directories contain the priors that seeded several of our current `docs/` files.
+
+## arc-canteen CLI — telemetry surface for the 30% Traction weight
+
+Every teammate authenticates individually (`arc-canteen login` → GitHub device flow).
+The CLI is two things in one binary:
+
+1. A **per-developer Arc-testnet RPC proxy.** `arc-canteen rpc <method>` proxies JSON-RPC
+   calls through Canteen's server. The per-user `swrm_*` token in `~/.arc-canteen/env`
+   authenticates. Allowlist: most reads + `eth_sendRawTransaction`. **The full RPC URL
+   is a secret — see README § "Understanding the RPC URL" for the threat model.**
+2. The **traction telemetry surface that the rubric reads.** Every meaningful product
+   ship should be paired with an `arc-canteen update-product` call; every user we
+   onboard or even talk to should be logged via `arc-canteen update-traction`. The
+   30% Traction score is computed from this telemetry, not from anywhere else. **Until
+   we start logging, the rubric reads zero.** See
+   [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md) for where we
+   currently stand.
+
+`arc-canteen status` shows your current dashboard — what the judges see.
 
 ## Tech Stack
 
@@ -118,19 +189,26 @@ Refer to [`docs/design.md` § 6](docs/design.md) for the full table. Headline ch
 ## Scope — the headline commitments
 
 Refer to [`docs/mvp-scope-memo.md`](docs/mvp-scope-memo.md) for the full argument. Locked
-decisions:
+decisions (5 of them as of Day 3):
 
-- **Primary RFB:** [RFB 04 — Adaptive Portfolio Manager](https://luma.com/7i50p2r9).
-  Adjacent: RFB 02 (Kelly/+EV math primitive); RFB 06 (strategy leaderboard).
-- **Both on-chain stories:** vault contracts for RWA-token allocation **and** reasoning-
-  trace registry for verifiable provenance. Ambitious; achievable with five committed
-  people.
-- **Curated v1 strategy library:** ship 5–10 hand-curated quant strategies; arxiv ingest
-  pipeline runs as a demo feature on 2–3 papers to show the concept.
+1. **Primary RFB:** [RFB 04 — Adaptive Portfolio Manager](https://luma.com/7i50p2r9).
+   Adjacent: RFB 02 (Kelly/+EV math primitive); RFB 06 (strategy leaderboard).
+2. **Both on-chain stories:** vault contracts for portfolio allocation **and** the
+   ReasoningTraceRegistry for verifiable provenance. Both shipping.
+3. **Curated v1 strategy library:** 5–10 hand-curated quant strategies; arxiv ingest
+   pipeline runs as a demo feature on 2–3 papers, not relied on for live decisions.
+4. **(Day 3) Rigor is the wedge.** Every Tier-1 strategy passes the four selection-bias
+   controls (DSR + PBO + walk-forward OOS + look-ahead audit) before admission to the
+   library. Paper-claim deltas are surfaced honestly, not hidden behind an aggregate
+   score. See [`docs/specs/selection-bias-corrections-spec.md`](docs/specs/selection-bias-corrections-spec.md).
+5. **(Day 3) Two-tier marketplace.** Tier 1 (Archimedes Verified 🏆) = paper-grounded +
+   selection-bias-corrected + full agent autonomy. Tier 2 (Community 👥) = permissionless,
+   opt-in agent features. Per [`docs/specs/ecosystem-design-spec.md`](docs/specs/ecosystem-design-spec.md).
 - **Demo vertical:** portfolio construction + autonomous rebalancing on Arc, NOT trading-
   agent-as-product. Per [`docs/architectural-principles.md`](docs/architectural-principles.md),
-  the wedge is verifiable history + paper-grounded provenance, not predicted performance.
-- **Out of scope:** see [`docs/anti-features.md`](docs/anti-features.md).
+  the wedge is verifiable history + paper-grounded provenance + selection-bias rigor.
+- **Out of scope:** see [`docs/anti-features.md`](docs/anti-features.md), including the
+  Day-3 "pitch-rigor anti-claims" section that constrains the deck framing.
 
 ## Engineering conventions
 
@@ -214,30 +292,41 @@ rules:
 
 ## Architectural primitives we want to get right
 
-These three architectural commitments are load-bearing for the pitch's defensibility. Detail
-in the linked specs; principle here.
+These four architectural commitments are load-bearing for the pitch's defensibility.
+Detail in [`docs/architectural-principles.md`](docs/architectural-principles.md); principle
+here.
 
 ### 1. The strategy passport
 
-Every strategy in the library carries a verifiable record: which paper claims back it, what
-methodology the LLM extracted, what backtest results validated it, what reasoning trace the
-agent left when selecting it for a portfolio. Detail in
-[`docs/specs/strategy-passport-spec.md`](docs/specs/strategy-passport-spec.md) — builds on
-Chuan's `ReasoningTrace` shape in [`docs/design.md` § 4.4](docs/design.md).
+Every Tier-1 strategy in the library carries a verifiable record: which paper backs it,
+the methodology hash, curator wallet signature, backtest results with paper-claim deltas
+surfaced. Detail in [`docs/specs/strategy-passport-spec.md`](docs/specs/strategy-passport-spec.md).
 
 ### 2. On-chain provenance anchoring
 
 Reasoning traces, strategy registrations, and rebalance decisions all get hashed and
-anchored on Arc via a `ReasoningTraceRegistry` contract (Chuan's design). The hash is the
-integrity primitive; off-chain storage holds the full trace; anyone can verify a trace
-matches the on-chain anchor.
+anchored on Arc via the `ReasoningTraceRegistry` contract (interface lives in
+[`contracts/src/interfaces/IReasoningTraceRegistry.sol`](contracts/src/interfaces/IReasoningTraceRegistry.sol);
+implementation is on Chuan's queue). Hash is the integrity primitive; off-chain storage
+holds the full trace; anyone can recompute and verify against the on-chain anchor.
 
 ### 3. Non-custodial vault architecture
 
-User funds NEVER pass through platform custody. The pattern: user deposits USDC to an
-Arc-native `ArchimedesVault` contract; the agent has rebalance authority but not withdraw-
-to-platform authority. See Chuan's smart contract architecture in
-[`docs/design.md` § 5.2](docs/design.md).
+User funds NEVER pass through platform custody. ERC-4626 vault contracts per
+[`docs/specs/ecosystem-design-spec.md` § 3.2](docs/specs/ecosystem-design-spec.md) hold
+user USDC and synth tokens; the agent has rebalance authority only, not withdraw-to-
+platform authority.
+
+### 4. Selection-bias correction (Tier-1 admission gate)
+
+Every Tier-1 strategy passes Deflated Sharpe Ratio (Bailey & López de Prado 2014),
+Probability of Backtest Overfitting (Bailey/Borwein/López de Prado/Zhu 2014), walk-
+forward out-of-sample Sharpe with no in/out-of-sample cliff, and a look-ahead static
+audit before promotion from CANDIDATE → VALIDATED. The numbers and the paper-claim
+deltas are surfaced in the passport — never hidden behind an aggregate score. This is
+the Day-3 addition that distinguishes Archimedes from the 96 other AI-portfolio
+submissions at the last Arc HackMoney. Detail in
+[`docs/specs/selection-bias-corrections-spec.md`](docs/specs/selection-bias-corrections-spec.md).
 
 ## Known risks
 

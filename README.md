@@ -39,17 +39,24 @@ on-chain reasoning, settled in pure USDC.** That's the gap.
 | Topic                                          | Document                                                                   |
 | ---------------------------------------------- | -------------------------------------------------------------------------- |
 | 🧭 Project context for Claude Code sessions     | [`CLAUDE.md`](CLAUDE.md)                                                   |
-| 🏗️ System architecture (Chuan)                  | [`docs/design.md`](docs/design.md)                                         |
-| 🎯 MVP scope decisions                          | [`docs/mvp-scope-memo.md`](docs/mvp-scope-memo.md)                         |
+| 🏗️ Original system architecture (Chuan)         | [`docs/design.md`](docs/design.md)                                         |
+| 🌐 Day-3 ecosystem pivot                        | [`docs/specs/ecosystem-design-spec.md`](docs/specs/ecosystem-design-spec.md) |
+| 🤝 Frozen interface contract (5-person concurrent build) | [`docs/specs/component-interfaces-spec.md`](docs/specs/component-interfaces-spec.md) |
+| 🔬 Red-team synthesis + regulatory survey       | [`docs/agora_project_analysis.md`](docs/agora_project_analysis.md)         |
+| 🎯 MVP scope decisions (5 locked)               | [`docs/mvp-scope-memo.md`](docs/mvp-scope-memo.md)                         |
 | 🚫 Anti-features                                | [`docs/anti-features.md`](docs/anti-features.md)                           |
-| 🧱 Architectural principles                     | [`docs/architectural-principles.md`](docs/architectural-principles.md)     |
+| 🧱 Architectural principles (4 primitives)      | [`docs/architectural-principles.md`](docs/architectural-principles.md)     |
 | 📜 Strategy passport spec                       | [`docs/specs/strategy-passport-spec.md`](docs/specs/strategy-passport-spec.md) |
+| 📐 Selection-bias corrections spec (DSR/PBO)    | [`docs/specs/selection-bias-corrections-spec.md`](docs/specs/selection-bias-corrections-spec.md) |
+| 🔒 Commit-reveal trace integrity (v1.5)         | [`docs/specs/commit-reveal-trace-spec.md`](docs/specs/commit-reveal-trace-spec.md) |
 | ⚖️ Backtrader vs vectorbt decision              | [`docs/specs/backtrader-vs-vectorbt-decision-memo.md`](docs/specs/backtrader-vs-vectorbt-decision-memo.md) |
 | 🎓 Q-fin paper corpus seed                      | [`docs/qfin-paper-corpus-seed.md`](docs/qfin-paper-corpus-seed.md)         |
 | 🏛️ Pitch deck + demo script                     | [`docs/demo-script-pitch-deck-outline.md`](docs/demo-script-pitch-deck-outline.md) |
 | 🎨 Claude Design prompts                        | [`docs/claude-design-prompts.md`](docs/claude-design-prompts.md)           |
 | 🔭 RFB alignment                                | [`docs/rfb-alignment.md`](docs/rfb-alignment.md)                           |
 | 🏟️ Competitive landscape                        | [`docs/competitor-landscape.md`](docs/competitor-landscape.md)             |
+| ⚙️ Infra + CI/CD (EC2, Terraform)               | [`docs/infra-setup.md`](docs/infra-setup.md)                              |
+| 📊 Judging-rubric self-assessment               | [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md)   |
 
 ## Repository Structure
 
@@ -59,23 +66,68 @@ archimedes/
 ├── README.md                        # This file
 ├── LICENSE                          # Unlicense (public domain dedication)
 ├── environment.yml                  # Conda env spec for the Python backend
+├── docker-compose.yml               # Local + production stack: postgres + redis + nginx + backend
+├── .env.example                     # Copy to .env and fill in (gitignored)
+│
 ├── docs/                            # Design + planning + specs
-│   ├── design.md                    # Full architecture (Chuan)
-│   ├── architectural-principles.md
-│   ├── competitor-landscape.md
-│   ├── mvp-scope-memo.md
+│   ├── design.md                    # Original architecture (Chuan)
+│   ├── agora_project_analysis.md    # Red-team + regulatory synthesis
+│   ├── architectural-principles.md  # 4 primitives + Tier 1/2 framing
+│   ├── anti-features.md             # Scope discipline + pitch-rigor anti-claims
+│   ├── mvp-scope-memo.md            # 5 locked scope decisions
 │   ├── rfb-alignment.md
-│   ├── anti-features.md
+│   ├── competitor-landscape.md
 │   ├── qfin-paper-corpus-seed.md
 │   ├── demo-script-pitch-deck-outline.md
 │   ├── claude-design-prompts.md
+│   ├── infra-setup.md               # EC2 + Terraform + CI/CD (Chuan)
 │   └── specs/
+│       ├── ecosystem-design-spec.md           # Day-3 marketplace pivot
+│       ├── component-interfaces-spec.md       # Frozen interfaces for 5-person build
 │       ├── strategy-passport-spec.md
+│       ├── selection-bias-corrections-spec.md # DSR / PBO / OOS / look-ahead audit
+│       ├── commit-reveal-trace-spec.md        # v1.5 trace integrity upgrade
 │       └── backtrader-vs-vectorbt-decision-memo.md
-├── backend/                         # FastAPI + strategy engine (TBD)
-├── frontend/                        # Next.js (TBD)
-├── contracts/                       # Solidity contracts for Arc (TBD)
-└── tests/                           # Test suite (TBD)
+│
+├── backend/                         # FastAPI app (Python 3.12)
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── archimedes/
+│       ├── main.py                  # FastAPI entrypoint
+│       ├── api/                     # Routes + Pydantic schemas (Chuan)
+│       ├── models/                  # Shared dataclasses (Strategy, BacktestResult, Trace, Portfolio, …)
+│       ├── interfaces/              # Protocol classes — frozen contracts between teammates
+│       └── services/                # Implementations (strategy_provider lands here)
+│
+├── analytics-engine/                # Backtest engine (Daniel R., uv-managed)
+│   ├── pyproject.toml
+│   ├── src/archimedes_analytics_engine/
+│   │   ├── cli.py                   # `archimedes-analytics-engine` entrypoint
+│   │   ├── engine.py                # backtrader runner + BacktestResult
+│   │   ├── data.py, instruments.py, strategy_loader.py
+│   └── strategies/                  # One .py file per strategy (paper-grounded)
+│       ├── pipeline_buy_hold.py
+│       ├── faber_2007_sma200_timing.py
+│       ├── moreira_muir_2017_volatility_managed.py
+│       └── moskowitz_ooi_pedersen_2012_tsmom.py
+│
+├── contracts/                       # Solidity (Foundry layout)
+│   ├── foundry.toml
+│   ├── src/
+│   │   ├── PriceOracle.sol
+│   │   ├── SyntheticToken.sol
+│   │   ├── SyntheticVault.sol
+│   │   └── interfaces/              # I*.sol — frozen ABIs Marten + Daniel code against
+│   ├── script/Deploy.s.sol
+│   └── test/
+│
+├── ui-mockups/                      # Static HTML mockups (Daniel, served by nginx)
+├── nginx/                           # nginx config for the docker-compose stack
+├── infra/                           # Terraform — EC2 deployment (Chuan)
+└── submodules/                      # External references (git submodules)
+    ├── context-arc/                 # Circle's Arc/Circle docs + 5 sample codebases
+    ├── KnowledgeBase/                # Dan's paper-analysis pipeline (port targets: extract.py, metadata.py)
+    └── Linus/                       # Dan's AI orchestration project (reference only for archimedes)
 ```
 
 ## Tech Stack
@@ -111,12 +163,20 @@ team follows.
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/)                 | Local PostgreSQL + Redis                           |
 | [Foundry](https://book.getfoundry.sh/getting-started/installation)                | Smart contract compilation + testing               |
 
-### 1. Clone the repository
+### 1. Clone the repository (with submodules)
 
 ```bash
-git clone git@github.com:hackagora/archimedes-arcadia.git archimedes
+git clone --recurse-submodules git@github.com:hackagora/archimedes-arcadia.git archimedes
 cd archimedes
 ```
+
+If you already cloned without `--recurse-submodules`, populate them now:
+
+```bash
+git submodule update --init --recursive
+```
+
+The `submodules/` directory carries Circle's [`context-arc`](submodules/context-arc/) (Arc + Circle developer docs and 5 sample codebases) and Dan's [`KnowledgeBase`](submodules/KnowledgeBase/) + [`Linus`](submodules/Linus/) reference projects.
 
 ### 2. Create the Python environment
 
@@ -169,38 +229,277 @@ echo '[ -f ~/.arc-canteen/env ] && . ~/.arc-canteen/env' >> ~/.zshrc
 
 Then `$RPC` is set automatically in new shells.
 
-### 4. Frontend setup
-
-```bash
-cd frontend
-npm install     # or pnpm install
-npm run dev     # → http://localhost:3000
-```
-
-(The `frontend/` directory will land as Daniel's PR.)
-
-### 5. Database (Docker Compose)
-
-```bash
-docker compose up -d postgres redis
-```
-
-(The `docker-compose.yml` will land alongside the backend skeleton.)
-
-### 6. Smart contracts (Foundry)
+### 4. Smart contracts (Foundry)
 
 ```bash
 curl -L https://foundry.paradigm.xyz | bash
 foundryup
 ```
 
-Verify against Arc testnet using your arc-canteen RPC:
+Verify against Arc testnet using your arc-canteen RPC (see § "Run Archimedes locally" below for what `$RPC` means and how to set it):
 
 ```bash
 source ~/.arc-canteen/env       # ensures $RPC is set
 cast block-number --rpc-url $RPC
 cast chain-id --rpc-url $RPC
 ```
+
+The contract sources live in [`contracts/src/`](contracts/src/) and follow the Foundry layout. Build + test:
+
+```bash
+cd contracts
+forge build
+forge test
+```
+
+### 5. Frontend (UI mockups via nginx)
+
+The `frontend/` Next.js app is on Daniel's queue. Until it lands, [`ui-mockups/`](ui-mockups/) carries static HTML mockups for the 8 marketplace screens (marketplace, vault detail, portfolio dashboard, strategy explorer, swap, vault creator, onboarding, reasoning-trace viewer). Docker compose serves them via nginx on port 80 — see § "Run Archimedes locally" below.
+
+---
+
+## Run Archimedes locally
+
+This is the everyone-on-the-team path for spinning up Archimedes on your laptop and poking it. The docker-compose stack reproduces the production EC2 deployment so what you see locally is what runs on the team's shared instance.
+
+### What you get
+
+`docker compose up` brings up four services:
+
+| Service     | Port | URL                              | What it is |
+| ----------- | ---- | -------------------------------- | ---------- |
+| `nginx`     | 80   | <http://localhost>               | Static `ui-mockups/` — Daniel's 8 marketplace screens |
+| `backend`   | 8000 | <http://localhost:8000/docs>     | FastAPI app (Swagger UI auto-generated from `backend/archimedes/api/routes.py`) |
+| `postgres`  | 5432 | `postgres://archimedes@localhost:5432/archimedes` | DB for strategies, backtests, reasoning traces |
+| `redis`     | 6379 | `redis://localhost:6379/0`       | Live regime state cache; agent loop scratch |
+
+### Prerequisites (one-time)
+
+- Docker Desktop running (or any Docker daemon)
+- The conda env from Step 2 above is **only** needed if you also want to run `pytest`, the `analytics-engine` CLI, or any Python tool *outside* the containers. The containers ship their own Python; you don't need conda to use the local stack.
+
+### Step 1 — Create your `.env` file
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` in your editor and fill in the values that are blank. Defaults work for postgres + redis. The variables that need real values for full functionality:
+
+| Variable                     | Where to get it                                       | Required for             |
+| ---------------------------- | ----------------------------------------------------- | ------------------------ |
+| `ANTHROPIC_API_KEY`          | <https://console.anthropic.com>                       | Reasoning-trace + arxiv extraction features |
+| `RPC`                        | `~/.arc-canteen/env` (after `arc-canteen login`)      | On-chain features (contracts, trace anchoring) |
+| `DEV_WALLET_ADDRESS` / `_PRIVATE_KEY` | `cast wallet new` (generate a fresh dev wallet) | Submitting signed transactions to Arc |
+| `*_ADDRESS`                  | Auto-populated after Chuan deploys contracts          | On-chain features        |
+
+You can leave these blank to start — the API will boot, you can hit the routes, and the UI mockups will render. The on-chain features just won't work until you populate them.
+
+### Step 2 — Spin up the stack
+
+```bash
+docker compose up -d --build
+```
+
+On first run this downloads ~150 MB of base images (postgres-alpine, redis-alpine, python:3.12-slim, nginx-alpine) and builds the backend image from `backend/Dockerfile`. Subsequent runs are seconds.
+
+Watch healthchecks succeed:
+
+```bash
+docker compose ps
+# All four services should report "running" and "(healthy)"
+```
+
+### Step 3 — Verify it works
+
+| Open in your browser | Expect to see |
+| -------------------- | ------------- |
+| <http://localhost>           | Daniel's marketplace mockup (`ui-mockups/index.html`) |
+| <http://localhost:8000>      | `{"name":"Archimedes","tagline":"Peer-reviewed AI portfolios, settled on Arc.","docs":"/docs"}` |
+| <http://localhost:8000/health> | `{"status":"ok","service":"archimedes-backend"}` |
+| <http://localhost:8000/docs> | Swagger UI auto-rendered from the API contract |
+
+The Swagger UI right now shows route signatures only — handlers are stubs (the orchestrator wiring is on Chuan's queue per [`docs/specs/component-interfaces-spec.md`](docs/specs/component-interfaces-spec.md)). The contract is real even if the implementations are placeholders.
+
+### Step 4 — Drive the strategy library from the Python side
+
+The analytics-engine and the strategy provider work locally without Docker — handy if you want to debug strategies without rebuilding the container. From a conda-`archimedes` shell:
+
+```bash
+# List the loaded strategy passport metadata (uses the in-process strategy provider)
+python -c "
+import sys; sys.path.insert(0, 'backend')
+from archimedes.services.strategy_provider import default_provider
+p = default_provider()
+for s in p.list_strategies():
+    print(f'{s.paper_title}  ({s.paper_venue}, {s.paper_year})')
+    print(f'  paper_grounded={s.is_paper_grounded}  profiles={s.risk_profiles}')
+"
+
+# Run a real backtest via the analytics-engine CLI (requires uv in the engine subdir)
+cd analytics-engine
+uv sync
+uv run archimedes-analytics-engine run --operations SPY GOLD TREASURY
+# Artifacts land in analytics-engine/artifacts/
+```
+
+### Step 5 — Tear down
+
+```bash
+docker compose down                 # stop containers; keep data
+docker compose down -v              # stop containers; wipe postgres volume (start fresh)
+docker compose logs -f backend      # tail the backend logs
+docker compose logs postgres        # database logs
+```
+
+### Step 6 — Optional: connect to Arc testnet
+
+If you want to make on-chain calls (read contract state, send signed transactions, etc.) you need `$RPC` set — the per-developer RPC URL from `arc-canteen`. See **§ "Understanding the RPC URL"** below for the full picture.
+
+```bash
+# One-off: source the env then call any Eth RPC method
+source ~/.arc-canteen/env       # exports $RPC
+cast chain-id --rpc-url $RPC    # → 0x4cef52 (Arc testnet)
+cast block-number --rpc-url $RPC
+
+# Or via the canteen CLI directly:
+arc-canteen rpc eth_chainId
+```
+
+To make these calls available inside the docker stack, paste the URL into `.env` as the `RPC` variable and `docker compose up -d` again (compose re-exports the env vars to the backend container).
+
+---
+
+## Understanding the RPC URL
+
+The single most-used piece of infrastructure on this project. Worth a minute of orientation, especially for anyone newer to EVM tooling.
+
+### What you get from `arc-canteen login`
+
+A URL of the form:
+
+```
+https://rpc.testnet.arc-node.thecanteenapp.com/v1/swrm_<64-hex>
+```
+
+Three pieces glued together:
+
+1. **`rpc.testnet.arc-node.thecanteenapp.com`** — Canteen's JSON-RPC **proxy** for the Arc testnet (not the Arc node itself; a proxy in front of it).
+2. **`/v1/`** — proxy API version.
+3. **`swrm_<64-hex>`** — your **per-user server token**, embedded in the URL path. Each teammate has a different one.
+
+### What it does
+
+The Arc chain is EVM-compatible, so it speaks the standard Ethereum JSON-RPC protocol — the same HTTP API that geth, Infura, Alchemy etc. expose. The proxy lets you make calls like:
+
+| Method                       | Effect                                                | Read or write |
+| ---------------------------- | ----------------------------------------------------- | ------------- |
+| `eth_chainId`                | Returns `0x4cef52` for Arc testnet                    | Read          |
+| `eth_blockNumber`            | Current head block number                             | Read          |
+| `eth_getBalance`             | USDC/native-token balance of an address               | Read          |
+| `eth_call`                   | Simulate a contract function call (no state change)   | Read          |
+| `eth_getLogs`                | Query event logs by topic / address / block range     | Read          |
+| `eth_sendRawTransaction`     | Submit a **pre-signed** transaction to be mined       | Write         |
+
+The proxy enforces a **method allowlist** — most reads plus `eth_sendRawTransaction`. Try a non-allowlisted method and you'll see `method '<x>' not allowed by the proxy`.
+
+### What the token is NOT
+
+The `swrm_*` token is **not a wallet private key.** It can't sign transactions on its own. The signing flow is:
+
+1. You hold a wallet private key (a separate 64-hex string, generated by `cast wallet new` or Circle's wallet service — **never** stored in `~/.arc-canteen/`).
+2. Your code uses the private key to sign a transaction *locally* (`web3.py`, `viem`, `forge create`, etc.).
+3. The signed-transaction bytes are submitted to the proxy via `eth_sendRawTransaction`.
+4. The proxy forwards the bytes to an Arc node.
+
+If someone steals your `swrm_` token they can eat your rate limit and attribute spurious activity to your handle; **they can't drain a wallet** with it. Rotate (`arc-canteen rotate-rpc-key`) if leaked, but don't panic.
+
+### How you actually use it
+
+Three patterns. Pick whichever fits the task.
+
+**Pattern A — One-off via the canteen CLI:**
+
+```bash
+arc-canteen rpc eth_chainId
+arc-canteen rpc eth_blockNumber
+arc-canteen rpc eth_getBalance '["0xYOUR_ADDRESS", "latest"]'
+```
+
+**Pattern B — Set `$RPC` once, then any tool that takes `--rpc-url`:**
+
+```bash
+source ~/.arc-canteen/env
+cast block-number --rpc-url $RPC
+cast chain-id --rpc-url $RPC
+forge create --rpc-url $RPC src/MyContract.sol:MyContract
+```
+
+**Pattern C — From Python or TypeScript:**
+
+```python
+import os
+from web3 import Web3
+w3 = Web3(Web3.HTTPProvider(os.environ["RPC"]))
+print(w3.eth.chain_id, w3.eth.block_number)
+```
+
+```typescript
+import { createPublicClient, http } from "viem";
+const client = createPublicClient({ transport: http(process.env.RPC!) });
+const block = await client.getBlockNumber();
+```
+
+### Why the proxy exists
+
+1. **Telemetry attribution.** The proxy logs every call. The 30% Traction score in the hackathon rubric reads from this telemetry. Without per-user auth, Canteen has no way to tell which team's agent generated which on-chain activity.
+2. **Per-team rate limiting.** Without auth, one runaway loop from any team would degrade the testnet for everyone.
+3. **Operational control.** Canteen can spin the testnet up/down and revoke individual tokens without distributing new node URLs.
+
+---
+
+## Reporting traction (the 30% rubric weight)
+
+The `arc-canteen` CLI is not just an RPC proxy — it's also the **traction telemetry surface** that the judging rubric reads. **Until the team starts calling `update-traction` and `update-product` regularly, the rubric scoreboard for Archimedes reads zero, regardless of what's shipped.**
+
+Two commands matter:
+
+```bash
+# Log a product / feature update — call after merging anything meaningful
+arc-canteen update-product "Strategy passport landed: 3 paper-grounded strategies, DSR + PBO spec for Önder"
+
+# Log a traction event — call every time you talk to a potential user or onboard someone
+arc-canteen update-traction "Onboarded user 0x... — deposited 100 USDC into Tier-1 vault, executed first rebalance"
+```
+
+Run `arc-canteen status` to view your current dashboard — what the judges will see when they look at your handle. The judging-rubric assessment in [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md) breaks down where we currently stand on each of the 4 weighted criteria.
+
+---
+
+## Using the context-arc submodule
+
+[`submodules/context-arc/`](submodules/context-arc/) is Circle's curated bundle of Arc + Circle developer documentation and 5 reference codebases (`arc-commerce`, `arc-escrow`, `arc-fintech`, `arc-multichain-wallet`, `arc-p2p-payments`). It is the single best place to look up anything Arc- or Circle-specific.
+
+Start with [`submodules/context-arc/AGENTS.md`](submodules/context-arc/AGENTS.md) for the entry-point index. Task-routed quick reference:
+
+| Task                                            | Start with                                                            |
+| ----------------------------------------------- | --------------------------------------------------------------------- |
+| Anything Arc-specific (chain config, deploy)    | `circlefin-skills/use-arc.md`                                         |
+| USDC transfers / balances / approvals           | `circlefin-skills/use-usdc.md`                                        |
+| Cross-chain USDC (CCTP, Bridge Kit)             | `circlefin-skills/bridge-stablecoin.md`                               |
+| Custodial / dev-controlled wallets              | `circlefin-skills/use-developer-controlled-wallets.md`                |
+| Unified balance / nanopayments (Gateway)        | `circlefin-skills/use-gateway.md`                                     |
+| Contract templates, deploy, monitor             | `circlefin-skills/use-smart-contract-platform.md`                     |
+| AI agent that holds + spends USDC itself        | `docs/developers.circle.com/agent-stack.md` (Circle CLI + Agent Wallets) |
+| Onchain agent identity / job settlement         | `docs/docs.arc.network/build/agentic-economy.md` (ERC-8004 / ERC-8183) |
+
+Refresh upstream when Circle pushes new docs:
+
+```bash
+git submodule update --remote submodules/context-arc
+```
+
+Or via the canteen CLI: `arc-canteen context sync` (drops a copy into `~/.arc-canteen/context/`).
 
 ---
 

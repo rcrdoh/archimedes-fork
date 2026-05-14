@@ -1,23 +1,31 @@
 # MVP Scope Memo
 
-> **Date:** 2026-05-12 (Day 2)
+> **Date:** 2026-05-12 (Day 2). **Last revised 2026-05-13 (Day 3)** — see § "Day 3
+> updates" below for the marketplace expansion and the rigor-as-wedge decision.
 > **Audience:** Archimedes hackathon team
-> **Purpose:** Formalize three scope decisions that came out of the Day-2 standup and the
-> design-doc review: RFB lock-in, on-chain ambition, and strategy-library breadth. This is
-> the document the team commits to — when scope creep starts, this is the back-pressure
-> reference.
+> **Purpose:** Formalize the locked scope decisions that came out of the Day-2 standup
+> and the Day-3 design pivot. This is the document the team commits to — when scope creep
+> starts, this is the back-pressure reference.
 
 ## TL;DR
 
 1. **Primary RFB: 04 — Adaptive Portfolio Manager.** Adjacent: RFB 02 (Kelly/+EV math
    primitive); RFB 06 (strategy leaderboard).
-2. **Both on-chain stories are in scope:** ArchimedesVault contracts for RWA-token
-   allocation **and** ReasoningTraceRegistry for verifiable provenance. Shoot for the moon.
+2. **Both on-chain stories are in scope:** vault contracts for portfolio allocation
+   **and** ReasoningTraceRegistry for verifiable provenance. Shoot for the moon.
 3. **Strategy library v1 = curated, ~5–10 hand-built strategies.** Arxiv ingest pipeline
    runs as a demo feature on 2–3 papers — shown in the pitch, not relied on for the wow
    moment.
+4. **(Day 3 addition) Rigor is the wedge.** Selection-bias-corrected backtests
+   (DSR + PBO + walk-forward OOS + look-ahead audit) gate every Tier-1 strategy. The
+   passport surfaces paper-claim deltas honestly. This is what distinguishes Archimedes
+   from the 96 other "AI portfolio agent" submissions at the last Arc HackMoney.
+5. **(Day 3 addition) Two-tier marketplace.** Tier 1 = Archimedes-Verified, paper-grounded,
+   full agent autonomy, selection-bias-corrected. Tier 2 = community, permissionless,
+   opt-in agent features. The single-vault original scope is replaced by VaultFactory
+   per [`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md).
 
-These three decisions cascade through every other doc in `docs/`. Treat them as locked
+These five decisions cascade through every other doc in `docs/`. Treat them as locked
 unless the team explicitly agrees to change one (and updates this memo).
 
 ## Decision 1 — RFB lock-in
@@ -146,6 +154,69 @@ and the per-paper rationale. Headline criteria for a paper to make the v1 librar
    markets.
 4. **Sharpe ≥ 0.5 in our re-run** at conservative transaction costs (10bps round-trip).
 5. **No look-ahead bias** in our re-run (walk-forward only).
+
+## Day 3 updates (2026-05-13)
+
+Two new commitments were locked on Day 3, prompted by Chuan's ecosystem-design pivot
+([`specs/ecosystem-design-spec.md`](specs/ecosystem-design-spec.md)) and Dan's red-team
+synthesis ([`agora_project_analysis.md`](agora_project_analysis.md)). Both are now
+treated as locked alongside the original three decisions.
+
+### Decision 4 — Rigor is the wedge
+
+**Choice:** Every Tier-1 strategy passes the four selection-bias controls before
+admission to the library: Deflated Sharpe Ratio (Bailey & López de Prado 2014),
+Probability of Backtest Overfitting (Bailey/Borwein/López de Prado/Zhu 2014),
+walk-forward out-of-sample Sharpe with no in-sample/test cliff, and a look-ahead static
+audit. Paper-claim deltas (`sharpe_vs_paper`, `cagr_vs_paper`, McLean-Pontiff
+post-publication decay estimate) are surfaced in the passport — never hidden behind an
+aggregate score.
+
+**Why:** The strongest red-team critique of any LLM-extracted strategy pipeline is the
+multiple-testing inflation problem. McLean & Pontiff (2016) showed published predictors
+lose ~58% of in-sample Sharpe post-publication on average; Bailey, Borwein, López de
+Prado & Zhu (2014) showed in-sample-optimal strategies frequently underperform the OOS
+median under realistic conditions. Either failure mode produces a "validated" library
+full of curve-fit artifacts. Applying the textbook corrections — and surfacing the
+results — is the single change that turns the analysis-doc critique from a *risk* into
+a *differentiator*. See [`specs/selection-bias-corrections-spec.md`](specs/selection-bias-corrections-spec.md)
+for Önder's implementation contract.
+
+### Decision 5 — Two-tier marketplace
+
+**Choice:** Replace the single-vault original scope (ArchimedesVault holding pooled USDC
+managed by one agent) with a two-tier vault marketplace per the ecosystem-design-spec:
+
+- **Tier 1 (Archimedes Verified 🏆):** strategies are paper-grounded and selection-bias-
+  corrected; the agent has full autonomy (regime detection, autonomous rebalancing,
+  strategy rotation); every decision produces an anchored reasoning trace.
+- **Tier 2 (Community 👥):** permissionless vault creation by any wallet, any asset
+  combination, opt-in agent features (drift alerts, basic regime response). Tier 2
+  vaults carry reasoning traces if agent-assisted but are not paper-grounded.
+
+**Why:** A two-tier marketplace deepens the Circle SDK surface (VaultFactory + ERC-4626
++ AMM-traded vault tokens = copy-trade primitive), opens an organic traction channel
+(community vault authors), and clarifies the architectural moat (Tier 1 = primitives
+1+2+3+4; Tier 2 = primitives 2+3 only — see `architectural-principles.md`). The single
+vault wasn't the goal; verifiable, paper-grounded, selection-bias-corrected portfolio
+management was. The marketplace just makes the moat legible.
+
+### What gets cut if Day 3 ambition outruns the timeline
+
+If by end of Week 1 the ecosystem layer is at risk, the cut order is (best → worst):
+
+1. **AMM-traded vault tokens** — cut last. Without these, vaults still work; users
+   deposit/withdraw at NAV. The copy-trade UX degrades but the demo holds.
+2. **Tier 2 community vaults** — cut second. Tier 1 + the agent + the passport are the
+   pitch. Tier 2 is the marketplace dressing.
+3. **Per-vault chat** — cut third. Reasoning trace viewer is the verifiability primitive;
+   chat is the engagement layer on top.
+4. **Synthetic protocol** — cut last-resort. If we can't ship synthetics, fall back to
+   the original ArchimedesVault holding USYC + a subset of bridged RWAs. This is a
+   meaningful retreat — flag immediately if it becomes likely.
+
+The four primitives in `architectural-principles.md` are NOT on this cut list. The whole
+pitch dies without them.
 
 ## Cross-decision implications
 
