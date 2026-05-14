@@ -1,6 +1,6 @@
 # Archimedes — Claude Code Context
 
-> **Status:** Living context doc, written 2026-05-12 (Day 2), revised 2026-05-13 (Day 3)
+o> **Status:** Living context doc, written 2026-05-12 (Day 2), revised 2026-05-13 (Day 3)
 > for the marketplace pivot and rigor-as-wedge decision. Intent: drop at the root of the
 > `archimedes` repo and read at the start of every Claude Code session.
 >
@@ -103,8 +103,69 @@ end of Day 3 whether to spread it across the four engineers or hire externally.
 
 Read [`README.md`](README.md) for the full setup walkthrough — Python conda env via
 [`environment.yml`](environment.yml), Node.js frontend, Foundry for contracts, the
-[arc-canteen CLI](https://github.com/the-canteen-dev/ARC-cli) for traction tracking.
+[arc-canteen CLI](https://github.com/the-canteen-dev/ARC-cli) for traction tracking,
+and a Docker-compose-driven local stack that mirrors the production EC2 deployment.
 Platform-specific notes for macOS / Linux / Windows (WSL2 recommended for Marten).
+
+**Spinning up locally is one command** once `.env` is filled in:
+
+```bash
+cp .env.example .env       # fill in ANTHROPIC_API_KEY + RPC at minimum
+docker compose up -d --build
+```
+
+Then <http://localhost> for the UI mockups and <http://localhost:8000/docs> for the
+backend API. See README § "Run Archimedes locally" for the full walkthrough.
+
+## External references — submodules
+
+The repo carries three git submodules at [`submodules/`](submodules/):
+
+- **[`submodules/context-arc/`](submodules/context-arc/)** — Circle's agent-facing
+  developer docs and 5 reference codebases for Arc + Circle. **This is the canonical
+  reference for any Arc/Circle integration question.** Start with
+  [`submodules/context-arc/AGENTS.md`](submodules/context-arc/AGENTS.md) for the
+  task-indexed entry-point table. Highest-leverage files for our build:
+    - `circlefin-skills/use-smart-contract-platform.md` — contract deploy + monitor (Chuan's lane)
+    - `circlefin-skills/bridge-stablecoin.md` — CCTP + Gateway for RWA bridging (Marten's lane)
+    - `circlefin-skills/use-gateway.md` — unified balance + nanopayments
+    - `samples/arc-escrow/` — closest existing pattern to our vault contract
+    - `samples/arc-multichain-wallet/` — CCTP integration patterns
+    - `samples/arc-p2p-payments/` — Paymaster + USDC patterns
+  Refresh upstream with `git submodule update --remote submodules/context-arc` or
+  `arc-canteen context sync` (drops into `~/.arc-canteen/context/`).
+- **[`submodules/KnowledgeBase/`](submodules/KnowledgeBase/)** — Dan's scientific-
+  paper analysis pipeline (PyMuPDF extract + SPECTER2 embeddings + HDBSCAN/BERTopic
+  clustering + REBEL/SciSpacy knowledge graph). For Archimedes, **don't port wholesale**
+  — read it as a reference implementation. The patterns worth lifting for the
+  Tier-1 arxiv extraction pipeline:
+    - `papers_analysis/extract.py` — PyMuPDF caching pattern (~71 files/s)
+    - `papers_analysis/metadata.py` — paper-corpus schema (maps to our `paper_corpus` table)
+    - `papers_analysis/summarize.py` — Ollama-driven methodology synthesis (we'd use Claude)
+- **[`submodules/Linus/`](submodules/Linus/)** — Dan's personal AI orchestration
+  project. Reference only; nothing to port to Archimedes. The
+  [`experiments/archimedes/`](submodules/Linus/experiments/archimedes/) and
+  [`experiments/agora-hackathon/`](submodules/Linus/experiments/agora-hackathon/)
+  directories contain the priors that seeded several of our current `docs/` files.
+
+## arc-canteen CLI — telemetry surface for the 30% Traction weight
+
+Every teammate authenticates individually (`arc-canteen login` → GitHub device flow).
+The CLI is two things in one binary:
+
+1. A **per-developer Arc-testnet RPC proxy.** `arc-canteen rpc <method>` proxies JSON-RPC
+   calls through Canteen's server. The per-user `swrm_*` token in `~/.arc-canteen/env`
+   authenticates. Allowlist: most reads + `eth_sendRawTransaction`. **The full RPC URL
+   is a secret — see README § "Understanding the RPC URL" for the threat model.**
+2. The **traction telemetry surface that the rubric reads.** Every meaningful product
+   ship should be paired with an `arc-canteen update-product` call; every user we
+   onboard or even talk to should be logged via `arc-canteen update-traction`. The
+   30% Traction score is computed from this telemetry, not from anywhere else. **Until
+   we start logging, the rubric reads zero.** See
+   [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md) for where we
+   currently stand.
+
+`arc-canteen status` shows your current dashboard — what the judges see.
 
 ## Tech Stack
 
