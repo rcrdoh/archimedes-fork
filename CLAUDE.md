@@ -1,8 +1,9 @@
 # Archimedes — Claude Code Context
 
-o> **Status:** Living context doc, written 2026-05-12 (Day 2), revised 2026-05-13 (Day 3)
-> for the marketplace pivot and rigor-as-wedge decision. Intent: drop at the root of the
-> `archimedes` repo and read at the start of every Claude Code session.
+> **Status:** Living context doc. Written 2026-05-12 (Day 2), revised 2026-05-13 (Day 3)
+> for the marketplace pivot and rigor-as-wedge decision, revised 2026-05-14 (Day 4) after
+> the 10-contract Arc-testnet deployment, live UI, and ownership reshuffle. Intent: drop
+> at the root of the `archimedes` repo and read at the start of every Claude Code session.
 >
 > **Architecture lineage to read together:**
 > - [`docs/design.md`](docs/design.md) — original single-vault architecture
@@ -30,7 +31,11 @@ May 11–25, 2026.
 
 - Repository: [`github.com/hackagora/archimedes-arcadia`](https://github.com/hackagora/archimedes-arcadia)
 - Discord: **Archimedes Arcadia** server
-- Primary branch: `main`; active design work on `design`; integration on `develop`
+- Branch model: `develop` is the integration branch; `main` is protected and promoted-to
+  once stable. Per-owner staging branches (e.g. `dbrowneup/<name>`, `moonshot/<name>`,
+  `marten`) are personal scratch space before opening a PR
+- Live testnet deploy: [`http://18.171.230.205/`](http://18.171.230.205/) (EC2,
+  Chain ID `5042002` / `0x4cef52`, Arc testnet)
 - License: [Unlicense](https://unlicense.org) — full public-domain dedication
 
 ## North Star
@@ -89,15 +94,20 @@ Bremen / 16:00 Ankara. Works across the whole team without anyone in unsocial ho
 | -------------------------------------------------- | ---------------- | --------------------- |
 | Strategy engine + Q-fin paper corpus curation       | Dan              | Önder                 |
 | Backtesting / strategy-passport math + risk pricing | Önder            | Dan                   |
-| Backend (FastAPI, strategy DB, portfolio agent)     | (open — TBD)     | Marten                |
-| Frontend (Next.js, portfolio dashboard, traces)     | Daniel           | Dan                   |
-| Smart contracts (Arc, Circle SDK)                   | Chuan            | Marten                |
-| Off-chain ↔ on-chain orchestration                  | Marten           | Chuan                 |
+| Backend Python layer (FastAPI, API, services, models) | Daniel R.      | Marten                |
+| On-chain integration layer (`backend/archimedes/chain/`, oracle runner) | Chuan | Marten          |
+| Frontend (React + Vite + viem, wallet UX, trade tab) | Marten (current) / Daniel R. | Dan       |
+| Smart contracts (Arc, Foundry, 10 deployed)         | Chuan            | Marten                |
+| Infra / EC2 / CI/CD / docker-compose                | Chuan            | Daniel R.             |
 | Architecture + design decisions                     | Chuan (lead)     | full team             |
-| Pitch deck + demo script + judging strategy         | Dan              | Marten                |
+| Pitch deck + demo script + Claude Design + judging  | Dan              | Marten                |
 
-Backend ownership is the one un-filled slot since Shimon left. The team should decide by
-end of Day 3 whether to spread it across the four engineers or hire externally.
+The post-Shimon backend slot resolved as a Daniel R. (Python backend) + Chuan (on-chain
+integration) split — the `chain/` subdirectory under `backend/archimedes/` is Chuan's, and
+`api/` + `services/` + `models/` + `interfaces/` are Daniel R.'s. Both layers share the
+`backend/archimedes/` Python package and the FastAPI app boots them together via
+`main.py`. Marten currently has the most recent commits on the React UI as he comes up to
+speed on what the team has built.
 
 ## Setup
 
@@ -169,10 +179,20 @@ The CLI is two things in one binary:
 
 ## Tech Stack
 
-Refer to [`docs/design.md` § 6](docs/design.md) for the full table. Headline choices:
+Refer to [`docs/design.md` § 6](docs/design.md) for the full table. Headline choices as
+they actually shipped (Day 4):
 
-- **Backend:** Python 3.12 / FastAPI / Uvicorn
-- **Frontend:** Next.js + TailwindCSS (Daniel's call as frontend owner)
+- **Backend:** Python 3.12 / FastAPI / Uvicorn, packaged as `backend/archimedes/` with
+  subpackages `api/` (routes), `chain/` (on-chain integration + oracle runner),
+  `interfaces/` (frozen Protocol classes), `models/` (Strategy, BacktestResult,
+  ReasoningTrace, Portfolio dataclasses), `services/` (LocalStrategyProvider etc.)
+- **Frontend:** React 19 + Vite 8 + viem 2.48 + plain CSS. Lives at [`ui/`](ui/) (the
+  earlier `ui-mockups/` static-HTML directory is now retired but still in-tree).
+  Components shipped: `Layout`, `WalletConnect` (MetaMask / Coinbase / generic browser
+  wallet), `Trade`
+- **Analytics engine:** [`analytics-engine/`](analytics-engine/) — uv-managed Python
+  package with the backtrader runner. Loads strategy files from
+  [`analytics-engine/strategies/`](analytics-engine/strategies/)
 - **DB:** PostgreSQL + Redis (Postgres for strategies + backtests; Redis for live regime
   state)
 - **LLM:** Claude API for strategy extraction, reasoning trace generation, user-facing
@@ -182,9 +202,17 @@ Refer to [`docs/design.md` § 6](docs/design.md) for the full table. Headline ch
   Supersedes `docs/design.md` § 6 ("vectorbt / custom numpy engine") on this one
   line; design.md remains the architecture spec for everything else. Migration to
   vectorbt is a v2 problem if parameter-sweep speed becomes a constraint.
-- **Smart contracts:** Solidity targeting Arc (EVM-compatible)
-- **On-chain integration:** Circle SDK — Wallets, USYC, Gateway, CCTP, Paymaster, App Kit
-- **Deployment:** Docker + Fly.io / Railway
+- **Smart contracts:** Solidity + Foundry, targeting Arc (EVM-compatible). **10 contracts
+  deployed on Arc testnet as of Day 4**: `AMMPool`, `AMMRouter`, `AssetRegistry`,
+  `PriceOracle`, `ReasoningTraceRegistry`, `SyntheticFactory`, `SyntheticToken`,
+  `SyntheticVault`, `Vault`, `VaultFactory`. ABIs cached in
+  [`contracts/abis/`](contracts/abis/) for backend + UI consumption
+- **On-chain integration:** Circle SDK — Wallets (Circle-managed wallet for the oracle
+  signer), USYC, Gateway, CCTP, Paymaster; viem on the UI side
+- **Deployment:** Docker compose stack (5 services: postgres / redis / nginx / oracle /
+  backend) running on an EC2 instance behind nginx. CI/CD wired via GitHub Actions per
+  [`docs/infra-setup.md`](docs/infra-setup.md). Live at
+  [`http://18.171.230.205/`](http://18.171.230.205/)
 
 ## Scope — the headline commitments
 
@@ -214,15 +242,19 @@ decisions (5 of them as of Day 3):
 
 ### Branch model (5-person hackathon team, async-first)
 
-- `main` is protected. Every change goes through a PR.
+- `main` is protected. Every change goes through a PR. (Day-4 reality: small infra fixes
+  have occasionally landed on `main` directly via merge from the contracts owner's branch
+  for hotfix expediency. Keep this rare — `develop` is the integration target.)
 - `develop` is the integration branch — merge feature branches here first; promote to
   `main` once stable.
 - Feature branches: `feat/<short-name>`, e.g. `feat/strategy-passport`,
-  `feat/regime-detection`.
+  `feat/regime-detection`, `feat/ec2-infra-cicd`.
 - Per-owner branches: `<discord-handle>/<short-name>`, e.g. `moonshot/contracts-v0`,
-  `marten/arc-cli-spike`. Personal staging.
-- Smart-contract branches: `contract/<short-name>` — these get **two reviews** (Chuan +
-  one generalist) before merge.
+  `marten/arc-cli-spike`, `dbrowneup/strategy-foundation`,
+  `danielscoffee/backtest`. Personal staging.
+- Smart-contract branches: `smart-contracts` (the live branch Chuan uses) or
+  `contract/<short-name>` for spikes — these get **two reviews** (Chuan + one generalist)
+  before merge.
 - **No force-push to `main` or `develop`. Ever.** Force-push to your own branch before
   opening a PR is fine.
 
@@ -277,8 +309,11 @@ rules:
 - Any smart contract change (needs Chuan's review)
 - Editing `.env.example` (signals an env contract change for everyone)
 - Editing [`environment.yml`](environment.yml) (every team member rebuilds their env on a change)
-- Anything that touches the strategy-passport / reasoning-trace data flow once it lands
-- Anything that touches the on-chain vault contract once it lands
+- Anything that touches the strategy-passport / reasoning-trace data flow (the
+  `ReasoningTraceRegistry` contract is live as of Day 4 — modifications are
+  contract-review-grade work)
+- Anything that touches the on-chain vault contracts (`Vault`, `VaultFactory`,
+  `SyntheticVault` — all deployed as of Day 4)
 - Anything that touches `~/.arc-canteen/` files (those are individual team-member credentials —
   see [`README.md` "Security notes"](README.md#security-notes))
 
@@ -305,10 +340,14 @@ surfaced. Detail in [`docs/specs/strategy-passport-spec.md`](docs/specs/strategy
 ### 2. On-chain provenance anchoring
 
 Reasoning traces, strategy registrations, and rebalance decisions all get hashed and
-anchored on Arc via the `ReasoningTraceRegistry` contract (interface lives in
-[`contracts/src/interfaces/IReasoningTraceRegistry.sol`](contracts/src/interfaces/IReasoningTraceRegistry.sol);
-implementation is on Chuan's queue). Hash is the integrity primitive; off-chain storage
-holds the full trace; anyone can recompute and verify against the on-chain anchor.
+anchored on Arc via the [`ReasoningTraceRegistry`](contracts/src/ReasoningTraceRegistry.sol)
+contract (deployed Day 4; interface at
+[`contracts/src/interfaces/IReasoningTraceRegistry.sol`](contracts/src/interfaces/IReasoningTraceRegistry.sol)).
+Hash is the integrity primitive; off-chain storage holds the full trace; anyone can
+recompute and verify against the on-chain anchor. The Day-3 commit-reveal upgrade
+([`docs/specs/commit-reveal-trace-spec.md`](docs/specs/commit-reveal-trace-spec.md))
+strengthens "trace existed at T" to "trace existed *before* the trade" with proven
+causal ordering — wiring this through the live `ReasoningTraceRegistry` is the v1.5 hop.
 
 ### 3. Non-custodial vault architecture
 
@@ -330,21 +369,31 @@ submissions at the last Arc HackMoney. Detail in
 
 ## Known risks
 
-Refer to [`docs/design.md` § 10](docs/design.md) for the technical risk matrix. Adding
-team / coordination risks:
+Refer to [`docs/design.md` § 10](docs/design.md) for the technical risk matrix and
+[`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md) for the running
+rubric score. Adding team / coordination risks:
 
-- **Backend ownership unfilled.** Shimon left; backend doesn't have a single owner. Decide
-  by end of Day 3.
-- **Chuan as smart-contract bus factor 1.** Mitigated by keeping contracts small + pair-
-  review. See [`docs/architectural-principles.md`](docs/architectural-principles.md) for the
-  general pattern.
+- **Chuan as smart-contract + on-chain-integration bus factor 1.** Day-4 reality: Chuan
+  owns the contracts AND the `backend/archimedes/chain/` layer AND infra. Mitigated by
+  Marten as documented backup and by keeping contracts small with cached ABIs. See
+  [`docs/architectural-principles.md`](docs/architectural-principles.md) for the general
+  pattern.
 - **5-person team across 5 timezones with 3 day-job constraints.** Mitigated by Marten as
   schedule owner + daily sync + async-first defaults.
+- **Traction = 0 on the rubric scoreboard until arc-canteen telemetry starts flowing.**
+  Per [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md), this is
+  the cheapest +points to recover. Every meaningful product ship should pair with an
+  `arc-canteen update-product` call; every user conversation should be logged via
+  `arc-canteen update-traction`.
 - **Multiple parallel Claude sessions risk artifact drift.** Mitigated by treating `docs/`
-  as single source of truth.
-- **Q-fin paper corpus needs Dan's curation.** Dan is evenings/weekends only; needs to
-  block weekend time to seed the corpus per
-  [`docs/qfin-paper-corpus-seed.md`](docs/qfin-paper-corpus-seed.md).
+  as single source of truth — and by curating those docs (this file is part of that
+  curation rhythm; expect periodic Day-N revisions as reality outpaces specs).
+- **Q-fin paper corpus needs Dan's curation.** Dan is evenings/weekends only. v1 ships
+  with three paper-grounded strategies seeded (Faber 2007 SMA200, Moreira-Muir 2017
+  volatility-managed, Moskowitz-Ooi-Pedersen 2012 TSMOM) plus a buy-and-hold baseline,
+  per [`analytics-engine/strategies/`](analytics-engine/strategies/). Corpus expansion
+  per [`docs/qfin-paper-corpus-seed.md`](docs/qfin-paper-corpus-seed.md) remains a
+  weekend-blocked item.
 
 ## What this file deliberately does not cover
 

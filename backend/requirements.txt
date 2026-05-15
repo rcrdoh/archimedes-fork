@@ -32,6 +32,7 @@ anthropic>=0.40
 web3>=7.0
 eth-account>=0.13
 eth-utils>=5.0
+cryptography>=42.0
 
 # Paper ingestion
 arxiv>=2.1
