@@ -9,6 +9,8 @@ import {
 } from './config'
 import Layout from './components/Layout'
 import Trade from './components/Trade'
+import VaultDetail from './components/VaultDetail'
+import VaultChat from './components/VaultChat'
 import './App.css'
 
 const PRICE_DECIMALS = 6
@@ -398,13 +400,10 @@ function Liquidity() {
 
 // ─── Vaults Panel ────────────────────────────────────────────
 
-function Vaults() {
+function Vaults({ onSelectVault }) {
   const [vaults, setVaults] = useState([])
   const [status, setStatus] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [selectedVault, setSelectedVault] = useState(null)
-  const [vaultDetail, setVaultDetail] = useState(null)
-  const [depositAmt, setDepositAmt] = useState('')
+  const [manualAddr, setManualAddr] = useState('')
 
   const factoryAddr = NEW_CONTRACTS.vaultFactory
 
@@ -416,40 +415,6 @@ function Vaults() {
     } catch (err) { setStatus(err.shortMessage || err.message) }
   }
 
-  const loadVaultDetail = async (addr) => {
-    try {
-      const [totalAssets, totalSupply, creator, tier, paused, asset] = await Promise.all([
-        publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'totalAssets' }),
-        publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'totalSupply' }),
-        publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'creator' }),
-        publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'tier' }),
-        publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'paused' }),
-        publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'asset' }),
-      ])
-      setVaultDetail({
-        address: addr, totalAssets: Number(totalAssets) / 1e6, totalSupply: Number(totalSupply),
-        sharePrice: totalSupply > 0 ? Number(totalAssets) / Number(totalSupply) / 1e6 : 1,
-        creator, tier: Number(tier), paused, asset,
-      })
-    } catch (err) { setVaultDetail({ error: err.shortMessage || err.message }) }
-  }
-
-  const deposit = async () => {
-    if (!selectedVault || !depositAmt) return
-    setBusy(true); setStatus('')
-    try {
-      const wallet = await getWalletClient()
-      const amount = BigInt(Math.round(parseFloat(depositAmt) * 1e6))
-      setStatus('Approving USDC…')
-      await wallet.writeContract({ address: USDC, abi: TOKEN_ABI, functionName: 'approve', args: [selectedVault, amount] })
-      setStatus('Depositing…')
-      const hash = await wallet.writeContract({ address: selectedVault, abi: VAULT_ABI, functionName: 'deposit', args: [amount, getAddress()] })
-      setStatus(`Deposited! TX: ${hash}`)
-      loadVaultDetail(selectedVault)
-    } catch (err) { setStatus(err.shortMessage || err.message) }
-    setBusy(false)
-  }
-
   useEffect(() => { loadVaults() }, [])
 
   return (
@@ -459,36 +424,34 @@ function Vaults() {
         <div className="info-box warning">VaultFactory not deployed. Run <code>node deploy-new.mjs</code>.</div>
       ) : (
         <>
-          <p className="hint">{vaults.length} vaults deployed</p>
-          {vaults.length === 0 ? (
-            <p className="hint">No vaults yet. Deploy contracts first, then create a vault.</p>
-          ) : (
+          <p className="hint">{vaults.length} vault{vaults.length !== 1 ? 's' : ''} deployed — click to view details & chat</p>
+          {vaults.length > 0 && (
             <div className="vault-list">
               {vaults.map((v, i) => (
-                <div key={i} className={`vault-card ${selectedVault === v ? 'selected' : ''}`} onClick={() => { setSelectedVault(v); loadVaultDetail(v) }}>
+                <div key={i} className="vault-card vault-card-clickable" onClick={() => onSelectVault(v)}>
                   <code>{v}</code>
+                  <span className="vault-card-arrow">→</span>
                 </div>
               ))}
             </div>
           )}
 
-          {vaultDetail && !vaultDetail.error && (
-            <div className="info-box">
-              <strong>AUM:</strong> {vaultDetail.totalAssets.toFixed(2)} USDC<br />
-              <strong>Share Price:</strong> {vaultDetail.sharePrice.toFixed(6)} USDC<br />
-              <strong>Tier:</strong> {vaultDetail.tier} | <strong>Creator:</strong> <code>{vaultDetail.creator?.slice(0,10)}...</code><br />
-              <strong>Paused:</strong> {vaultDetail.paused ? 'Yes' : 'No'}
-            </div>
-          )}
-
-          {selectedVault && (
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--glass-border)' }}>
+            <label style={{ fontSize: '0.8rem', color: 'var(--text-3)', marginBottom: 6, display: 'block' }}>Enter vault address</label>
             <div className="form-row">
-              <input type="number" value={depositAmt} onChange={e => setDepositAmt(e.target.value)} placeholder="USDC amount" />
-              <button className="primary" onClick={deposit} disabled={busy} style={{ width: 'auto' }}>
-                {busy ? 'Waiting…' : 'Deposit'}
+              <input
+                type="text"
+                value={manualAddr}
+                onChange={e => setManualAddr(e.target.value)}
+                placeholder="0x..."
+                style={{ flex: 1, background: 'var(--surface-3)', border: '1px solid var(--glass-border)', borderRadius: 8, padding: '8px 12px', color: 'var(--text-1)', fontSize: '0.85rem', outline: 'none' }}
+              />
+              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => manualAddr && onSelectVault(manualAddr)} disabled={!manualAddr}>
+                View →
               </button>
             </div>
-          )}
+          </div>
+
           {status && <div className="status">{status}</div>}
         </>
       )}
@@ -607,6 +570,7 @@ function ComingSoon({ title }) {
 export default function App() {
   const [page, setPage] = useState('trade')
   const [walletAddr, setWalletAddr] = useState(null)
+  const [selectedVault, setSelectedVault] = useState(null)
   const [data, setData] = useState({})
   const [prevData, setPrevData] = useState({})
   const [errors, setErrors] = useState({})
@@ -628,6 +592,16 @@ export default function App() {
 
   const handleConnect = (addr) => setWalletAddr(addr)
   const handleDisconnect = () => { disconnectWallet(); setWalletAddr(null) }
+
+  const selectVault = (addr) => {
+    setSelectedVault(addr)
+    setPage('vault-detail')
+  }
+
+  const backToVaults = () => {
+    setSelectedVault(null)
+    setPage('vaults')
+  }
 
   const fetchAll = useCallback(async () => {
     const results = await Promise.allSettled(ASSETS.map(a => fetchAssetData(a)))
@@ -660,15 +634,16 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
-      case 'explore':    return <ComingSoon title="Marketplace" />
-      case 'strategies': return <ComingSoon title="Strategy Explorer" />
-      case 'trade':      return <Trade />
-      case 'dashboard':  return <Dashboard data={data} prevData={prevData} errors={errors} loading={loading} lastFetch={lastFetch} countdown={countdown} fetchAll={fetchAll} />
-      case 'mint':       return <MintBurn />
-      case 'liquidity':  return <Liquidity />
-      case 'vaults':     return <Vaults />
-      case 'reasoning':  return <Traces />
-      default:           return <Trade />
+      case 'explore':       return <ComingSoon title="Marketplace" />
+      case 'strategies':    return <ComingSoon title="Strategy Explorer" />
+      case 'trade':         return <Trade />
+      case 'dashboard':     return <Dashboard data={data} prevData={prevData} errors={errors} loading={loading} lastFetch={lastFetch} countdown={countdown} fetchAll={fetchAll} />
+      case 'mint':          return <MintBurn />
+      case 'liquidity':     return <Liquidity />
+      case 'vaults':        return <Vaults onSelectVault={selectVault} />
+      case 'vault-detail':  return <VaultDetail address={selectedVault} onBack={backToVaults} />
+      case 'reasoning':     return <Traces />
+      default:              return <Trade />
     }
   }
 

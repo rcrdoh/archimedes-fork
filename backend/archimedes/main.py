@@ -16,6 +16,8 @@ from archimedes.api.routes import (
     swap_router,
     config_router,
 )
+from archimedes.api.chat_routes import chat_router
+from archimedes.db import init_db
 
 app = FastAPI(
     title="Archimedes",
@@ -32,6 +34,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize database (creates chat tables if needed)
+init_db()
+
 # Wire all routers
 app.include_router(assets_router)
 app.include_router(vaults_router)
@@ -40,6 +45,7 @@ app.include_router(traces_router)
 app.include_router(regime_router)
 app.include_router(swap_router)
 app.include_router(config_router)
+app.include_router(chat_router)
 
 
 @app.get("/health")

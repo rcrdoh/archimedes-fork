@@ -286,6 +286,49 @@ class PoolListResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 
 
+# ═══════════════════════════════════════════════════════════════
+# Chat (per-vault)
+# ═══════════════════════════════════════════════════════════════
+
+
+class ChatMessageResponse(BaseModel):
+    """A single chat message in a vault's chat room."""
+
+    id: int
+    vault_address: str
+    wallet_address: str
+    message: str
+    is_ai: bool = False
+    created_at: str  # ISO 8601
+
+
+class ChatMessageListResponse(BaseModel):
+    """Paginated list of chat messages for a vault."""
+
+    messages: list[ChatMessageResponse]
+    total: int
+    has_more: bool = False
+
+
+class ChatPostRequest(BaseModel):
+    """Post a new message to a vault's chat."""
+
+    wallet_address: str
+    message: str
+
+
+class ChatPostResponse(BaseModel):
+    """Response after posting a message. Includes AI response if triggered."""
+
+    message: ChatMessageResponse
+    ai_response: ChatMessageResponse | None = None
+
+
+# ═══════════════════════════════════════════════════════════════
+# Contract Addresses
+# ═══════════════════════════════════════════════════════════════
+
+
 class ContractAddressesResponse(BaseModel):
     """All deployed contract addresses. Frontend needs these for direct on-chain calls."""
 
