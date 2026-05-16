@@ -11,12 +11,16 @@ import asyncio
 from fastapi import APIRouter, Query
 
 from archimedes.api.schemas import (
+    AgentStatusResponse,
     AssetListResponse,
     AssetPriceHistoryResponse,
     ContractAddressesResponse,
     RegimeResponse,
+    SignalResponse,
     StrategyListResponse,
     StrategyResponse,
+    StrategySignalResponse,
+    StrategySignalsResponse,
     SwapQuoteResponse,
     PoolListResponse,
     PoolResponse,
@@ -53,6 +57,7 @@ traces_router = APIRouter(prefix="/api/traces", tags=["traces"])
 regime_router = APIRouter(prefix="/api/regime", tags=["regime"])
 swap_router = APIRouter(prefix="/api/swap", tags=["swap"])
 config_router = APIRouter(prefix="/api/config", tags=["config"])
+agent_router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 # Service instances
 _asset_svc = AssetService()
@@ -317,18 +322,40 @@ async def get_trace(trace_id: str):
 
 @regime_router.get("/current", response_model=RegimeResponse)
 async def get_current_regime():
-    """Get current market regime. Önder owns the classifier."""
-    # TODO: Wire to Önder's regime detector
+    """Get current market regime — reads live state from Redis (agent writes it)."""
+    from archimedes.services.redis_state import AgentStateStore
+
+    state = AgentStateStore()
+    try:
+        data = await state.load_regime()
+    finally:
+        await state.close()
+
+    from archimedes.api.schemas import RegimeSignalsResponse
+
+    if data:
+        return RegimeResponse(
+            regime=data.get("regime", "unknown"),
+            confidence=data.get("confidence", 0.0),
+            timestamp=data.get("timestamp", ""),
+            regime_changed=False,
+            signals=RegimeSignalsResponse(
+                vix_level=0.0,
+                sp500_above_ma50=True,
+                sp500_above_ma200=True,
+            ),
+        )
+
     return RegimeResponse(
-        regime="risk_on",
-        confidence=0.75,
-        timestamp="2026-05-14T00:00:00Z",
+        regime="unknown",
+        confidence=0.0,
+        timestamp="",
         regime_changed=False,
-        signals={
-            "vix_level": 15.5,
-            "sp500_above_ma50": True,
-            "sp500_above_ma200": True,
-        },
+        signals=RegimeSignalsResponse(
+            vix_level=0.0,
+            sp500_above_ma50=True,
+            sp500_above_ma200=True,
+        ),
     )
 
 
@@ -474,3 +501,118 @@ async def list_swap_pools():
 async def get_contract_addresses():
     """Get all deployed contract addresses."""
     return await _config_svc.get_contract_addresses()
+
+
+# ── Strategy Signals (live evaluation) ───────────────────────
+
+
+@strategies_router.get("/signals", response_model=StrategySignalsResponse)
+async def get_strategy_signals():
+    """Evaluate all strategies against live market data and return signals.
+
+    This is the intelligence layer surfaced as an API — the same evaluation
+    the agent runner performs each tick, but on-demand for the frontend.
+    """
+    from datetime import datetime, timezone
+
+    from archimedes.services.strategy_signal_evaluator import strategy_evaluator
+    from archimedes.services.redis_state import AgentStateStore
+
+    strategies = _strategy_provider.list_strategies()
+    from archimedes.chain.client import chain_client
+    synth_assets = [sym for sym, addr in chain_client.settings.synth_addresses.items() if addr]
+
+    all_signals = await asyncio.to_thread(
+        strategy_evaluator.evaluate_strategies, strategies, synth_assets,
+    )
+
+    target_weights = strategy_evaluator.aggregate_signals(all_signals, usdc_floor=0.20)
+
+    # Derive regime from signal consensus
+    flat_count = sum(1 for ss in all_signals for s in ss.signals if s.signal.value == "flat")
+    total_count = sum(len(ss.signals) for ss in all_signals)
+    flat_pct = flat_count / total_count if total_count > 0 else 0
+
+    if flat_pct > 0.6:
+        regime = "risk_off"
+    elif flat_pct > 0.3:
+        regime = "transition"
+    else:
+        regime = "risk_on"
+
+    strat_responses = []
+    for ss in all_signals:
+        strat_responses.append(StrategySignalResponse(
+            strategy_id=ss.strategy_id,
+            paper_title=ss.paper_title,
+            signals=[
+                SignalResponse(
+                    asset=s.asset,
+                    signal=s.signal.value,
+                    weight=s.weight,
+                    reason=s.reason,
+                    strategy_name=s.strategy_name,
+                )
+                for s in ss.signals
+            ],
+        ))
+
+    return StrategySignalsResponse(
+        strategy_count=len(all_signals),
+        regime=regime,
+        confidence=round(1.0 - flat_pct, 2),
+        target_weights=target_weights,
+        strategies=strat_responses,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+# ── Agent Status ─────────────────────────────────────────────
+
+
+@agent_router.get("/status", response_model=AgentStatusResponse)
+async def get_agent_status():
+    """Get autonomous agent health and state — reads from Redis."""
+    from datetime import datetime, timezone
+
+    from archimedes.services.redis_state import AgentStateStore
+
+    state = AgentStateStore()
+    try:
+        heartbeat = await state.get_heartbeat()
+        regime_data = await state.load_regime()
+        events = await state.get_events(count=10)
+
+        alive = False
+        if heartbeat:
+            try:
+                hb_time = datetime.fromisoformat(heartbeat)
+                age = (datetime.now(timezone.utc) - hb_time).total_seconds()
+                alive = age < 600
+            except Exception:
+                pass
+
+        regime = regime_data.get("regime") if regime_data else None
+        confidence = regime_data.get("confidence") if regime_data else None
+        source = regime_data.get("source") if regime_data else None
+        strat_count = regime_data.get("strategy_count", 0) if regime_data else 0
+
+        vault_count = 0
+        try:
+            vaults = await chain_executor.get_all_vaults()
+            vault_count = len(vaults) if vaults else 0
+        except Exception:
+            pass
+
+        return AgentStatusResponse(
+            alive=alive,
+            last_heartbeat=heartbeat,
+            regime=regime,
+            regime_confidence=confidence,
+            regime_source=source,
+            strategy_count=strat_count,
+            managed_vaults=vault_count,
+            recent_events=events,
+        )
+    finally:
+        await state.close()

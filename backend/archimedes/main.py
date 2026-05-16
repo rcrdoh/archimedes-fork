@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from archimedes.api.routes import (
+    agent_router,
     assets_router,
     vaults_router,
     strategies_router,
@@ -45,6 +46,7 @@ app.include_router(traces_router)
 app.include_router(regime_router)
 app.include_router(swap_router)
 app.include_router(config_router)
+app.include_router(agent_router)
 app.include_router(chat_router)
 
 
