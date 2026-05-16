@@ -72,10 +72,12 @@ _architect = default_architect()
 def _to_strategy_response(s: Strategy) -> StrategyResponse:
     """Map the shared Strategy dataclass to the frontend response shape.
 
-    Backtest fields are left None until Önder's IBacktestEvaluator runs and
-    populates a BacktestResult — surfacing them as null is honest (no
-    evaluation yet) and matches the "deltas surfaced, not hidden" principle.
+    Backtest fields sourced from BACKTEST_* stub constants in strategy files
+    (is_backtest_placeholder=True) until Önder's IBacktestEvaluator runs and
+    populates a real BacktestResult. Stub values are clearly labelled so the UI
+    can render them with an honest "estimate" disclaimer.
     """
+    has_stubs = s.stub_sharpe is not None
     return StrategyResponse(
         id=s.id,
         paper_arxiv_id=s.paper_arxiv_id,
@@ -86,6 +88,27 @@ def _to_strategy_response(s: Strategy) -> StrategyResponse:
         position_sizing=s.position_sizing.value,
         rebalance_frequency=s.rebalance_frequency.value,
         status=s.status.value,
+        # Paper provenance
+        paper_venue=s.paper_venue,
+        paper_year=s.paper_year,
+        paper_doi=s.paper_doi,
+        paper_citation_count=s.paper_citation_count,
+        # Passport integrity
+        methodology_hash=s.methodology_hash,
+        extraction_llm=s.extraction_llm,
+        curator_wallet=s.curator_wallet,
+        curator_note=s.curator_note,
+        on_chain_registration_tx=s.on_chain_registration_tx,
+        # Paper claims (for delta display)
+        paper_claimed_sharpe=s.paper_claimed_sharpe,
+        # Backtest (stubs from strategy file; None when IBacktestEvaluator has not run)
+        sharpe_ratio=s.stub_sharpe,
+        cagr=s.stub_cagr,
+        max_drawdown=s.stub_max_dd,
+        win_rate=s.stub_win_rate,
+        calmar_ratio=s.stub_calmar,
+        correlation_to_spy=s.stub_corr_spy,
+        is_backtest_placeholder=has_stubs,
     )
 
 
