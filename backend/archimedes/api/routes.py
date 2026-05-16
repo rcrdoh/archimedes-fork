@@ -43,6 +43,7 @@ from archimedes.api.architect_schemas import (
     StrategyConstructionRequest,
     StrategyConstructionResponse,
 )
+from archimedes.api.vault_schemas import VaultCreateRequest, VaultCreateResponse
 from archimedes.chain.oracle_updater import OracleUpdater
 from archimedes.chain.executor import chain_executor
 
@@ -127,6 +128,31 @@ async def list_vaults(
     return await _vault_svc.list_vaults(
         tier=tier, sort_by=sort_by, order=order, limit=limit, offset=offset
     )
+
+
+@vaults_router.post("/create", response_model=VaultCreateResponse)
+async def create_vault(req: VaultCreateRequest):
+    """Deploy a new vault on Arc via VaultFactory.
+
+    strategy_ids are accepted as off-chain metadata and echoed back in the
+    response — they are not passed to the contract (v2 persistence hook).
+    """
+    from fastapi import HTTPException
+
+    try:
+        vault_address = await chain_executor.create_vault(
+            name=req.name,
+            symbol=req.symbol,
+            management_fee_bps=req.management_fee_bps,
+            performance_fee_bps=req.performance_fee_bps,
+            agent_assisted=req.agent_assisted,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Vault deployment failed: {exc}") from exc
+
+    return VaultCreateResponse(vault_address=vault_address, strategy_ids=req.strategy_ids)
 
 
 @vaults_router.get("/{address}", response_model=VaultDetailResponse)

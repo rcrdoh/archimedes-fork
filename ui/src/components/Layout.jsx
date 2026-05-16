@@ -8,10 +8,11 @@ const NAV = [
     { id: 'trade',      label: 'Trade' },
   ]},
   { group: 'Portfolio', items: [
-    { id: 'dashboard',  label: 'Dashboard' },
-    { id: 'mint',       label: 'Mint / Burn' },
-    { id: 'liquidity',  label: 'Liquidity' },
-    { id: 'vaults',     label: 'Vaults' },
+    { id: 'dashboard',    label: 'Dashboard' },
+    { id: 'mint',         label: 'Mint / Burn' },
+    { id: 'liquidity',    label: 'Liquidity' },
+    { id: 'vaults',       label: 'Vaults' },
+    { id: 'create-vault', label: 'Create Vault' },
   ]},
   { group: 'Intelligence', items: [
     { id: 'reasoning',  label: 'Reasoning' },
@@ -25,8 +26,9 @@ const PAGE_LABELS = {
   dashboard:  'Dashboard',
   mint:       'Mint / Burn',
   liquidity:  'Liquidity',
-  vaults:     'Vaults',
-  reasoning:  'Reasoning',
+  vaults:        'Vaults',
+  'create-vault': 'Create Vault',
+  reasoning:     'Reasoning',
 }
 
 export default function Layout({ page, setPage, walletAddr, onConnect, onDisconnect, children }) {

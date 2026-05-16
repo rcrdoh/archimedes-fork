@@ -10,6 +10,7 @@ import {
 import Layout from './components/Layout'
 import Trade from './components/Trade'
 import Strategies from './components/Strategies'
+import CreateVault from './components/CreateVault'
 import VaultDetail from './components/VaultDetail'
 import VaultChat from './components/VaultChat'
 import './App.css'
@@ -642,6 +643,7 @@ export default function App() {
       case 'mint':          return <MintBurn />
       case 'liquidity':     return <Liquidity />
       case 'vaults':        return <Vaults onSelectVault={selectVault} />
+      case 'create-vault':  return <CreateVault onVaultCreated={selectVault} />
       case 'vault-detail':  return <VaultDetail address={selectedVault} onBack={backToVaults} />
       case 'reasoning':     return <Traces />
       default:              return <Trade />
