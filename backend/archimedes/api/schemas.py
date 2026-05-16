@@ -352,3 +352,48 @@ class ContractAddressesResponse(BaseModel):
     # Chain info
     chain_id: int
     rpc_url: str
+
+
+# ═══════════════════════════════════════════════════════════════
+# Strategy Signals (live evaluation)
+# ═══════════════════════════════════════════════════════════════
+
+
+class SignalResponse(BaseModel):
+    asset: str
+    signal: str  # "long" | "flat" | "scaled"
+    weight: float
+    reason: str
+    strategy_name: str
+
+
+class StrategySignalResponse(BaseModel):
+    strategy_id: str
+    paper_title: str
+    signals: list[SignalResponse]
+
+
+class StrategySignalsResponse(BaseModel):
+    strategy_count: int
+    regime: str
+    confidence: float
+    target_weights: dict[str, float]
+    strategies: list[StrategySignalResponse]
+    timestamp: str
+
+
+# ═══════════════════════════════════════════════════════════════
+# Agent Status (monitoring)
+# ═══════════════════════════════════════════════════════════════
+
+
+class AgentStatusResponse(BaseModel):
+    alive: bool
+    last_heartbeat: str | None = None
+    regime: str | None = None
+    regime_confidence: float | None = None
+    regime_source: str | None = None
+    strategy_count: int = 0
+    managed_vaults: int = 0
+    last_rebalance: str | None = None
+    recent_events: list[dict] = []

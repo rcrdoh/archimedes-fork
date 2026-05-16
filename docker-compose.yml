@@ -64,6 +64,30 @@ services:
       redis:
         condition: service_healthy
 
+  # ---------- Strategy Agent (autonomous portfolio runner) ----------
+  agent:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "archimedes.chain.agent_runner"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://archimedes:archimedes-hackathon-2026@postgres:5432/archimedes}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AGENT_INTERVAL_SECONDS: ${AGENT_INTERVAL_SECONDS:-300}
+      AGENT_DRY_RUN: ${AGENT_DRY_RUN:-false}
+    env_file:
+      - .env
+    volumes:
+      - ./analytics-engine/strategies:/app/analytics-engine/strategies:ro
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # ---------- Backend API ----------
   backend:
     build:
@@ -77,6 +101,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     env_file:
       - .env
+    volumes:
+      - ./analytics-engine/strategies:/app/analytics-engine/strategies:ro
     depends_on:
       postgres:
         condition: service_healthy

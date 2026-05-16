@@ -21,6 +21,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -265,24 +266,73 @@ class LocalStrategyProvider:
         return [s for s in self._strategies.values() if wanted in s.risk_profiles]
 
     def extract_from_paper(self, arxiv_id: str) -> Strategy | None:
-        """Demo-feature stub. Real implementation arrives in the arxiv pipeline.
+        """[DEMO] Extract a CANDIDATE strategy passport from an arxiv paper.
 
-        Returns None for now. The pipeline will live in
-        `archimedes.services.arxiv_pipeline` and use the KnowledgeBase
-        `extract.py` pattern (PyMuPDF cache) plus a Claude API call to
-        synthesize the methodology, then write a new `.py` file into the
-        analytics-engine strategies directory and call `self.refresh()`.
+        Runs `archimedes.services.arxiv_pipeline` (arxiv metadata + pypdf
+        text, KnowledgeBase extract pattern, + Claude methodology
+        synthesis), writes a self-describing strategy module into the
+        strategies directory, refreshes, and returns the new Strategy.
+        Returns None on any failure — no partial junk. The result is a
+        CANDIDATE: it still needs human curation and the selection-bias
+        gate before it can be promoted past CANDIDATE.
+
+        Lazy import: arxiv_pipeline → strategy_architect → this module, so
+        importing at call time avoids a circular import at module load.
         """
-        logger.info("extract_from_paper(%s): not yet implemented", arxiv_id)
+        from archimedes.services.arxiv_pipeline import extract_strategy
+
+        before = set(self._strategies)
+        path = extract_strategy(arxiv_id, strategies_dir=self._strategies_dir)
+        if path is None:
+            logger.info("extract_from_paper(%s): no strategy produced", arxiv_id)
+            return None
+
+        self.refresh()
+        for strat in self._strategies.values():
+            if strat.strategy_code_path == str(path):
+                return strat
+        new_ids = set(self._strategies) - before
+        if new_ids:
+            return self._strategies[next(iter(new_ids))]
+        logger.warning(
+            "extract_from_paper(%s): file written but not picked up by refresh",
+            arxiv_id,
+        )
         return None
 
 
 def default_provider(repo_root: Path | None = None) -> LocalStrategyProvider:
-    """Construct a provider pointing at `analytics-engine/strategies/`.
+    """Resolve the strategies directory robustly across host and container.
 
-    `repo_root` defaults to four levels up from this file (the archimedes
-    repo root). Override for tests.
+    Priority:
+      1. explicit ``repo_root`` arg (tests)
+      2. ``ARCHIMEDES_STRATEGIES_DIR`` env var — the deployment override;
+         set it (or bind-mount to it) in docker-compose / EC2 so the
+         backend image does not have to vendor the strategy corpus
+      3. first existing candidate among the known host repo layout and
+         container-plausible mount points
+
+    The original ``parents[3]`` math only holds for the host checkout
+    layout — in the backend image ``__file__`` is ``/app/...`` so it
+    resolved to a nonexistent ``/analytics-engine/strategies``. This keeps
+    host dev identical while making the deployed path configurable.
     """
-    if repo_root is None:
-        repo_root = Path(__file__).resolve().parents[3]
-    return LocalStrategyProvider(repo_root / "analytics-engine" / "strategies")
+    if repo_root is not None:
+        return LocalStrategyProvider(repo_root / "analytics-engine" / "strategies")
+
+    env_dir = os.getenv("ARCHIMEDES_STRATEGIES_DIR")
+    if env_dir:
+        return LocalStrategyProvider(Path(env_dir))
+
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[3] / "analytics-engine" / "strategies",  # host repo layout
+        Path("/app/analytics-engine/strategies"),  # repo-root build context
+        Path("/analytics-engine/strategies"),  # bind-mount at root
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return LocalStrategyProvider(candidate)
+    # None found: fall back to the host-layout path so the warning log
+    # names a sensible location rather than an arbitrary container root.
+    return LocalStrategyProvider(candidates[0])

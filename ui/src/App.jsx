@@ -9,6 +9,7 @@ import {
 } from './config'
 import Layout from './components/Layout'
 import Trade from './components/Trade'
+import Strategies from './components/Strategies'
 import VaultDetail from './components/VaultDetail'
 import VaultChat from './components/VaultChat'
 import './App.css'
@@ -635,7 +636,7 @@ export default function App() {
   const renderPage = () => {
     switch (page) {
       case 'explore':       return <ComingSoon title="Marketplace" />
-      case 'strategies':    return <ComingSoon title="Strategy Explorer" />
+      case 'strategies':    return <Strategies />
       case 'trade':         return <Trade />
       case 'dashboard':     return <Dashboard data={data} prevData={prevData} errors={errors} loading={loading} lastFetch={lastFetch} countdown={countdown} fetchAll={fetchAll} />
       case 'mint':          return <MintBurn />
