@@ -1,9 +1,22 @@
 # Demo Script & Pitch Deck Outline
 
 > **Audience:** Archimedes hackathon team (deck owner + demo runner + Q&A primaries)
-> **Status:** Working outline — tighten in Week 2 once the build converges.
+> **Status:** Day-4 revision (2026-05-14) — tighten in Week 2 as the orchestrator loop
+> and reasoning-trace anchoring come online.
 > **Pitch length assumption:** 3-minute pitch + ~2 minute live demo + Q&A. Adjust if
 > Canteen tells us otherwise.
+> **Shipped reality the demo can lean on (as of Day 4):**
+> - Live deploy at [`http://18.171.230.205/`](http://18.171.230.205/)
+> - 10 Solidity contracts on Arc testnet (chain ID `5042002`): `AMMPool`, `AMMRouter`,
+>   `AssetRegistry`, `PriceOracle`, `ReasoningTraceRegistry`, `SyntheticFactory`,
+>   `SyntheticToken`, `SyntheticVault`, `Vault`, `VaultFactory`
+> - React 19 + Vite + viem UI with three-way wallet connect (MetaMask / Coinbase / generic
+>   browser wallet) and an add-liquidity / trade tab
+> - Oracle service pushing prices via Circle Wallets API on a docker-compose schedule
+> - Backend strategy provider serving 4 strategies (3 paper-grounded + buy-and-hold) with
+>   passport metadata exposed via the API
+> - Selection-bias spec (DSR / PBO / OOS / look-ahead) and commit-reveal trace spec
+>   landed; implementations are on Önder's and Chuan's queues respectively
 
 ## The headline message
 
@@ -44,37 +57,68 @@ name." It's "we built a product whose architecture matches the original empirici
 
 ## The "wow moment" the demo must hit
 
-A user, in front of judges, lives the full Archimedes flow:
+A user, in front of judges, lives the full Archimedes flow on the live testnet deploy
+at [`http://18.171.230.205/`](http://18.171.230.205/). The demo is anchored to what's
+actually clickable on Day 4, with the items still on the orchestrator/regime-detector/
+reasoning-trace queue marked **🚧 Week 2** so we can be honest about what's live vs.
+what's narrated.
 
-1. Lands on the Archimedes site. Sees the marketing page with one of Daniel's hero
-   visuals.
-2. Clicks "Get Started." Connects a wallet (testnet USDC pre-funded).
+1. Lands on the Archimedes site. Sees the marketing page with the Archimedes hero.
+2. Clicks **"Connect Wallet."** Sees the three-way wallet selector (MetaMask / Coinbase
+   Wallet / generic browser wallet). Connects to Arc testnet (chain ID `5042002`).
 3. **Picks a risk profile.** Four cards: Conservative / Moderate / Aggressive /
    Hyper-Risky. Each card shows the target vol band, max drawdown, USYC floor, and a
-   one-line description.
-4. **Sees a constructed portfolio.** Pie chart of weights. Underneath: the strategies
+   one-line description. 🚧 Week 2 — currently a planned screen; the data shape is
+   defined in [`docs/design.md`](design.md) § Risk Profiles.
+4. **Sees a constructed portfolio.** Donut chart of weights. Underneath: the strategies
    selected (with paper citations), the backtest performance for each, the regime
-   classification at construction time.
-5. **Clicks on a strategy card** ("Cross-Asset Value & Momentum — Asness, Moskowitz,
-   Pedersen 2013"). Sees the paper title, arxiv link, methodology summary, our
-   re-validated Sharpe vs. the paper's claimed Sharpe, equity curve.
-6. **Clicks "Deposit USDC."** Approves the transaction. USDC flows into the
-   ArchimedesVault contract on Arc.
+   classification at construction time. 🚧 Week 2 (portfolio constructor is on Önder's
+   queue per [`specs/component-interfaces-spec.md`](specs/component-interfaces-spec.md)).
+5. **Clicks on a strategy card** — e.g., *"Time Series Momentum — Moskowitz, Ooi,
+   Pedersen 2012, J. Fin. Econ. 104(2)."* Sees the paper title, arxiv link, methodology
+   summary, our re-validated Sharpe vs. the paper's claimed Sharpe, equity curve. The
+   strategy provider already serves this metadata today via the backend API; the
+   strategy-detail screen is Week 2 UI work.
+6. **Clicks "Deposit USDC."** Approves the transaction. USDC flows into the live
+   `Vault` contract on Arc (deployed Day 4, real testnet tx, real Arc explorer link).
 7. **Watches the agent build the portfolio live.** Progress UI shows: regime check ✓ →
-   strategy selection ✓ → weight optimization ✓ → CCTP bridge for RWA tokens ✓ → portfolio
-   live. Each step has a "View on Arc" link to the on-chain tx.
-8. **The portfolio dashboard appears.** Live positions. Live performance vs. benchmark.
-   A "Decisions" tab.
+   strategy selection ✓ → weight optimization ✓ → on-chain transfers via `AMMRouter` ✓ →
+   portfolio live. Each step has a "View on Arc" link. 🚧 Week 2 — the orchestrator
+   loop is the headline Week-2 deliverable.
+8. **The portfolio dashboard appears.** Live positions sourced from the deployed `Vault`
+   contract. Live performance vs. benchmark.
 9. **Clicks the Decisions tab.** Sees the agent's construction decision with full
    reasoning trace. **Clicks "Verify trace hash."** Browser recomputes the hash in JS;
-   green checkmark appears showing it matches the Arc on-chain anchor.
+   green checkmark appears showing it matches the on-chain anchor in the deployed
+   `ReasoningTraceRegistry` contract. 🚧 Week 2 — the contract is live; the
+   reasoning-trace generator + anchoring writer is the wiring still to ship.
 10. **(Optional advanced demo)** Fast-forward in the demo environment to trigger a
     regime change. Watch the agent autonomously rebalance. New reasoning trace appears;
-    new on-chain anchor; the portfolio shifts toward defensive strategies + USYC.
+    new on-chain anchor in `ReasoningTraceRegistry`; the portfolio shifts toward
+    defensive strategies + USYC. 🚧 Week 2 (regime detector + portfolio constructor).
 
 **Steps 5 (paper citation), 9 (verify trace hash), and 10 (autonomous rebalance) are the
 three differentiators.** Without them, the demo is a robo-advisor on Arc. With them, the
-demo is Archimedes.
+demo is Archimedes. Three of the ten contracts on Arc are load-bearing for these three
+moments: `ReasoningTraceRegistry` (step 9), `Vault` + `AMMRouter` (steps 6–10).
+
+### What we can confidently demo today (Day 4 fallback)
+
+If Week 2 falls behind, the Day-4-and-honest version of the demo still tells a strong
+story:
+
+- Wallet connect on Arc testnet (live).
+- Deposit USDC into the deployed `Vault` (live — real on-chain tx, real Arc explorer link).
+- AMM swap against the deployed `AMMPool` (live).
+- Synthetic-asset mint via `SyntheticFactory` + `SyntheticVault` (live).
+- Backend API call returning the 4 seeded strategies with passport metadata
+  (`paper_grounded=True`, paper citation, risk profiles) — live, demonstrable in the
+  Swagger UI at `/docs`.
+- The selection-bias spec ([`specs/selection-bias-corrections-spec.md`](specs/selection-bias-corrections-spec.md))
+  and commit-reveal trace spec ([`specs/commit-reveal-trace-spec.md`](specs/commit-reveal-trace-spec.md))
+  as the *intellectual differentiators* — these are what set Archimedes apart from the 96
+  other AI-portfolio submissions at the last Arc HackMoney even before the full live loop
+  ships.
 
 ## Pitch deck — 9-slide structure
 
@@ -109,23 +153,33 @@ Visual: three-column comparison with an empty fourth column where Archimedes goe
 
 Archimedes — an autonomous portfolio agent where:
 
-- **Strategies come from peer-reviewed quant papers.** Every strategy has a paper ID, a
-  methodology hash, and a backtest validated against the paper's own claimed metrics.
-- **Users pick a risk profile** (Conservative / Moderate / Aggressive / Hyper-Risky).
-  The agent constructs a personalized portfolio of RWA tokens + USYC.
+- **Strategies come from peer-reviewed quant papers.** Every strategy carries a
+  paper-grounded passport (paper ID, citation, methodology hash, paper-claim vs.
+  re-implemented metrics with deltas surfaced honestly). Day 4: 3 paper-grounded
+  strategies seeded (Faber 2007, Moreira & Muir 2017, Moskowitz Ooi Pedersen 2012)
+  plus a buy-and-hold baseline, served live by the strategy provider.
+- **Selection-bias gate at admission.** Every Tier-1 strategy passes Deflated Sharpe,
+  Probability of Backtest Overfitting, walk-forward OOS, and a look-ahead audit. The
+  spec is published; implementation is on Önder's queue.
 - **The agent operates autonomously** post-deployment — regime detection, rebalancing,
   strategy rotation. Every decision produces a reasoning trace.
-- **Every reasoning trace is hashed on Arc** via the ReasoningTraceRegistry. Users can
-  audit any decision the agent has ever made.
+- **Every reasoning trace is hashed on Arc** via the deployed `ReasoningTraceRegistry`
+  contract. Users can audit any decision the agent has ever made — with the v1.5
+  commit-reveal upgrade in spec, "trace existed at T" strengthens to "trace existed
+  *before* the trade."
+- **10 contracts already on Arc testnet** (chain ID `5042002`): Vault / VaultFactory,
+  AMM / Router, Synthetic Factory / Token / Vault, Asset + Price + Trace registries.
+  Live UI with multi-wallet connect at `18.171.230.205`.
 
-Visual: simplified version of Chuan's [`design.md`](design.md) architecture diagram with
-the four key components highlighted (Strategy Engine, Backtesting, Portfolio Agent,
-Reasoning Trace Registry).
+Visual: simplified version of [`architecture-diagram.html`](architecture-diagram.html)
+with the four key components highlighted (Strategy Engine + Passport, Selection-Bias
+Gate, Autonomous Portfolio Agent, ReasoningTraceRegistry on Arc).
 
 ### Slide 4: Live demo (90 seconds)
 
-Just "**DEMO**" in large text. Run the wow-moment script above from
-`archimedes.hackagora.com` (or wherever it deploys).
+Just "**DEMO**" in large text, with `archimedes.hackagora.com` or `18.171.230.205`
+underneath. Run the wow-moment script above. The demo URL should be locked in Week 2;
+the EC2 IP works as the fallback.
 
 ### Slide 5: Competitive landscape (30 seconds)
 
@@ -154,10 +208,13 @@ RFB + judging-criteria coverage. From [`rfb-alignment.md`](rfb-alignment.md):
 
 | Criterion                    | Weight | How we score                                                      |
 | ---------------------------- | ------ | ----------------------------------------------------------------- |
-| Agentic Sophistication       | 30%    | Regime detection, autonomous rebalancing, strategy rotation, on-chain reasoning traces. |
-| Traction                     | 30%    | Pre-curated strategies → day-1 portfolios. Strategy leaderboard, target 50+ users. |
-| Circle Tool Usage            | 20%    | Wallets, USYC, CCTP, Gateway, Paymaster, Contracts — full stack.   |
-| Innovation                   | 20%    | Paper-grounded provenance for every strategy. On-chain reasoning traces. Academic accountability for autonomous trading. |
+| Agentic Sophistication       | 30%    | Regime detection, autonomous rebalancing, strategy rotation, on-chain reasoning traces. Five frozen interfaces, three queues converging on the live loop. |
+| Traction                     | 30%    | Pre-curated strategies → day-1 portfolios. arc-canteen telemetry firing on every product ship + user conversation. Live testnet from Day 4. |
+| Circle Tool Usage            | 20%    | Wallets (Circle-managed oracle signer, live), USDC settlement, USYC risk-off floor, CCTP for RWA bridging, Gateway for nanopayments, 10 contracts on Arc. |
+| Innovation                   | 20%    | Paper-grounded passport with paper-claim deltas. On-chain reasoning traces with commit-reveal temporal binding. Selection-bias gate (DSR + PBO + OOS + look-ahead) at admission. |
+
+See [`judging-rubric-assessment.md`](judging-rubric-assessment.md) for the running
+self-score and the gap analysis driving the Week-2 critical path.
 
 RFB 04 primary; RFB 02 math primitive (Kelly); RFB 06 adjacent (strategy leaderboard).
 
@@ -250,7 +307,10 @@ performance is not predictive** — the reputation primitive is *auditable histo
 A: Four triggers per [Chuan's design](design.md): drift threshold (any position > 5%
 from target), regime change (the regime classifier transitions), strategy decay (rolling
 30-day Sharpe < 0.5), or calendar (weekly check). Every trigger evaluates expected
-benefit vs. transaction cost before executing.
+benefit vs. transaction cost before executing. The trigger logic lives in the
+`IRegimeDetector` + `IAgentOrchestrator` interfaces in
+[`specs/component-interfaces-spec.md`](specs/component-interfaces-spec.md); the
+implementations land in Week 2.
 
 **Q: What about taxes?**
 
@@ -322,7 +382,13 @@ Lock these roles by end of Week 1.
   ship next" slide? **Recommendation:** save for the slide. Live demo should be tight on
   the curated path.
 - Should we name specific RWA tokens (tokenized TSLA, NVDA, GLD) in the demo, or use
-  symbolic placeholders? **Recommendation:** use real tokens if available on Arc testnet;
-  symbolic placeholders if not.
+  symbolic placeholders? **Day-4 reality:** the deployed `SyntheticFactory` mints synthetic
+  versions today (e.g. sOIL, sNKY visible in the deploy script defaults). **Recommendation:**
+  demo with the actually-minted synthetics; mention real RWA bridging via CCTP as the
+  v1.5 step.
 - Do we want a written one-pager for the judges to take with them? **Recommendation:** yes,
   if Canteen accepts handouts. One-page version of this deck.
+- Does Week 2 prioritize the **orchestrator loop** (closing Agentic Sophistication gap)
+  or **arc-canteen telemetry density** (closing Traction zero)? Both are required to
+  break ~13/40; the rubric assessment argues telemetry is the cheapest +points and should
+  be parallelized from Day 4 forward regardless of which engineering work lands next.

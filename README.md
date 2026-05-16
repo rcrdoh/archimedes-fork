@@ -19,7 +19,15 @@ reputation is **verifiable history, not predicted performance**.
 Built for the [**Agora Agents Hackathon**](https://luma.com/7i50p2r9) — Canteen × Circle ×
 Arc, May 11–25, 2026.
 
-**Status:** MVP in development. See [`docs/`](docs/) for design + planning artifacts.
+**Status (Day 4, 2026-05-14):** live testnet deploy at
+[`http://18.171.230.205/`](http://18.171.230.205/). 10 Solidity contracts deployed on Arc
+testnet (chain ID `5042002`). React/Vite UI with multi-wallet connect (MetaMask /
+Coinbase / generic). 3 paper-grounded strategies + buy-and-hold baseline seeded in the
+analytics engine. Backend FastAPI app with strategy provider + chain integration layer
+running behind nginx in the EC2 docker-compose stack. The remaining critical-path work
+is the autonomous orchestrator loop and end-to-end reasoning-trace anchoring — see
+[`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md) for the running
+self-score. See [`docs/`](docs/) for design + planning artifacts.
 
 ## Why Archimedes?
 
@@ -94,10 +102,11 @@ archimedes/
 │   ├── requirements.txt
 │   └── archimedes/
 │       ├── main.py                  # FastAPI entrypoint
-│       ├── api/                     # Routes + Pydantic schemas (Chuan)
-│       ├── models/                  # Shared dataclasses (Strategy, BacktestResult, Trace, Portfolio, …)
+│       ├── api/                     # Routes + Pydantic schemas (Daniel R.)
+│       ├── chain/                   # On-chain integration + oracle_runner (Chuan)
 │       ├── interfaces/              # Protocol classes — frozen contracts between teammates
-│       └── services/                # Implementations (strategy_provider lands here)
+│       ├── models/                  # Shared dataclasses (Strategy, BacktestResult, Trace, Portfolio, …)
+│       └── services/                # Implementations (strategy_provider, etc.)
 │
 ├── analytics-engine/                # Backtest engine (Daniel R., uv-managed)
 │   ├── pyproject.toml
@@ -106,27 +115,43 @@ archimedes/
 │   │   ├── engine.py                # backtrader runner + BacktestResult
 │   │   ├── data.py, instruments.py, strategy_loader.py
 │   └── strategies/                  # One .py file per strategy (paper-grounded)
-│       ├── pipeline_buy_hold.py
-│       ├── faber_2007_sma200_timing.py
-│       ├── moreira_muir_2017_volatility_managed.py
-│       └── moskowitz_ooi_pedersen_2012_tsmom.py
+│       ├── pipeline_buy_hold.py                          # Baseline
+│       ├── faber_2007_sma200_timing.py                   # Faber 2007 (Cambria)
+│       ├── moreira_muir_2017_volatility_managed.py       # Moreira & Muir 2017 (J. Finance)
+│       └── moskowitz_ooi_pedersen_2012_tsmom.py          # Moskowitz, Ooi, Pedersen 2012 (J. Fin. Econ.)
 │
-├── contracts/                       # Solidity (Foundry layout)
+├── contracts/                       # Solidity (Foundry layout) — 10 contracts deployed on Arc testnet
 │   ├── foundry.toml
+│   ├── abis/                        # Cached ABIs for backend + UI consumption
 │   ├── src/
-│   │   ├── PriceOracle.sol
-│   │   ├── SyntheticToken.sol
-│   │   ├── SyntheticVault.sol
-│   │   └── interfaces/              # I*.sol — frozen ABIs Marten + Daniel code against
-│   ├── script/Deploy.s.sol
-│   └── test/
+│   │   ├── AMMPool.sol              # x*y=k AMM
+│   │   ├── AMMRouter.sol            # AMM router / swap entry
+│   │   ├── AssetRegistry.sol        # Strategy + asset registry
+│   │   ├── PriceOracle.sol          # Oracle (Circle-Wallets-signed price pushes)
+│   │   ├── ReasoningTraceRegistry.sol  # On-chain anchor for agent reasoning traces
+│   │   ├── SyntheticFactory.sol     # Synthetic asset minting factory
+│   │   ├── SyntheticToken.sol       # ERC-20 synthetic tokens
+│   │   ├── SyntheticVault.sol       # Per-synth collateral vault
+│   │   ├── Vault.sol                # Core user vault (ERC-4626)
+│   │   ├── VaultFactory.sol         # Vault deployer
+│   │   └── interfaces/              # I*.sol — frozen ABIs the backend + UI code against
+│   ├── script/                      # Foundry deploy scripts (Deploy.s.sol, DeployV2.s.sol)
+│   └── test/                        # Forge tests
 │
-├── ui-mockups/                      # Static HTML mockups (Daniel, served by nginx)
-├── nginx/                           # nginx config for the docker-compose stack
+├── ui/                              # React 19 + Vite 8 + viem 2.48 (the live frontend)
+│   ├── src/
+│   │   ├── App.jsx, main.jsx, config.js
+│   │   └── components/              # Layout, WalletConnect, Trade
+│   ├── package.json
+│   └── vite.config.js
+│
+├── ui-mockups/                      # Static HTML mockups (early prototypes; retained for reference)
+├── nginx/                           # nginx config + multi-stage Dockerfile for the docker-compose stack
+├── wallet-setup/                    # Circle Wallets setup scripts (oracle wallet, entity-secret rotation, etc.)
 ├── infra/                           # Terraform — EC2 deployment (Chuan)
 └── submodules/                      # External references (git submodules)
     ├── context-arc/                 # Circle's Arc/Circle docs + 5 sample codebases
-    ├── KnowledgeBase/                # Dan's paper-analysis pipeline (port targets: extract.py, metadata.py)
+    ├── KnowledgeBase/               # Dan's paper-analysis pipeline (port targets: extract.py, metadata.py)
     └── Linus/                       # Dan's AI orchestration project (reference only for archimedes)
 ```
 
@@ -135,14 +160,14 @@ archimedes/
 | Layer             | Technology                                                                                |
 | ----------------- | ----------------------------------------------------------------------------------------- |
 | Backend           | Python 3.12, FastAPI, Uvicorn, SQLAlchemy                                                 |
-| Frontend          | Next.js + TailwindCSS                                                                     |
+| Frontend          | React 19 + Vite 8 + [viem](https://viem.sh/) 2.48 (plain CSS)                             |
 | Database          | PostgreSQL 16 + Redis                                                                     |
 | LLM               | Claude API ([anthropic](https://github.com/anthropics/anthropic-sdk-python))              |
 | Backtesting       | [backtrader](https://github.com/mementum/backtrader) (v1 decision — see specs)            |
 | Smart contracts   | Solidity targeting Arc (EVM-compatible) + [Foundry](https://book.getfoundry.sh/)          |
-| On-chain          | [Circle SDK](https://www.circle.com/) + [web3.py](https://github.com/ethereum/web3.py)    |
+| On-chain          | [Circle SDK](https://www.circle.com/) (Wallets, Gateway, CCTP) + viem on the UI side      |
 | Hackathon CLI     | [arc-canteen](https://github.com/the-canteen-dev/ARC-cli) (traction tracking)             |
-| Deployment        | Docker + Fly.io / Railway                                                                 |
+| Deployment        | Docker compose (5-service stack) on EC2; CI/CD via GitHub Actions                         |
 
 Full architecture in [`docs/design.md`](docs/design.md).
 
@@ -252,9 +277,18 @@ forge build
 forge test
 ```
 
-### 5. Frontend (UI mockups via nginx)
+### 5. Frontend (React + Vite via nginx)
 
-The `frontend/` Next.js app is on Daniel's queue. Until it lands, [`ui-mockups/`](ui-mockups/) carries static HTML mockups for the 8 marketplace screens (marketplace, vault detail, portfolio dashboard, strategy explorer, swap, vault creator, onboarding, reasoning-trace viewer). Docker compose serves them via nginx on port 80 — see § "Run Archimedes locally" below.
+The live UI is at [`ui/`](ui/) — React 19 + Vite 8 + viem 2.48 (plain CSS, no framework
+beyond React). Components: `Layout`, `WalletConnect` (MetaMask / Coinbase / generic
+browser wallet), `Trade`. The docker-compose `nginx` service builds the React app via a
+multi-stage Dockerfile in [`nginx/`](nginx/) and serves the built static bundle on port
+80 with a reverse-proxy to the backend at `/api/`. For frontend hot-reload during
+development, run `npm install && npm run dev` from inside `ui/` to use the Vite dev
+server directly.
+
+[`ui-mockups/`](ui-mockups/) carries the earlier static-HTML prototypes — retained for
+reference, no longer wired into the stack.
 
 ---
 
@@ -264,12 +298,13 @@ This is the everyone-on-the-team path for spinning up Archimedes on your laptop 
 
 ### What you get
 
-`docker compose up` brings up four services:
+`docker compose up` brings up five services:
 
 | Service     | Port | URL                              | What it is |
 | ----------- | ---- | -------------------------------- | ---------- |
-| `nginx`     | 80   | <http://localhost>               | Static `ui-mockups/` — Daniel's 8 marketplace screens |
+| `nginx`     | 80   | <http://localhost>               | React UI build (multi-stage Dockerfile in [`nginx/`](nginx/)) + reverse-proxy to backend |
 | `backend`   | 8000 | <http://localhost:8000/docs>     | FastAPI app (Swagger UI auto-generated from `backend/archimedes/api/routes.py`) |
+| `oracle`    | —    | (no HTTP)                        | Oracle price feeder — pushes prices via Circle Wallets API to `PriceOracle.sol` |
 | `postgres`  | 5432 | `postgres://archimedes@localhost:5432/archimedes` | DB for strategies, backtests, reasoning traces |
 | `redis`     | 6379 | `redis://localhost:6379/0`       | Live regime state cache; agent loop scratch |
 
@@ -314,12 +349,16 @@ docker compose ps
 
 | Open in your browser | Expect to see |
 | -------------------- | ------------- |
-| <http://localhost>           | Daniel's marketplace mockup (`ui-mockups/index.html`) |
+| <http://localhost>           | The live React UI (built from [`ui/`](ui/) — Layout + WalletConnect + Trade components) |
 | <http://localhost:8000>      | `{"name":"Archimedes","tagline":"Peer-reviewed AI portfolios, settled on Arc.","docs":"/docs"}` |
 | <http://localhost:8000/health> | `{"status":"ok","service":"archimedes-backend"}` |
 | <http://localhost:8000/docs> | Swagger UI auto-rendered from the API contract |
 
-The Swagger UI right now shows route signatures only — handlers are stubs (the orchestrator wiring is on Chuan's queue per [`docs/specs/component-interfaces-spec.md`](docs/specs/component-interfaces-spec.md)). The contract is real even if the implementations are placeholders.
+The Swagger UI shows the live routes. As of Day 4, the strategy provider, chain
+integration (read paths), and oracle runner are real implementations; the autonomous
+orchestrator loop, regime detector, portfolio constructor, and backtest evaluator are
+the remaining interface implementations from
+[`docs/specs/component-interfaces-spec.md`](docs/specs/component-interfaces-spec.md).
 
 ### Step 4 — Drive the strategy library from the Python side
 
@@ -466,10 +505,10 @@ Two commands matter:
 
 ```bash
 # Log a product / feature update — call after merging anything meaningful
-arc-canteen update-product "Strategy passport landed: 3 paper-grounded strategies, DSR + PBO spec for Önder"
+arc-canteen update-product "Live testnet deploy at http://18.171.230.205/ — 10 contracts on Arc + wallet-connect UI + 3 paper-grounded strategies"
 
 # Log a traction event — call every time you talk to a potential user or onboard someone
-arc-canteen update-traction "Onboarded user 0x... — deposited 100 USDC into Tier-1 vault, executed first rebalance"
+arc-canteen update-traction "Shared live demo URL with two crypto-native users — first external traffic on the EC2 deploy"
 ```
 
 Run `arc-canteen status` to view your current dashboard — what the judges will see when they look at your handle. The judging-rubric assessment in [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md) breaks down where we currently stand on each of the 4 weighted criteria.
@@ -561,9 +600,9 @@ See [`CLAUDE.md`](CLAUDE.md) for full conventions. Headline points:
 ### Running tests
 
 ```bash
-pytest                       # backend tests
-cd frontend && npm test      # frontend tests
-forge test                   # contract tests (once contracts/ lands)
+pytest                       # backend tests (under tests/)
+cd ui && npm run lint        # frontend lint (ESLint 10)
+cd contracts && forge test   # contract tests (10 contracts deployed, full Forge suite)
 ```
 
 ### Lint + format

@@ -28,6 +28,17 @@ from archimedes.api.schemas import (
 from archimedes.services.asset_service import AssetService
 from archimedes.services.vault_service import VaultService
 from archimedes.services.config_service import ConfigService
+from archimedes.services.strategy_provider import default_provider
+from archimedes.services.strategy_architect import default_architect
+from archimedes.services.strategy_guardrail import apply_guardrail
+from archimedes.services.construction_trace import build_construction_trace
+from archimedes.models.strategy import Strategy, StrategyStatus
+from archimedes.api.architect_schemas import (
+    ConstructionSelectionResponse,
+    ConstructionTraceResponse,
+    StrategyConstructionRequest,
+    StrategyConstructionResponse,
+)
 from archimedes.chain.oracle_updater import OracleUpdater
 from archimedes.chain.executor import chain_executor
 
@@ -48,6 +59,28 @@ _asset_svc = AssetService()
 _vault_svc = VaultService()
 _config_svc = ConfigService()
 _oracle = OracleUpdater()
+_strategy_provider = default_provider()
+_architect = default_architect()
+
+
+def _to_strategy_response(s: Strategy) -> StrategyResponse:
+    """Map the shared Strategy dataclass to the frontend response shape.
+
+    Backtest fields are left None until Önder's IBacktestEvaluator runs and
+    populates a BacktestResult — surfacing them as null is honest (no
+    evaluation yet) and matches the "deltas surfaced, not hidden" principle.
+    """
+    return StrategyResponse(
+        id=s.id,
+        paper_arxiv_id=s.paper_arxiv_id,
+        paper_title=s.paper_title,
+        paper_authors=s.paper_authors,
+        methodology_summary=s.methodology_summary,
+        asset_universe=s.asset_universe,
+        position_sizing=s.position_sizing.value,
+        rebalance_frequency=s.rebalance_frequency.value,
+        status=s.status.value,
+    )
 
 
 # ── Assets ────────────────────────────────────────────────────
@@ -110,16 +143,88 @@ async def list_strategies(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """List strategies in the library. Dan owns the implementation."""
-    # TODO: Dan implements the strategy provider
-    return StrategyListResponse(strategies=[], total=0)
+    """List strategies in the library. Backed by LocalStrategyProvider."""
+    status_filter = StrategyStatus(status) if status else None
+    strategies = _strategy_provider.list_strategies(status=status_filter)
+    total = len(strategies)
+    window = strategies[offset : offset + limit]
+    return StrategyListResponse(
+        strategies=[_to_strategy_response(s) for s in window],
+        total=total,
+    )
 
 
 @strategies_router.get("/{strategy_id}", response_model=StrategyResponse)
 async def get_strategy(strategy_id: str):
-    """Get a single strategy. Dan owns the implementation."""
-    from fastapi import HTTPException
-    raise HTTPException(status_code=404, detail="Strategy not found")
+    """Get a single strategy by ID. Backed by LocalStrategyProvider."""
+    strategy = _strategy_provider.get_strategy(strategy_id)
+    if strategy is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return _to_strategy_response(strategy)
+
+
+@strategies_router.post("/construct", response_model=StrategyConstructionResponse)
+async def construct_strategy(req: StrategyConstructionRequest):
+    """Interactive strategy architect — the 'design me a portfolio' path.
+
+    User intent + risk profile → Claude selects/weights paper-grounded
+    strategies → deterministic guardrail → hashed reasoning trace. The
+    trace_hash is the same artifact Chuan/Marten's ITracePublisher anchors
+    on-chain. This is the interactive counterpart to Chuan's autonomous
+    IAgentOrchestrator; they share the provider + guardrail.
+    """
+    # propose() may issue a blocking Claude call — keep the event loop free.
+    try:
+        proposal = await asyncio.to_thread(
+            _architect.propose,
+            req.intent,
+            req.risk_profile,
+            req.capital_usdc,
+            req.regime,
+        )
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail=f"LLM backend unavailable: {exc}") from exc
+    guardrail = apply_guardrail(proposal)
+    trace = build_construction_trace(proposal, guardrail)
+
+    by_id = {s.strategy_id: s for s in proposal.selected}
+    selected = []
+    for sid, weight in sorted(guardrail.strategy_weights.items()):
+        sel = by_id.get(sid)
+        strat = _strategy_provider.get_strategy(sid)
+        selected.append(
+            ConstructionSelectionResponse(
+                strategy_id=sid,
+                paper_title=strat.paper_title if strat else "",
+                weight=weight,
+                rationale=sel.rationale if sel else "",
+                paper_citation=sel.paper_citation if sel else "",
+            )
+        )
+
+    return StrategyConstructionResponse(
+        intent=proposal.intent,
+        risk_profile=proposal.risk_profile,
+        capital_usdc=proposal.capital_usdc,
+        regime=proposal.regime,
+        model_id=proposal.model_id,
+        selected=selected,
+        usyc_weight=guardrail.usyc_weight,
+        overall_reasoning=proposal.overall_reasoning,
+        risk_notes=proposal.risk_notes,
+        guardrail_notes=guardrail.adjustments,
+        trace=ConstructionTraceResponse(
+            id=trace.id,
+            decision_type=trace.decision_type.value,
+            trigger=trace.trigger,
+            timestamp=trace.timestamp.isoformat(),
+            trace_hash=trace.trace_hash,
+            arc_tx_hash=trace.arc_tx_hash,
+            is_anchored=trace.is_anchored,
+        ),
+    )
 
 
 # ── Reasoning Traces ──────────────────────────────────────────
