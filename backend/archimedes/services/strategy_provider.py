@@ -265,15 +265,38 @@ class LocalStrategyProvider:
         return [s for s in self._strategies.values() if wanted in s.risk_profiles]
 
     def extract_from_paper(self, arxiv_id: str) -> Strategy | None:
-        """Demo-feature stub. Real implementation arrives in the arxiv pipeline.
+        """[DEMO] Extract a CANDIDATE strategy passport from an arxiv paper.
 
-        Returns None for now. The pipeline will live in
-        `archimedes.services.arxiv_pipeline` and use the KnowledgeBase
-        `extract.py` pattern (PyMuPDF cache) plus a Claude API call to
-        synthesize the methodology, then write a new `.py` file into the
-        analytics-engine strategies directory and call `self.refresh()`.
+        Runs `archimedes.services.arxiv_pipeline` (arxiv metadata + pypdf
+        text, KnowledgeBase extract pattern, + Claude methodology
+        synthesis), writes a self-describing strategy module into the
+        strategies directory, refreshes, and returns the new Strategy.
+        Returns None on any failure — no partial junk. The result is a
+        CANDIDATE: it still needs human curation and the selection-bias
+        gate before it can be promoted past CANDIDATE.
+
+        Lazy import: arxiv_pipeline → strategy_architect → this module, so
+        importing at call time avoids a circular import at module load.
         """
-        logger.info("extract_from_paper(%s): not yet implemented", arxiv_id)
+        from archimedes.services.arxiv_pipeline import extract_strategy
+
+        before = set(self._strategies)
+        path = extract_strategy(arxiv_id, strategies_dir=self._strategies_dir)
+        if path is None:
+            logger.info("extract_from_paper(%s): no strategy produced", arxiv_id)
+            return None
+
+        self.refresh()
+        for strat in self._strategies.values():
+            if strat.strategy_code_path == str(path):
+                return strat
+        new_ids = set(self._strategies) - before
+        if new_ids:
+            return self._strategies[next(iter(new_ids))]
+        logger.warning(
+            "extract_from_paper(%s): file written but not picked up by refresh",
+            arxiv_id,
+        )
         return None
 
 
