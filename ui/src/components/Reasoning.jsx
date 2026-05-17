@@ -250,15 +250,21 @@ function StrategyDetailView({ strategy, traces }) {
       {/* On-chain Traces for this strategy */}
       {traces.length > 0 && (
         <div>
-          <div className="label mb-2">On-Chain Reasoning Traces ({traces.length})</div>
+          <div className="label mb-2">Reasoning Traces ({traces.length})</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {traces.map((t, i) => (
-              <div key={i} className="card-flat" style={{ padding: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <span className="tag tag-accent">#{t.id}</span>
-                  <code style={{ marginLeft: 8, fontSize: '0.75rem' }}>{shortHash(t.trace_hash)}</code>
+              <div key={i} className="card-flat" style={{ padding: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                    <span className="tag tag-accent">{t.decision_type || 'trace'}</span>
+                    <code style={{ fontSize: '0.75rem' }}>{shortHash(t.trace_hash)}</code>
+                    {t.is_verified && <span style={{ fontSize: '0.7rem', color: 'var(--positive)' }}>✓</span>}
+                    {t.arc_tx_hash && <span style={{ fontSize: '0.7rem' }}>⚓</span>}
+                  </div>
+                  {t.reasoning && <p className="hint" style={{ marginBottom: 0 }}>{t.reasoning.slice(0, 120)}{t.reasoning.length > 120 ? '…' : ''}</p>}
+                  {t.confidence > 0 && <div className="caption">Confidence: {(t.confidence * 100).toFixed(0)}%</div>}
                 </div>
-                <div className="caption">{timeAgo(t.timestamp)}</div>
+                <div className="caption" style={{ whiteSpace: 'nowrap' }}>{timeAgo(t.timestamp)}</div>
               </div>
             ))}
           </div>
@@ -289,84 +295,132 @@ function OnChainTraces() {
   const [loading, setLoading] = useState(true)
   const [publishVault, setPublishVault] = useState('')
   const [publishMsg, setPublishMsg] = useState('')
+  const [publishReasoning, setPublishReasoning] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
-
-  const regAddr = NEW_CONTRACTS.traceRegistry
+  const [verifying, setVerifying] = useState({})
+  const [verifyResults, setVerifyResults] = useState({})
 
   const loadTraces = useCallback(async () => {
-    if (!regAddr) { setLoading(false); return }
+    setLoading(true)
     try {
-      const count = await publicClient.readContract({
-        address: regAddr, abi: TRACE_REGISTRY_ABI, functionName: 'traceCount'
-      })
-      setTotalCount(Number(count))
-      const loaded = []
-      const start = Math.max(1, Number(count) - 19)
-      for (let i = Number(count); i >= start; i--) {
-        try {
-          const [agent, vault, traceHash, timestamp] = await publicClient.readContract({
-            address: regAddr, abi: TRACE_REGISTRY_ABI, functionName: 'getTraceById', args: [BigInt(i)]
-          })
-          loaded.push({ id: i, agent, vault, traceHash, timestamp: Number(timestamp) })
-        } catch {}
-      }
-      setTraces(loaded)
-    } catch {}
+      // Load from backend API (enriched with off-chain metadata)
+      const data = await apiGet('/api/traces/?limit=50')
+      setTraces(data.traces || [])
+      setTotalCount(data.total || 0)
+    } catch {
+      // Fallback: read directly from on-chain
+      const regAddr = NEW_CONTRACTS.traceRegistry
+      if (!regAddr) return
+      try {
+        const count = await publicClient.readContract({
+          address: regAddr, abi: TRACE_REGISTRY_ABI, functionName: 'traceCount'
+        })
+        setTotalCount(Number(count))
+        const loaded = []
+        const start = Math.max(1, Number(count) - 19)
+        for (let i = Number(count); i >= start; i--) {
+          try {
+            const [agent, vault, traceHash, timestamp] = await publicClient.readContract({
+              address: regAddr, abi: TRACE_REGISTRY_ABI, functionName: 'getTraceById', args: [BigInt(i)]
+            })
+            loaded.push({ id: i, agent, vault, trace_hash: traceHash, timestamp: Number(timestamp), decision_type: 'on-chain' })
+          } catch {}
+        }
+        setTraces(loaded)
+      } catch {}
+    }
     setLoading(false)
-  }, [regAddr])
+  }, [])
 
   useEffect(() => { loadTraces() }, [loadTraces])
 
   const publishTrace = async () => {
-    if (!regAddr || !publishVault || !publishMsg) return
+    if (!publishVault || !publishMsg) return
     setBusy(true); setStatus('')
     try {
-      const wallet = await getWalletClient()
-      const hash = '0x' + Array.from(new TextEncoder().encode(publishMsg))
-        .map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0').slice(0, 64)
       setStatus('Publishing trace…')
-      const txHash = await wallet.writeContract({
-        address: regAddr, abi: TRACE_REGISTRY_ABI,
-        functionName: 'publishTrace', args: [publishVault, hash, '0x'],
+      const res = await fetch(`${API_BASE}/api/traces/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vault_address: publishVault,
+          decision_type: 'construction',
+          trigger: 'manual_publish',
+          reasoning: publishReasoning || publishMsg,
+          confidence: 0.85,
+          market_context: { source: 'ui' },
+          strategies_referenced: [],
+          trades_executed: [],
+        }),
       })
-      setStatus(`Published! TX: ${txHash}`)
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || 'Publish failed')
+      }
+      const data = await res.json()
+      setStatus(`✅ Published! Hash: ${shortHash(data.trace_hash)} ${data.is_anchored ? '⚓ anchored on Arc' : '(off-chain only)'}`)
       setPublishMsg('')
+      setPublishReasoning('')
       loadTraces()
-    } catch (err) { setStatus(err.shortMessage || err.message) }
+    } catch (err) {
+      setStatus(`❌ ${err.message}`)
+    }
     setBusy(false)
   }
 
-  if (!regAddr) {
-    return <div className="info-box warning">TraceRegistry not deployed.</div>
+  const verifyTrace = async (traceId) => {
+    setVerifying(prev => ({ ...prev, [traceId]: true }))
+    try {
+      const data = await apiGet(`/api/traces/${encodeURIComponent(traceId)}/verify`)
+      setVerifyResults(prev => ({
+        ...prev,
+        [traceId]: data,
+      }))
+    } catch (err) {
+      setVerifyResults(prev => ({
+        ...prev,
+        [traceId]: { is_verified: false, details: err.message },
+      }))
+    }
+    setVerifying(prev => ({ ...prev, [traceId]: false }))
   }
 
   return (
     <div>
-      <div className="label mb-3">On-Chain Trace Registry ({totalCount} total)</div>
+      <div className="label mb-3">Reasoning Trace Registry ({totalCount} total)</div>
 
-      {/* Publish test trace */}
+      {/* Publish trace via API */}
       <div className="card" style={{ marginBottom: 16, padding: 16 }}>
-        <div className="label mb-2">Publish Test Trace</div>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <input
-            type="text"
-            value={publishVault}
-            onChange={e => setPublishVault(e.target.value)}
-            placeholder="Vault address (0x…)"
+        <div className="label mb-2">Publish Reasoning Trace</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              value={publishVault}
+              onChange={e => setPublishVault(e.target.value)}
+              placeholder="Vault address (0x…)"
+              className="chat-input"
+              style={{ flex: 1, minWidth: 200 }}
+            />
+            <input
+              type="text"
+              value={publishMsg}
+              onChange={e => setPublishMsg(e.target.value)}
+              placeholder="Trigger / title"
+              className="chat-input"
+              style={{ flex: 1, minWidth: 200 }}
+            />
+          </div>
+          <textarea
+            value={publishReasoning}
+            onChange={e => setPublishReasoning(e.target.value)}
+            placeholder="Reasoning (optional — describe the decision context)"
             className="chat-input"
-            style={{ flex: 1, minWidth: 200 }}
-          />
-          <input
-            type="text"
-            value={publishMsg}
-            onChange={e => setPublishMsg(e.target.value)}
-            placeholder="Reasoning message"
-            className="chat-input"
-            style={{ flex: 2, minWidth: 200 }}
+            style={{ minHeight: 60, resize: 'vertical' }}
           />
           <button className="btn btn-primary" onClick={publishTrace} disabled={busy || !publishVault || !publishMsg}>
-            {busy ? 'Publishing…' : 'Publish'}
+            {busy ? 'Publishing…' : '⚓ Publish & Anchor on Arc'}
           </button>
         </div>
         {status && <div className="caption" style={{ marginTop: 8 }}>{status}</div>}
@@ -376,31 +430,79 @@ function OnChainTraces() {
       {loading ? (
         <div className="caption">Loading traces…</div>
       ) : traces.length === 0 ? (
-        <div className="caption">No traces published yet.</div>
+        <div className="caption">No traces published yet. Use the form above to publish your first reasoning trace.</div>
       ) : (
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Vault</th>
-                <th>Agent</th>
-                <th>Trace Hash</th>
-                <th className="text-right">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {traces.map(t => (
-                <tr key={t.id}>
-                  <td style={{ fontWeight: 700, color: 'var(--accent)' }}>#{t.id}</td>
-                  <td><code>{shortAddr(t.vault)}</code></td>
-                  <td><code>{shortAddr(t.agent)}</code></td>
-                  <td><code>{shortHash(t.traceHash)}</code></td>
-                  <td className="text-right caption">{timeAgo(t.timestamp)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {traces.map((t, i) => {
+            const vResult = verifyResults[t.id]
+            return (
+              <div key={i} className="card" style={{ padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--accent)' }}>#{typeof t.id === 'string' ? t.id.slice(0, 8) : t.id}</span>
+                    <span className={`tag ${t.decision_type === 'rebalance' ? 'tag-accent' : t.decision_type === 'construction' ? 'tag-positive' : 'tag-muted'}`}>
+                      {t.decision_type}
+                    </span>
+                    {t.is_verified && <span style={{ fontSize: '0.75rem', color: 'var(--positive)' }}>✓ verified</span>}
+                    {t.arc_tx_hash && <span style={{ fontSize: '0.75rem' }}>⚓ on-chain</span>}
+                  </div>
+                  <div className="caption">{timeAgo(t.timestamp)}</div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                  <div>
+                    <div className="caption">Vault</div>
+                    <code style={{ fontSize: '0.75rem' }}>{shortAddr(t.vault_address || t.vault)}</code>
+                  </div>
+                  <div>
+                    <div className="caption">Trace Hash</div>
+                    <code style={{ fontSize: '0.75rem' }}>{shortHash(t.trace_hash || t.traceHash)}</code>
+                  </div>
+                </div>
+
+                {t.reasoning && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div className="caption">Reasoning</div>
+                    <p className="body" style={{ fontSize: '0.85rem', lineHeight: 1.4 }}>{t.reasoning.slice(0, 200)}{t.reasoning.length > 200 ? '…' : ''}</p>
+                  </div>
+                )}
+
+                {t.regime_at_decision && (
+                  <div style={{ marginBottom: 8 }}>
+                    <span className="caption">Regime: </span>
+                    <span className={`tag ${t.regime_at_decision === 'risk_on' ? 'tag-positive' : t.regime_at_decision === 'risk_off' ? 'tag-muted' : 'tag-accent'}`}>
+                      {t.regime_at_decision}
+                    </span>
+                  </div>
+                )}
+
+                {t.confidence > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div className="caption">Confidence: {(t.confidence * 100).toFixed(0)}%</div>
+                    <div style={{ background: 'var(--bg-2)', borderRadius: 4, height: 4, width: '100%' }}>
+                      <div style={{ background: 'var(--accent)', borderRadius: 4, height: 4, width: `${t.confidence * 100}%` }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Verify button */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={() => verifyTrace(t.id)}
+                    disabled={verifying[t.id]}
+                  >
+                    {verifying[t.id] ? 'Verifying…' : '🔍 Verify on-chain'}
+                  </button>
+                  {vResult && (
+                    <span className={`caption ${vResult.is_verified ? 'positive' : 'negative'}`}>
+                      {vResult.is_verified ? `✓ ${vResult.details}` : `✗ ${vResult.details}`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

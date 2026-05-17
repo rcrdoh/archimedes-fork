@@ -390,6 +390,32 @@ class StrategyRunner:
                     logger.info("[tick %s] Trace anchored on-chain: %s", tick_id, arc_tx[:16])
             except Exception as e:
                 logger.error("[tick %s] Trace publish FAILED: %s", tick_id, e)
+                arc_tx = None
+        else:
+            arc_tx = None
+
+        # Persist off-chain to Redis (always, even in dry-run)
+        try:
+            off_chain_data = {
+                "id": trace.id,
+                "vault_address": trace.vault_address,
+                "decision_type": trace.decision_type.value,
+                "trigger": trace.trigger,
+                "timestamp": trace.timestamp.isoformat(),
+                "market_context": trace.market_context,
+                "portfolio_before": trace.portfolio_before,
+                "portfolio_after": trace.portfolio_after,
+                "reasoning": trace.reasoning,
+                "confidence": trace.confidence,
+                "trades_executed": trace.trades_executed,
+                "strategies_referenced": trace.strategies_referenced,
+                "trace_hash": trace.trace_hash,
+                "arc_tx_hash": arc_tx,
+                "is_verified": arc_tx is not None,
+            }
+            await self.state.save_trace(off_chain_data)
+        except Exception as e:
+            logger.error("[tick %s] Trace Redis save FAILED: %s", tick_id, e)
 
     # ─── Reasoning builder ─────────────────────────────────────────
 

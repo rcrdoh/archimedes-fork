@@ -235,7 +235,7 @@ function StrategyDetailModal({ strategy, detail, onClose, onDeploy }) {
               {strategy.risk} Risk
             </span>
             {strategy.status === 'verified' && <span className="tag tag-accent">Verified 🏆</span>}
-            {strategy.status === 'community' && <span className="tag tag-muted">Community 👥</span>}
+            {strategy.status === 'community' && <span className="tag tag-muted">Communities 👥</span>}
           </div>
           <button className="strategy-modal-close" onClick={onClose}>×</button>
         </div>
@@ -768,7 +768,7 @@ export default function Marketplace() {
       <div className="grid g-4 mb-7" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         {[
           { label: 'Ecosystem AUM',    value: ecosystemStats.totalAum,    sub: ecosystemStats.aumChange ? `${ecosystemStats.aumChange} this week` : 'Live on Arc', cls: 'positive' },
-          { label: 'Active Vaults',    value: ecosystemStats.activeVaults, sub: `${ecosystemStats.verifiedVaults} verified · ${ecosystemStats.communityVaults} community`, cls: '' },
+          { label: 'Active Vaults',    value: ecosystemStats.activeVaults, sub: `${ecosystemStats.verifiedVaults} verified · ${ecosystemStats.communityVaults} communities`, cls: '' },
           { label: 'On-Chain Traces',  value: ecosystemStats.totalTraces,  sub: 'All verifiable', cls: 'accent' },
           { label: 'Avg Sharpe (T1)',  value: ecosystemStats.avgSharpe,    sub: ecosystemStats.sharpeDelta ? `${ecosystemStats.sharpeDelta} vs benchmark` : 'Paper-grounded', cls: 'positive' },
         ].map(({ label, value, sub, cls }) => (
@@ -999,7 +999,7 @@ export default function Marketplace() {
               className={`tag ${showSection === 'community' ? 'tag-accent' : 'tag-muted'}`}
               style={{ cursor: 'pointer' }}
               onClick={() => setShowSection('community')}
-            >Community ({communityCount}) 👥</span>
+            >Communities ({communityCount}) 👥</span>
           </div>
 
           {filteredStrategies.length === 0 ? (

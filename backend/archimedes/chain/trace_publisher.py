@@ -10,6 +10,7 @@ import logging
 
 from archimedes.chain.client import chain_client
 from archimedes.chain.contracts import ContractLoader, get_contract_loader
+from archimedes.chain.circle_signer import circle_signer
 from archimedes.models.trace import ReasoningTrace
 
 logger = logging.getLogger(__name__)
@@ -25,28 +26,56 @@ class TracePublisher:
         """Publish a reasoning trace hash on-chain.
 
         Steps:
-          1. trace.compute_hash() → SHA-256 hex
-          2. Convert to bytes32 for Solidity keccak256 comparison
-          3. Call ReasoningTraceRegistry.publishTrace(vault, hash, metadata)
-          4. Return tx hash
+          1. trace.compute_hash() → keccak256 hex (32 bytes)
+          2. Call ReasoningTraceRegistry.publishTrace(vault, hash, metadata)
+          3. Return tx hash
         """
-        account = chain_client.settings.agent_account
-        if not account:
-            logger.warning("No agent account configured — skipping trace publish")
-            return None
-
         trace_hash = trace.compute_hash()
         if not trace_hash:
             logger.warning("Trace hash is empty — skipping publish")
             return None
 
-        # Convert hex hash to bytes32
-        trace_hash_bytes = bytes.fromhex(trace_hash[:64].ljust(64, '0'))
+        # keccak256 output is exactly 32 bytes
+        trace_hash_bytes = bytes.fromhex(
+            trace_hash.removeprefix("0x")
+        )  # 32 bytes
 
         # Encode metadata
         metadata = self._encode_metadata(trace)
 
         vault_addr = chain_client.to_checksum(trace.vault_address)
+        registry_addr = chain_client.to_checksum(
+            chain_client.settings.reasoning_trace_registry_address
+        )
+
+        # ── Path 1: Circle Developer-Controlled Wallet ──
+        if circle_signer.is_configured:
+            try:
+                # Circle SDK expects hex strings for bytes/bytes32 types
+                trace_hash_hex = "0x" + trace_hash if not trace_hash.startswith("0x") else trace_hash
+                metadata_hex = "0x" + metadata.hex() if metadata else "0x"
+                logger.info(
+                    f"Publishing trace via Circle: vault={vault_addr}, "
+                    f"hash={trace_hash_hex[:18]}..., metadata_len={len(metadata)}"
+                )
+                tx_hash = await circle_signer.execute_contract(
+                    contract_address=registry_addr,
+                    abi_function="publishTrace(address,bytes32,bytes)",
+                    abi_params=[vault_addr, trace_hash_hex, metadata_hex],
+                )
+                logger.info(f"Trace published via Circle: {tx_hash[:16]}...")
+                trace.arc_tx_hash = tx_hash
+                return tx_hash
+            except Exception as e:
+                logger.error(f"Circle publish failed, falling back: {e}")
+                # Fall through to raw key path
+
+        # ── Path 2: Raw private key ──
+        account = chain_client.settings.agent_account
+        if not account:
+            logger.warning("No agent account configured — skipping trace publish")
+            return None
+
         registry = self.loader.trace_registry
         nonce = await chain_client.w3.eth.get_transaction_count(account.address)
 
@@ -96,7 +125,9 @@ class TracePublisher:
                 stored_hash = stored[2]  # bytes32 at index 2
 
                 # Compare
-                expected = bytes.fromhex(trace.trace_hash[:64].ljust(64, '0'))
+                expected = bytes.fromhex(
+                    trace.trace_hash.removeprefix("0x")
+                )  # 32 bytes from keccak256
                 if stored_hash == expected:
                     return True
 
@@ -140,6 +171,15 @@ class TracePublisher:
         except Exception as e:
             logger.error(f"Failed to get trace {trace_id}: {e}")
             return None
+
+    async def get_traces_by_vault(self, vault_address: str) -> list[int]:
+        """Get on-chain trace IDs for a specific vault."""
+        registry = self.loader.trace_registry
+        try:
+            vault_addr = chain_client.to_checksum(vault_address)
+            return await registry.functions.getTracesByVault(vault_addr).call()
+        except Exception:
+            return []
 
     def _encode_metadata(self, trace: ReasoningTrace) -> bytes:
         """Encode trace metadata as ABI-encoded bytes for on-chain storage."""

@@ -230,13 +230,52 @@ class TraceResponse(BaseModel):
 class TradeExecutedResponse(BaseModel):
     symbol: str
     direction: str  # "buy" | "sell"
-    amount: float
-    value_usdc: float
+    amount: float = 0.0
+    value_usdc: float = 0.0
 
 
 class TraceListResponse(BaseModel):
     traces: list[TraceResponse]
     total: int
+
+
+class TracePublishRequest(BaseModel):
+    """Request to publish a reasoning trace on-chain."""
+
+    vault_address: str
+    decision_type: str = "construction"  # construction | rebalance | rotation | regime_change | skip
+    trigger: str = "manual"
+    reasoning: str = ""
+    confidence: float = 0.0
+    market_context: dict = {}
+    portfolio_before: dict = {}
+    portfolio_after: dict = {}
+    trades_executed: list[dict] = []
+    strategies_referenced: list[str] = []
+
+
+class TracePublishResponse(BaseModel):
+    """Response after publishing a trace on-chain."""
+
+    id: str  # UUID
+    trace_hash: str  # keccak256 hex
+    arc_tx_hash: str | None = None
+    is_anchored: bool = False
+    timestamp: str  # ISO 8601
+    vault_address: str
+    decision_type: str
+
+
+class TraceVerifyResponse(BaseModel):
+    """Verification result for a single trace."""
+
+    trace_id: int  # On-chain trace ID
+    trace_hash: str
+    is_verified: bool
+    agent: str
+    vault: str
+    on_chain_timestamp: int
+    details: str  # Human-readable result
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
+from web3 import Web3
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -53,34 +53,36 @@ class ReasoningTrace:
     strategies_referenced: list[str] = field(default_factory=list)  # Strategy IDs
 
     # On-chain anchoring
-    trace_hash: str = ""  # SHA-256 of the canonical trace content
+    trace_hash: str = ""  # keccak256 of the canonical trace content
     arc_tx_hash: str | None = None  # Arc transaction that recorded this hash
 
+    # Canonical field order for hash computation — must match contract's verifyTrace
+    _HASH_FIELDS = (
+        "id", "vault_address", "decision_type", "trigger", "timestamp",
+        "market_context", "portfolio_before", "portfolio_after",
+        "reasoning", "confidence", "trades_executed", "strategies_referenced",
+    )
+
+    def canonical_json(self) -> str:
+        """Return the deterministic JSON string used for hashing."""
+        data = {}
+        for k in self._HASH_FIELDS:
+            v = self.decision_type.value if k == "decision_type" else getattr(self, k, None)
+            # Serialize datetime to ISO string
+            if isinstance(v, datetime):
+                v = v.isoformat()
+            data[k] = v
+        return json.dumps(data, sort_keys=True, separators=(",", ":"))
+
     def compute_hash(self) -> str:
-        """Compute deterministic SHA-256 hash of the trace content.
+        """Compute deterministic keccak256 hash of the trace content.
 
         This hash is what gets published to ReasoningTraceRegistry on-chain.
-        Anyone can verify a trace by recomputing the hash and comparing.
+        Anyone can verify by calling contract.verifyTrace(id, canonicalBytes)
+        which recomputes keccak256 on-chain and compares.
         """
-        canonical = json.dumps(
-            {
-                "id": self.id,
-                "vault_address": self.vault_address,
-                "decision_type": self.decision_type.value,
-                "trigger": self.trigger,
-                "timestamp": self.timestamp.isoformat(),
-                "market_context": self.market_context,
-                "portfolio_before": self.portfolio_before,
-                "portfolio_after": self.portfolio_after,
-                "reasoning": self.reasoning,
-                "confidence": self.confidence,
-                "trades_executed": self.trades_executed,
-                "strategies_referenced": self.strategies_referenced,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        self.trace_hash = hashlib.sha256(canonical.encode()).hexdigest()
+        canonical = self.canonical_json()
+        self.trace_hash = Web3.keccak(text=canonical).hex()
         return self.trace_hash
 
     @property

@@ -23,6 +23,8 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 KEY_REGIME = "archimedes:regime:current"
 KEY_HEARTBEAT = "archimedes:agent:heartbeat"
 KEY_LAST_REBALANCE_PREFIX = "archimedes:agent:last_rebalance:"
+KEY_TRACE_PREFIX = "archimedes:trace:"
+KEY_TRACE_INDEX = "archimedes:trace:index"
 
 
 class AgentStateStore:
@@ -153,6 +155,100 @@ class AgentStateStore:
         key = f"archimedes:vault:snapshots:{vault_address.lower()}"
         raw = await r.lrange(key, 0, count - 1)
         return [json.loads(e) for e in raw]
+
+    # ─── Reasoning Trace Persistence ────────────────────────────
+
+    async def save_trace(self, trace_data: dict) -> None:
+        """Store off-chain reasoning trace data keyed by trace_hash.
+
+        Also maintains secondary index by trace UUID for lookup.
+        """
+        r = await self._get_redis()
+        trace_hash = trace_data.get("trace_hash", "")
+        trace_id = trace_data.get("id", "")
+        if not trace_hash:
+            logger.warning("Cannot save trace without trace_hash")
+            return
+
+        # Store full trace data by hash
+        key = f"{KEY_TRACE_PREFIX}{trace_hash}"
+        await r.set(key, json.dumps(trace_data, default=str))
+
+        # Secondary index by UUID
+        if trace_id:
+            await r.set(f"{KEY_TRACE_PREFIX}id:{trace_id}", trace_hash)
+
+        # Add to sorted set by timestamp for listing
+        ts = trace_data.get("timestamp", "")
+        score = 0
+        if ts:
+            try:
+                dt = datetime.fromisoformat(ts)
+                score = dt.timestamp()
+            except (ValueError, TypeError):
+                score = datetime.now(timezone.utc).timestamp()
+        else:
+            score = datetime.now(timezone.utc).timestamp()
+
+        await r.zadd(KEY_TRACE_INDEX, {trace_hash: score})
+        logger.debug("Saved trace %s to Redis", trace_hash[:16])
+
+    async def get_trace(self, trace_id_or_hash: str) -> dict | None:
+        """Get off-chain trace data by hash or UUID."""
+        r = await self._get_redis()
+
+        # Try direct hash lookup
+        raw = await r.get(f"{KEY_TRACE_PREFIX}{trace_id_or_hash}")
+        if raw:
+            return json.loads(raw)
+
+        # Try UUID → hash → data
+        hash_val = await r.get(f"{KEY_TRACE_PREFIX}id:{trace_id_or_hash}")
+        if hash_val:
+            raw = await r.get(f"{KEY_TRACE_PREFIX}{hash_val}")
+            if raw:
+                return json.loads(raw)
+
+        return None
+
+    async def list_traces(
+        self,
+        vault_address: str | None = None,
+        decision_type: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """List traces from index, optionally filtered. Returns (traces, total)."""
+        r = await self._get_redis()
+
+        # Get all trace hashes sorted by timestamp (newest first)
+        all_hashes = await r.zrevrange(KEY_TRACE_INDEX, 0, -1)
+        total_all = len(all_hashes)
+
+        # Load and filter
+        traces: list[dict] = []
+        for h in all_hashes:
+            raw = await r.get(f"{KEY_TRACE_PREFIX}{h}")
+            if not raw:
+                continue
+            data = json.loads(raw)
+
+            # Apply filters
+            if vault_address and data.get("vault_address", "").lower() != vault_address.lower():
+                continue
+            if decision_type and data.get("decision_type") != decision_type:
+                continue
+
+            traces.append(data)
+
+        total = len(traces)
+        window = traces[offset : offset + limit]
+        return window, total
+
+    async def get_trace_count(self) -> int:
+        """Total number of stored off-chain traces."""
+        r = await self._get_redis()
+        return await r.zcard(KEY_TRACE_INDEX)
 
     # ─── Lifecycle ────────────────────────────────────────────────
 
