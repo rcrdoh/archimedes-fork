@@ -83,13 +83,19 @@ class VaultService:
             trace_count = await trace_publisher.get_trace_count(address)
             recent_traces = await self._get_recent_traces(address, limit=5)
 
-            # Resolve name/symbol from off-chain metadata
+            # Resolve name/symbol from on-chain, fallback to off-chain metadata
             name, symbol = await self._get_vault_names(address)
+            on_chain_name, on_chain_symbol = await self._get_on_chain_names(address)
+            name = name or on_chain_name or f"Vault {metrics['tier']}"
+            symbol = symbol or on_chain_symbol or f"v{address[:6]}"
+
+            # Read target allocations from contract
+            target_allocations = await self._get_target_allocations(address)
 
             return VaultDetailResponse(
                 address=address,
-                name=name or f"Vault {metrics['tier']}",
-                symbol=symbol or f"v{address[:6]}",
+                name=name,
+                symbol=symbol,
                 tier=metrics["tier"],
                 creator=metrics["creator"],
                 aum_usdc=metrics["total_aum_usdc"],
@@ -99,7 +105,7 @@ class VaultService:
                 performance_fee_pct=metrics["performance_fee_bps"] / 100,
                 high_water_mark=metrics["high_water_mark"],
                 holdings=holdings,
-                target_allocations=[],  # Would need to parse from contract
+                target_allocations=target_allocations,
                 return_24h=0.0,
                 return_7d=0.0,
                 return_30d=0.0,
@@ -110,6 +116,8 @@ class VaultService:
             return None
 
     def _metrics_to_summary(self, metrics: dict) -> VaultSummaryResponse:
+        """Convert chain executor metrics to a summary response."""
+        # Derive name from on-chain if available — the executor doesn't return name yet
         return VaultSummaryResponse(
             address=metrics["vault_address"],
             name=f"Vault T{metrics['tier']}",
@@ -128,6 +136,38 @@ class VaultService:
             depositors=0,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
+
+    async def _get_on_chain_names(self, address: str) -> tuple[str | None, str | None]:
+        """Read name/symbol directly from the vault contract."""
+        try:
+            from archimedes.chain.client import chain_client
+            from archimedes.chain.contracts import get_contract_loader
+            loader = get_contract_loader()
+            vault = loader.vault(address)
+            name = await vault.functions.name().call()
+            symbol = await vault.functions.symbol().call()
+            return name, symbol
+        except Exception:
+            return None, None
+
+    async def _get_target_allocations(self, address: str) -> list[dict]:
+        """Read target allocations from the vault contract."""
+        try:
+            from archimedes.chain.client import chain_client
+            from archimedes.chain.contracts import get_contract_loader
+            loader = get_contract_loader()
+            vault = loader.vault(address)
+            tokens, weights = await vault.functions.getTargetAllocations().call()
+            allocations = []
+            for token, weight in zip(tokens, weights):
+                if weight > 0:
+                    allocations.append({
+                        "token_address": token,
+                        "weight_bps": weight,
+                    })
+            return allocations
+        except Exception:
+            return []
 
     async def _get_vault_names(self, address: str) -> tuple[str | None, str | None]:
         """Resolve vault display name and symbol from off-chain metadata."""

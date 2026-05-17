@@ -1,22 +1,32 @@
 import { useState, useEffect, useMemo } from 'react'
-import { publicClient, ASSETS, ORACLE_ABI, VAULT_FACTORY_ABI, VAULT_ABI, NEW_CONTRACTS } from './config'
+import { decodeAbiParameters } from 'viem'
+import { publicClient, ASSETS, ORACLE_ABI, VAULT_FACTORY_ABI, VAULT_ABI, TRACE_REGISTRY_ABI, USDC, NEW_CONTRACTS } from './config'
 
 // Use relative /api paths — Vite proxy handles dev, nginx handles prod
 const API = '/api'
 
-// Ecosystem stats — static for now, can be derived from backend later
-const ECOSYSTEM_STATS = {
-  totalAum: '$2.4M',
-  aumChange: '+12.3%',
-  activeVaults: 18,
-  verifiedVaults: 12,
-  communityVaults: 6,
-  totalTraces: 247,
-  avgSharpe: 1.82,
-  sharpeDelta: '+0.14',
+// Ecosystem stats — populated from on-chain data, fallback values shown while loading
+const ECOSYSTEM_STATS_DEFAULT = {
+  totalAum: '—',
+  aumChange: '',
+  activeVaults: 0,
+  verifiedVaults: 0,
+  communityVaults: 0,
+  totalTraces: 0,
+  avgSharpe: '—',
+  sharpeDelta: '',
 }
 
-// Mock vault leaderboard (on-chain data would come from VaultFactory)
+// Helper: format unix timestamp as relative time
+function formatTimeAgo(ts) {
+  const diff = Math.floor(Date.now() / 1000) - ts
+  if (diff < 60) return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
+// Mock vault leaderboard — fallback only, never used when on-chain vaults exist
 const MOCK_VAULTS = [
   {
     id: '0x1a2b3c4d5e6f7890abcdef1234567890abcdef12',
@@ -434,6 +444,12 @@ export default function Marketplace() {
   const [onChainVaults, setOnChainVaults] = useState([])
   const [vaultLoading, setVaultLoading] = useState(true)
 
+  // Live ecosystem stats (derived from on-chain)
+  const [ecosystemStats, setEcosystemStats] = useState(ECOSYSTEM_STATS_DEFAULT)
+
+  // Live agent activity (from on-chain traces)
+  const [chainActivity, setChainActivity] = useState([])
+
   // API state
   const [allStrategies, setAllStrategies] = useState([])
   const [featuredStrategies, setFeaturedStrategies] = useState([])
@@ -476,52 +492,162 @@ export default function Marketplace() {
     return () => clearInterval(interval)
   }, [])
 
-  // Fetch on-chain vaults from VaultFactory
+  // Token address → symbol lookup
+  const TOKEN_SYMBOL_MAP = useMemo(() => {
+    const map = { [USDC.toLowerCase()]: 'USDC' }
+    ASSETS.forEach(a => {
+      map[a.token.toLowerCase()] = a.sym
+      map[a.oracle.toLowerCase()] = a.sym
+    })
+    return map
+  }, [])
+
+  // Color for a given token symbol
+  function tokenColor(sym) {
+    switch (sym) {
+      case 'sTSLA': case 'TSLA': return '#3B82F6'
+      case 'sSPY':  case 'SPY':  return '#6366F1'
+      case 'sGOLD': case 'GOLD': return '#D4A853'
+      case 'sBTC':  case 'BTC':  return '#F97316'
+      case 'sNVDA': case 'NVDA': return '#8B5CF6'
+      case 'sOIL':  case 'OIL':  return '#06B6D4'
+      case 'sNKY':  case 'NIKKEI': return '#EC4899'
+      case 'USDC':  return '#22C55E'
+      default: return '#94A3B8'
+    }
+  }
+
+  // Fetch on-chain vaults from VaultFactory — full detail with name/symbol/fees/allocations
   useEffect(() => {
     const loadVaults = async () => {
       const factoryAddr = NEW_CONTRACTS.vaultFactory
+      const traceAddr = NEW_CONTRACTS.traceRegistry
       if (!factoryAddr) { setVaultLoading(false); return }
       try {
-        const addrs = await publicClient.readContract({
-          address: factoryAddr,
-          abi: VAULT_FACTORY_ABI,
-          functionName: 'getVaults',
-        })
-        // Read basic metrics for each vault
+        const [addrs, traceCount] = await Promise.all([
+          publicClient.readContract({
+            address: factoryAddr,
+            abi: VAULT_FACTORY_ABI,
+            functionName: 'getVaults',
+          }),
+          traceAddr ? publicClient.readContract({
+            address: traceAddr,
+            abi: TRACE_REGISTRY_ABI,
+            functionName: 'traceCount',
+          }) : Promise.resolve(0n),
+        ])
+
+        // Read full detail for each vault
         const vaultData = await Promise.all(addrs.map(async (addr) => {
           try {
-            const [totalAssets, creator, tier, paused] = await Promise.all([
+            const [totalAssets, tier, name, sym, mgmtFee, perfFee, allocResult] = await Promise.all([
               publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'totalAssets' }),
-              publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'creator' }),
               publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'tier' }),
-              publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'paused' }),
+              publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'name' }).catch(() => `Vault ${addr.slice(0, 6)}`),
+              publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'symbol' }).catch(() => `v${addr.slice(2, 6).toUpperCase()}`),
+              publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'managementFeeBps' }).catch(() => 0),
+              publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'performanceFeeBps' }).catch(() => 0),
+              publicClient.readContract({ address: addr, abi: VAULT_ABI, functionName: 'getTargetAllocations' }).catch(() => [[], []]),
             ])
+            const [allocAddrs, allocWeights] = allocResult
+            const allocations = allocAddrs
+              .map((a, i) => ({
+                address: a,
+                symbol: TOKEN_SYMBOL_MAP[a.toLowerCase()] || a.slice(0, 8),
+                weight: Number(allocWeights[i]) / 100,
+                color: tokenColor(TOKEN_SYMBOL_MAP[a.toLowerCase()] || ''),
+              }))
+              .filter(a => a.weight > 0)
             return {
               id: addr,
-              name: `Vault ${addr.slice(0, 6)}...${addr.slice(-4)}`,
-              symbol: `v${addr.slice(2, 6).toUpperCase()}`,
+              name,
+              symbol: sym,
               tier: Number(tier),
               aum: Number(totalAssets) / 1e6,
               return30d: 0,
               sharpe: 0,
               maxDrawdown: 0,
-              allocations: [],
-              managementFee: 0,
-              performanceFee: 0,
-              creator,
-              paused,
+              allocations,
+              managementFee: Number(mgmtFee) / 100,
+              performanceFee: Number(perfFee) / 100,
             }
           } catch {
             return null
           }
         }))
-        setOnChainVaults(vaultData.filter(Boolean))
+        const validVaults = vaultData.filter(Boolean)
+        setOnChainVaults(validVaults)
+
+        // Derive ecosystem stats from vault data
+        const totalAum = validVaults.reduce((s, v) => s + v.aum, 0)
+        const t1Vaults = validVaults.filter(v => v.tier === 1).length
+        const t2Vaults = validVaults.filter(v => v.tier === 2).length
+        setEcosystemStats({
+          totalAum: totalAum >= 1_000_000 ? `$${(totalAum / 1_000_000).toFixed(1)}M`
+                   : totalAum >= 1_000     ? `$${(totalAum / 1_000).toFixed(1)}K`
+                   : `$${totalAum.toFixed(0)}`,
+          aumChange: '',
+          activeVaults: validVaults.length,
+          verifiedVaults: t1Vaults,
+          communityVaults: t2Vaults,
+          totalTraces: Number(traceCount),
+          avgSharpe: '—',
+          sharpeDelta: '',
+        })
       } catch {
-        // factory not available — keep mock
+        // factory not available — keep defaults
       }
       setVaultLoading(false)
     }
     loadVaults()
+  }, [])
+
+  // Fetch live agent activity from on-chain traces
+  useEffect(() => {
+    const loadActivity = async () => {
+      const traceAddr = NEW_CONTRACTS.traceRegistry
+      if (!traceAddr) return
+      try {
+        const count = await publicClient.readContract({
+          address: traceAddr,
+          abi: TRACE_REGISTRY_ABI,
+          functionName: 'traceCount',
+        })
+        const total = Number(count)
+        if (total === 0) return
+
+        // Fetch last 5 traces
+        const start = Math.max(1, total - 4)
+        const traces = []
+        for (let i = total; i >= start; i--) {
+          try {
+            const [agent, vault, traceHash, ts, metadata] = await publicClient.readContract({
+              address: traceAddr,
+              abi: TRACE_REGISTRY_ABI,
+              functionName: 'getTraceById',
+              args: [BigInt(i)],
+            })
+            // Decode metadata — try ABI-decoding a string, else use raw hex
+            let message = ''
+            try {
+              const decoded = decodeAbiParameters([{ type: 'string' }], metadata)
+              message = decoded[0]
+            } catch {
+              message = `Trace anchored on-chain: 0x${traceHash.slice(0, 12).toLowerCase()}…`
+            }
+            traces.push({
+              type: 'trace',
+              traceId: i,
+              vault: vault,
+              timestamp: Number(ts),
+              message,
+            })
+          } catch { /* skip bad trace */ }
+        }
+        setChainActivity(traces)
+      } catch { /* traces unavailable */ }
+    }
+    loadActivity()
   }, [])
 
   // Fetch regime
@@ -604,8 +730,8 @@ export default function Marketplace() {
       })
   }, [allStrategies, showSection, categoryFilter, searchQuery, sortBy])
 
-  // Use on-chain vaults if available, otherwise fall back to mock
-  const displayVaults = onChainVaults.length > 0 ? onChainVaults : MOCK_VAULTS
+  // Always use real on-chain vaults — no more mock fallback
+  const displayVaults = onChainVaults
 
   const filteredVaults = displayVaults
     .filter(v => {
@@ -641,10 +767,10 @@ export default function Marketplace() {
       {/* Ecosystem Stats */}
       <div className="grid g-4 mb-7" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         {[
-          { label: 'Ecosystem AUM',    value: onChainVaults.length > 0 ? `$${formatNumber(onChainVaults.reduce((s, v) => s + v.aum, 0))}` : ECOSYSTEM_STATS.totalAum, sub: `${ECOSYSTEM_STATS.aumChange} this week`, cls: 'positive' },
-          { label: 'Active Vaults',    value: onChainVaults.length || ECOSYSTEM_STATS.activeVaults, sub: `${onChainVaults.filter(v => v.tier === 1).length || ECOSYSTEM_STATS.verifiedVaults} verified · ${onChainVaults.filter(v => v.tier === 2).length || ECOSYSTEM_STATS.communityVaults} community`, cls: '' },
-          { label: 'On-Chain Traces',  value: ECOSYSTEM_STATS.totalTraces, sub: 'All verifiable', cls: 'accent' },
-          { label: 'Avg Sharpe (T1)',  value: ECOSYSTEM_STATS.avgSharpe,   sub: `${ECOSYSTEM_STATS.sharpeDelta} vs benchmark`, cls: 'positive' },
+          { label: 'Ecosystem AUM',    value: ecosystemStats.totalAum,    sub: ecosystemStats.aumChange ? `${ecosystemStats.aumChange} this week` : 'Live on Arc', cls: 'positive' },
+          { label: 'Active Vaults',    value: ecosystemStats.activeVaults, sub: `${ecosystemStats.verifiedVaults} verified · ${ecosystemStats.communityVaults} community`, cls: '' },
+          { label: 'On-Chain Traces',  value: ecosystemStats.totalTraces,  sub: 'All verifiable', cls: 'accent' },
+          { label: 'Avg Sharpe (T1)',  value: ecosystemStats.avgSharpe,    sub: ecosystemStats.sharpeDelta ? `${ecosystemStats.sharpeDelta} vs benchmark` : 'Paper-grounded', cls: 'positive' },
         ].map(({ label, value, sub, cls }) => (
           <div key={label}>
             <div className="label mb-2">{label}</div>
@@ -897,25 +1023,32 @@ export default function Marketplace() {
           <div className="label">Agent Activity</div>
         </div>
         <div className="timeline">
-          {MOCK_ACTIVITY.map((item, idx) => (
-            <div key={idx} className={`tl-item ${idx === 0 ? 'active' : ''}`}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-3">
-                  <span className={`tag ${item.type === 'rebalance' ? 'tag-positive' : item.type === 'regime' ? 'tag-muted' : 'tag-accent'}`}>
-                    {item.type === 'rebalance' ? 'Rebalance' : item.type === 'regime' ? 'Regime' : 'Rotation'}
-                  </span>
-                  <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{item.vault}</span>
+          {(chainActivity.length > 0 ? chainActivity : MOCK_ACTIVITY).map((item, idx) => {
+            const isChain = !!item.traceId && chainActivity.length > 0
+            const timeLabel = isChain
+              ? formatTimeAgo(item.timestamp)
+              : item.time < 60 ? `${item.time} min ago` : `${Math.floor(item.time / 60)} hr ago`
+            const vaultLabel = isChain
+              ? (onChainVaults.find(v => v.id.toLowerCase() === item.vault?.toLowerCase())?.name || item.vault?.slice(0, 10) + '…')
+              : item.vault
+            return (
+              <div key={idx} className={`tl-item ${idx === 0 ? 'active' : ''}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <span className={`tag ${item.type === 'trace' ? 'tag-accent' : item.type === 'rebalance' ? 'tag-positive' : item.type === 'regime' ? 'tag-muted' : 'tag-accent'}`}>
+                      {item.type === 'trace' ? 'Trace' : item.type === 'rebalance' ? 'Rebalance' : item.type === 'regime' ? 'Regime' : 'Rotation'}
+                    </span>
+                    <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{vaultLabel}</span>
+                  </div>
+                  <span className="caption">{timeLabel}</span>
                 </div>
-                <span className="caption">
-                  {item.time < 60 ? `${item.time} min ago` : `${Math.floor(item.time / 60)} hr ago`}
-                </span>
+                <div className="body">
+                  {item.message}
+                  {item.traceId && <span className="accent"> Trace #{item.traceId} →</span>}
+                </div>
               </div>
-              <div className="body">
-                {item.message}
-                {item.traceId && <span className="accent"> Trace #{item.traceId} →</span>}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
