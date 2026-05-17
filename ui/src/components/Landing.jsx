@@ -234,6 +234,67 @@ export default function Landing({ onNavigate, onConnect, walletAddr }) {
         </div>
       </section>
 
+      {/* ─── Circle Integration ─── */}
+      <section className="landing-tech">
+        <h2 className="section-title">Circle Ecosystem Integration</h2>
+        <div className="features-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <div className="feature-card">
+            <div className="feature-icon">💰</div>
+            <h3>Developer-Controlled Wallets</h3>
+            <p>
+              Agent executes on-chain transactions (rebalances, trace publishing)
+              via Circle-managed developer wallet with entity secret encryption.
+            </p>
+            <div className="feature-tag">Agent Signing · RSA-OAEP</div>
+          </div>
+          <div className="feature-card">
+            <div className="feature-icon">🪙</div>
+            <h3>USDC Settlement</h3>
+            <p>
+              All vault deposits, trades, and redemptions settle in USDC on Arc.
+              Native USDC at 0x3600...0000 on Arc testnet.
+            </p>
+            <div className="feature-tag">Native USDC · 6 decimals</div>
+          </div>
+          <div className="feature-card">
+            <div className="feature-icon">📜</div>
+            <h3>Smart Contracts on Arc</h3>
+            <p>
+              10 Solidity contracts deployed: Vault, VaultFactory, AMMPool,
+              AMMRouter, SyntheticFactory, PriceOracle, ReasoningTraceRegistry.
+            </p>
+            <div className="feature-tag">10 Contracts · Foundry</div>
+          </div>
+          <div className="feature-card">
+            <div className="feature-icon">🌉</div>
+            <h3>CCTP Cross-Chain</h3>
+            <p>
+              Bridge USDC across chains via Circle's CCTP protocol.
+              Arc testnet supports CCTP for seamless cross-chain liquidity.
+            </p>
+            <div className="feature-tag">Bridge · Arbitrum · ETH</div>
+          </div>
+          <div className="feature-card">
+            <div className="feature-icon">⛽</div>
+            <h3>Paymaster (Gasless)</h3>
+            <p>
+              Arc Paymaster enables gasless transactions for users.
+              Users can interact with vaults without holding native gas tokens.
+            </p>
+            <div className="feature-tag">Sponsor · ERC-4337</div>
+          </div>
+          <div className="feature-card">
+            <div className="feature-icon">🔗</div>
+            <h3>Gateway + USYC</h3>
+            <p>
+              Unified balance queries across chains. USYC yield token integration
+              for vault floor enforcement per risk profile.
+            </p>
+            <div className="feature-tag">Nanopayments · Balance API</div>
+          </div>
+        </div>
+      </section>
+
       {/* ─── CTA ─── */}
       <section className="landing-cta">
         <h2>Give me a lever long enough<br />and I shall move the world.</h2>
