@@ -13,6 +13,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 # Only one deploy at a time — cancel in-flight deploys if a new push lands
 concurrency:
