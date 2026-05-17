@@ -40,6 +40,7 @@ export default function CreateVault({ onVaultCreated }) {
   const [deployStep, setDeployStep] = useState('')
   const [vaultAddress, setVaultAddress] = useState(null)
   const [txHash, setTxHash] = useState(null)
+  const [allocStep, setAllocStep] = useState('')
 
   const wallet = getAddress()
 
@@ -145,6 +146,37 @@ export default function CreateVault({ onVaultCreated }) {
 
       setVaultAddress(newVaultAddress)
       setDeployStep('')
+
+      // ── Set target allocations from selected strategies ──
+      if (newVaultAddress) {
+        try {
+          setAllocStep('Deriving target allocations…')
+          const allocResult = await apiPost(
+            `/api/vaults/${newVaultAddress}/derive-allocations`,
+            { strategy_ids: selectedIds, usdc_floor_pct: 20.0 }
+          )
+
+          if (allocResult.allocations?.length > 0) {
+            setAllocStep('Setting target allocations on-chain…')
+            const tokens = allocResult.allocations.map(a => a.token_address)
+            const weightsBps = allocResult.allocations.map(a => BigInt(a.weight_bps))
+
+            const allocTxHash = await w.writeContract({
+              address: newVaultAddress,
+              abi: VAULT_ABI,
+              functionName: 'setTargetAllocations',
+              args: [tokens, weightsBps],
+            })
+
+            await publicClient.waitForTransactionReceipt({ hash: allocTxHash })
+            setAllocStep('')
+          }
+        } catch (allocErr) {
+          // Non-fatal — vault is deployed, allocations can be set later
+          console.warn('Allocation setting failed:', allocErr)
+          setAllocStep(`Allocations skipped: ${allocErr.shortMessage || allocErr.message}`)
+        }
+      }
 
       // Store strategy association off-chain
       if (newVaultAddress && selectedIds.length > 0) {
@@ -322,6 +354,12 @@ export default function CreateVault({ onVaultCreated }) {
       {deployStep && (
         <div className="info-box" style={{ marginTop: 16 }}>
           {deployStep}
+        </div>
+      )}
+
+      {allocStep && (
+        <div className="info-box" style={{ marginTop: 16, borderColor: 'var(--accent, #D4A853)' }}>
+          🎯 {allocStep}
         </div>
       )}
 

@@ -26,9 +26,15 @@ from archimedes.api.schemas import (
     PoolResponse,
     TraceListResponse,
     TraceResponse,
+    TracePublishRequest,
+    TracePublishResponse,
+    TraceVerifyResponse,
     VaultDetailResponse,
     VaultListResponse,
 )
+
+from archimedes.models.trace import ReasoningTrace
+from archimedes.models.trace import DecisionType
 from archimedes.services.asset_service import AssetService
 from archimedes.services.vault_service import VaultService
 from archimedes.services.config_service import ConfigService
@@ -43,7 +49,11 @@ from archimedes.api.architect_schemas import (
     StrategyConstructionRequest,
     StrategyConstructionResponse,
 )
-from archimedes.api.vault_schemas import VaultCreateRequest, VaultCreateResponse, VaultMetadataRequest, VaultMetadataResponse
+from archimedes.api.vault_schemas import (
+    VaultCreateRequest, VaultCreateResponse,
+    VaultMetadataRequest, VaultMetadataResponse,
+    SetAllocationsRequest, SetAllocationsResponse, AllocationTarget,
+)
 from archimedes.models.chat import VaultMetadata
 from archimedes.chain.oracle_updater import OracleUpdater
 from archimedes.chain.executor import chain_executor
@@ -247,6 +257,92 @@ async def get_vault_metadata(address: str):
         session.close()
 
 
+@vaults_router.post("/{address}/derive-allocations", response_model=SetAllocationsResponse)
+async def derive_vault_allocations(address: str, req: SetAllocationsRequest):
+    """Derive target allocations from selected strategies.
+
+    Evaluates strategies against live market data, aggregates their signals,
+    maps symbol weights to on-chain token addresses + BPS.
+    Returns the data needed for a setTargetAllocations() on-chain tx.
+    Does NOT execute any on-chain transaction — the UI submits via user wallet.
+    """
+    from archimedes.chain.client import chain_client
+    from archimedes.services.strategy_signal_evaluator import strategy_evaluator
+
+    strategies = _strategy_provider.list_strategies()
+
+    # Filter to selected strategies if IDs provided
+    if req.strategy_ids:
+        strategies = [s for s in strategies if s.id in req.strategy_ids]
+
+    if not strategies:
+        # Default: equal-weight across all available synths
+        usdc_floor_bps = int(req.usdc_floor_pct * 100)
+        synth_budget_bps = 10000 - usdc_floor_bps
+        synth_addrs = {k: v for k, v in chain_client.settings.synth_addresses.items() if v}
+        per_synth = synth_budget_bps // max(len(synth_addrs), 1)
+        allocations = [
+            AllocationTarget(symbol=sym, token_address=addr, weight_bps=per_synth)
+            for sym, addr in synth_addrs.items()
+        ]
+        allocations.append(AllocationTarget(
+            symbol="USDC",
+            token_address=chain_client.settings.usdc_address,
+            weight_bps=usdc_floor_bps,
+        ))
+        return SetAllocationsResponse(
+            allocations=allocations,
+            total_bps=sum(a.weight_bps for a in allocations),
+            strategy_count=0,
+        )
+
+    # Evaluate strategies against live data
+    synth_assets = [sym for sym, addr in chain_client.settings.synth_addresses.items() if addr]
+    all_signals = await asyncio.to_thread(
+        strategy_evaluator.evaluate_strategies, strategies, synth_assets,
+    )
+    usdc_floor = req.usdc_floor_pct / 100.0
+    target_weights = strategy_evaluator.aggregate_signals(all_signals, usdc_floor=usdc_floor)
+
+    # Map symbol weights → on-chain token addresses + BPS
+    allocations: list[AllocationTarget] = []
+
+    symbol_to_addr = {"USDC": chain_client.settings.usdc_address}
+    symbol_to_addr.update(chain_client.settings.synth_addresses)
+
+    for symbol, weight in target_weights.items():
+        token_address = symbol_to_addr.get(symbol)
+        if not token_address:
+            continue
+        weight_bps = int(round(weight * 10000))
+        if weight_bps > 0:
+            allocations.append(AllocationTarget(
+                symbol=symbol,
+                token_address=token_address,
+                weight_bps=weight_bps,
+            ))
+
+    # Normalize to exactly 10000 BPS
+    total = sum(a.weight_bps for a in allocations)
+    if total > 0 and total != 10000:
+        scale = 10000 / total
+        for a in allocations:
+            a.weight_bps = int(round(a.weight_bps * scale))
+        # Drop any entries that rounded to zero
+        allocations = [a for a in allocations if a.weight_bps > 0]
+        # Fix rounding residue — apply to largest entry to avoid zeroing
+        total = sum(a.weight_bps for a in allocations)
+        if total != 10000 and allocations:
+            largest = max(allocations, key=lambda a: a.weight_bps)
+            largest.weight_bps += (10000 - total)
+
+    return SetAllocationsResponse(
+        allocations=allocations,
+        total_bps=sum(a.weight_bps for a in allocations),
+        strategy_count=len(strategies),
+    )
+
+
 # ── Strategies ────────────────────────────────────────────────
 
 
@@ -412,59 +508,117 @@ async def list_traces(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """List reasoning traces from on-chain registry."""
-    from archimedes.chain.trace_publisher import trace_publisher
+    """List reasoning traces — merges on-chain IDs with off-chain metadata."""
+    from archimedes.services.redis_state import AgentStateStore
 
-    traces: list[TraceResponse] = []
-
+    state = AgentStateStore()
     try:
-        total_count = await trace_publisher.get_total_trace_count()
+        # Get off-chain traces from Redis (enriched data)
+        off_chain_traces, total = await state.list_traces(
+            vault_address=vault_address,
+            decision_type=decision_type,
+            limit=limit,
+            offset=offset,
+        )
 
-        # Iterate through recent traces
-        start = max(1, total_count - offset - limit + 1)
-        end = max(1, total_count - offset)
+        if off_chain_traces:
+            traces = []
+            for t in off_chain_traces:
+                traces.append(TraceResponse(
+                    id=t.get("id", ""),
+                    vault_address=t.get("vault_address", ""),
+                    decision_type=t.get("decision_type", "unknown"),
+                    trigger=t.get("trigger", "unknown"),
+                    timestamp=t.get("timestamp", ""),
+                    reasoning=t.get("reasoning", ""),
+                    confidence=t.get("confidence", 0.0),
+                    trace_hash=t.get("trace_hash", ""),
+                    arc_tx_hash=t.get("arc_tx_hash"),
+                    is_verified=t.get("is_verified", False),
+                    regime_at_decision=t.get("market_context", {}).get("regime"),
+                    trades_executed=t.get("trades_executed", []),
+                    strategies_referenced=t.get("strategies_referenced", []),
+                ))
+            return TraceListResponse(traces=traces, total=total)
 
-        for trace_id in range(end, start - 1, -1):
-            detail = await trace_publisher.get_trace_by_id(trace_id)
-            if detail is None:
-                continue
+        # Fallback: read on-chain traces directly if no off-chain data yet
+        from archimedes.chain.trace_publisher import trace_publisher
 
-            # Filter by vault if specified
-            if vault_address and detail["vault"].lower() != vault_address.lower():
-                continue
+        traces: list[TraceResponse] = []
+        try:
+            total_count = await trace_publisher.get_total_trace_count()
+            start = max(1, total_count - offset - limit + 1)
+            end = max(1, total_count - offset)
 
-            from datetime import datetime, timezone
+            for trace_id in range(end, start - 1, -1):
+                detail = await trace_publisher.get_trace_by_id(trace_id)
+                if detail is None:
+                    continue
 
-            traces.append(
-                TraceResponse(
-                    id=str(trace_id),
-                    vault_address=detail["vault"],
-                    decision_type="rebalance",
-                    trigger="unknown",
-                    timestamp=datetime.fromtimestamp(
-                        detail["timestamp"], tz=timezone.utc
-                    ).isoformat(),
-                    reasoning="On-chain trace",
-                    confidence=0.0,
-                    trace_hash=detail["trace_hash"],
-                    is_verified=True,
+                if vault_address and detail["vault"].lower() != vault_address.lower():
+                    continue
+
+                from datetime import datetime, timezone
+
+                traces.append(
+                    TraceResponse(
+                        id=str(trace_id),
+                        vault_address=detail["vault"],
+                        decision_type="rebalance",
+                        trigger="on-chain",
+                        timestamp=datetime.fromtimestamp(
+                            detail["timestamp"], tz=timezone.utc
+                        ).isoformat(),
+                        reasoning="On-chain trace (off-chain metadata not available)",
+                        confidence=0.0,
+                        trace_hash=detail["trace_hash"],
+                        is_verified=True,
+                    )
                 )
-            )
-    except Exception:
-        pass
+        except Exception:
+            pass
 
-    return TraceListResponse(traces=traces, total=len(traces))
+        return TraceListResponse(traces=traces, total=len(traces))
+    finally:
+        await state.close()
 
 
 @traces_router.get("/{trace_id}", response_model=TraceResponse)
 async def get_trace(trace_id: str):
-    """Get a single reasoning trace."""
+    """Get a single reasoning trace by ID (on-chain or off-chain hash)."""
+    from archimedes.services.redis_state import AgentStateStore
     from archimedes.chain.trace_publisher import trace_publisher
     from fastapi import HTTPException
     from datetime import datetime, timezone
 
+    state = AgentStateStore()
     try:
-        detail = await trace_publisher.get_trace_by_id(int(trace_id))
+        # Try off-chain first (trace_id may be a hash)
+        off_chain = await state.get_trace(trace_id)
+        if off_chain:
+            return TraceResponse(
+                id=off_chain.get("id", trace_id),
+                vault_address=off_chain.get("vault_address", ""),
+                decision_type=off_chain.get("decision_type", "unknown"),
+                trigger=off_chain.get("trigger", "unknown"),
+                timestamp=off_chain.get("timestamp", ""),
+                reasoning=off_chain.get("reasoning", ""),
+                confidence=off_chain.get("confidence", 0.0),
+                trace_hash=off_chain.get("trace_hash", ""),
+                arc_tx_hash=off_chain.get("arc_tx_hash"),
+                is_verified=off_chain.get("is_verified", False),
+                regime_at_decision=off_chain.get("market_context", {}).get("regime"),
+                trades_executed=off_chain.get("trades_executed", []),
+                strategies_referenced=off_chain.get("strategies_referenced", []),
+            )
+
+        # Try on-chain numeric ID
+        try:
+            int_id = int(trace_id)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Trace not found")
+
+        detail = await trace_publisher.get_trace_by_id(int_id)
         if detail is None:
             raise HTTPException(status_code=404, detail="Trace not found")
 
@@ -472,20 +626,233 @@ async def get_trace(trace_id: str):
             id=trace_id,
             vault_address=detail["vault"],
             decision_type="rebalance",
-            trigger="unknown",
+            trigger="on-chain",
             timestamp=datetime.fromtimestamp(
                 detail["timestamp"], tz=timezone.utc
             ).isoformat(),
-            reasoning="On-chain trace",
+            reasoning="On-chain trace (off-chain metadata not available)",
             confidence=0.0,
             trace_hash=detail["trace_hash"],
             is_verified=True,
         )
+    finally:
+        await state.close()
+
+
+@traces_router.post("/publish", response_model=TracePublishResponse)
+async def publish_trace(req: TracePublishRequest):
+    """Publish a reasoning trace: compute hash, anchor on Arc, persist off-chain.
+
+    This is the primary endpoint for the Reasoning page's "Publish" flow
+    and for the agent runner's autonomous rebalance traces.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    from archimedes.models.trace import DecisionType, ReasoningTrace
+    from archimedes.chain.trace_publisher import trace_publisher
+    from archimedes.services.redis_state import AgentStateStore
+    from fastapi import HTTPException
+
+    # Validate decision_type
+    try:
+        dt = DecisionType(req.decision_type)
     except ValueError:
-        raise HTTPException(status_code=404, detail="Trace not found")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid decision_type: {req.decision_type}. "
+                   f"Must be one of: construction, rebalance, rotation, regime_change, skip",
+        )
+
+    # Build the trace
+    trace = ReasoningTrace(
+        id=str(uuid.uuid4()),
+        vault_address=req.vault_address,
+        decision_type=dt,
+        trigger=req.trigger,
+        timestamp=datetime.now(timezone.utc),
+        market_context=req.market_context,
+        portfolio_before=req.portfolio_before,
+        portfolio_after=req.portfolio_after,
+        reasoning=req.reasoning,
+        confidence=req.confidence,
+        trades_executed=req.trades_executed,
+        strategies_referenced=req.strategies_referenced,
+    )
+
+    # Compute keccak256 hash
+    trace.compute_hash()
+
+    # Persist off-chain to Redis
+    off_chain_data = {
+        "id": trace.id,
+        "vault_address": trace.vault_address,
+        "decision_type": trace.decision_type.value,
+        "trigger": trace.trigger,
+        "timestamp": trace.timestamp.isoformat(),
+        "market_context": trace.market_context,
+        "portfolio_before": trace.portfolio_before,
+        "portfolio_after": trace.portfolio_after,
+        "reasoning": trace.reasoning,
+        "confidence": trace.confidence,
+        "trades_executed": trace.trades_executed,
+        "strategies_referenced": trace.strategies_referenced,
+        "trace_hash": trace.trace_hash,
+        "arc_tx_hash": None,
+        "is_verified": False,
+    }
+
+    # Publish on-chain
+    arc_tx_hash = None
+    try:
+        arc_tx_hash = await trace_publisher.publish(trace)
+        if arc_tx_hash:
+            off_chain_data["arc_tx_hash"] = arc_tx_hash
+            off_chain_data["is_verified"] = True
+    except Exception as e:
+        # On-chain publish failed — still persist off-chain
+        import logging
+        logging.getLogger(__name__).error(f"On-chain publish failed: {e}")
+
+    # Save to Redis regardless
+    state = AgentStateStore()
+    try:
+        await state.save_trace(off_chain_data)
+    finally:
+        await state.close()
+
+    return TracePublishResponse(
+        id=trace.id,
+        trace_hash=trace.trace_hash,
+        arc_tx_hash=arc_tx_hash,
+        is_anchored=arc_tx_hash is not None,
+        timestamp=trace.timestamp.isoformat(),
+        vault_address=trace.vault_address,
+        decision_type=trace.decision_type.value,
+    )
+
+
+@traces_router.get("/{trace_id}/verify", response_model=TraceVerifyResponse)
+async def verify_trace(trace_id: str):
+    """Verify a reasoning trace against its on-chain anchor.
+
+    Recomputes the keccak256 hash from off-chain data and compares
+    with the hash stored in ReasoningTraceRegistry on Arc.
+    """
+    from archimedes.chain.trace_publisher import trace_publisher
+    from archimedes.services.redis_state import AgentStateStore
+    from fastapi import HTTPException
+
+    state = AgentStateStore()
+    try:
+        # Load off-chain trace data
+        off_chain = await state.get_trace(trace_id)
+        if not off_chain:
+            # Try numeric ID → get hash from on-chain
+            try:
+                int_id = int(trace_id)
+            except ValueError:
+                raise HTTPException(status_code=404, detail="Trace not found")
+
+            detail = await trace_publisher.get_trace_by_id(int_id)
+            if not detail:
+                raise HTTPException(status_code=404, detail="Trace not found")
+
+            return TraceVerifyResponse(
+                trace_id=int_id,
+                trace_hash=detail["trace_hash"],
+                is_verified=True,  # It's on-chain, so the hash is anchored
+                agent=detail["agent"],
+                vault=detail["vault"],
+                on_chain_timestamp=detail["timestamp"],
+                details="Hash is anchored on-chain (no off-chain data to recompute against)",
+            )
+
+        # We have off-chain data — verify against on-chain
+        trace_hash = off_chain.get("trace_hash", "")
+        is_verified = False
+        agent = ""
+        vault = off_chain.get("vault_address", "")
+        on_chain_ts = 0
+        details = ""
+
+        if not off_chain.get("arc_tx_hash"):
+            details = "Trace was not published on-chain — cannot verify"
+        else:
+            # Search on-chain for this hash — filter by vault first
+            try:
+                vault_traces = await trace_publisher.get_traces_by_vault(vault)
+                on_chain_count = await trace_publisher.get_total_trace_count()
+                is_verified = False
+                agent = ""
+                on_chain_ts = 0
+
+                for tid in vault_traces if vault_traces else range(1, on_chain_count + 1):
+                    detail = await trace_publisher.get_trace_by_id(tid)
+                    if detail and detail["trace_hash"] == trace_hash.removeprefix("0x"):
+                        is_verified = True
+                        agent = detail["agent"]
+                        on_chain_ts = detail["timestamp"]
+                        break
+                details = (
+                    "Hash verified on-chain ✓"
+                    if is_verified
+                    else "Hash not found on-chain"
+                )
+            except Exception as e:
+                details = f"Verification failed: {e}"
+
+        return TraceVerifyResponse(
+            trace_id=int(trace_id) if trace_id.isdigit() else 0,
+            trace_hash=trace_hash,
+            is_verified=is_verified,
+            agent=agent,
+            vault=vault,
+            on_chain_timestamp=on_chain_ts,
+            details=details,
+        )
+    finally:
+        await state.close()
 
 
 # ── Regime ────────────────────────────────────────────────────
+
+
+@traces_router.get("/{trace_id}/canonical")
+async def get_trace_canonical(trace_id: str):
+    """Get the canonical JSON used to compute the trace hash.
+
+    Third parties can use this to verify: contract.verifyTrace(id, canonicalBytes)
+    where canonicalBytes = utf8Bytes of this response.
+    """
+    from archimedes.services.redis_state import AgentStateStore
+    from fastapi import HTTPException
+    from fastapi.responses import PlainTextResponse
+
+    state = AgentStateStore()
+    try:
+        off_chain = await state.get_trace(trace_id)
+        if not off_chain:
+            raise HTTPException(status_code=404, detail="Trace not found")
+
+        # Reconstruct a ReasoningTrace from the stored data
+        trace = ReasoningTrace(
+            id=off_chain["id"],
+            vault_address=off_chain["vault_address"],
+            decision_type=DecisionType(off_chain["decision_type"]),
+            trigger=off_chain["trigger"],
+            timestamp=off_chain["timestamp"],
+            market_context=off_chain.get("market_context", {}),
+            portfolio_before=off_chain.get("portfolio_before", {}),
+            portfolio_after=off_chain.get("portfolio_after", {}),
+            reasoning=off_chain.get("reasoning", ""),
+            confidence=off_chain.get("confidence", 0.0),
+            trades_executed=off_chain.get("trades_executed", []),
+            strategies_referenced=off_chain.get("strategies_referenced", []),
+        )
+        return PlainTextResponse(trace.canonical_json(), media_type="application/json")
+    finally:
+        await state.close()
 
 
 @regime_router.get("/current", response_model=RegimeResponse)

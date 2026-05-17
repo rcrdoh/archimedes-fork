@@ -30,6 +30,16 @@ function shortAddr(addr) {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`
 }
 
+function _knownTokenSymbol(addr) {
+  if (!addr) return '—'
+  const addrLower = addr.toLowerCase()
+  if (addrLower === USDC.toLowerCase()) return 'USDC'
+  for (const asset of ASSETS) {
+    if (asset.token.toLowerCase() === addrLower) return asset.sym
+  }
+  return `${addr.slice(0, 6)}...`
+}
+
 export default function VaultDetail({ address, onBack }) {
   const [detail, setDetail] = useState(null)
   const [onChainData, setOnChainData] = useState(null)
@@ -69,11 +79,26 @@ export default function VaultDetail({ address, onBack }) {
         publicClient.readContract({ address, abi: VAULT_ABI, functionName: 'paused' }),
         publicClient.readContract({ address, abi: VAULT_ABI, functionName: 'asset' }),
       ])
+
+      // Read target allocations
+      let targetAllocs = []
+      try {
+        const [tokens, weights] = await publicClient.readContract({
+          address, abi: VAULT_ABI, functionName: 'getTargetAllocations',
+        })
+        targetAllocs = tokens.map((t, i) => ({
+          token: t,
+          weightBps: Number(weights[i]),
+          symbol: _knownTokenSymbol(t),
+        }))
+      } catch {}
+
       setOnChainData({
         totalAssets: Number(totalAssets) / 1e6,
         totalSupply: Number(totalSupply),
         sharePrice: Number(totalSupply) > 0 ? Number(totalAssets) / Number(totalSupply) / 1e6 : 1,
         creator, tier: Number(tier), paused, asset,
+        targetAllocations: targetAllocs,
       })
     } catch {}
   }, [address])
@@ -161,6 +186,44 @@ export default function VaultDetail({ address, onBack }) {
       )}
 
       {/* Associated Strategies */}
+
+      {/* Target Allocations (from on-chain) */}
+      {onChainData?.targetAllocations && onChainData.targetAllocations.length > 0 && (
+        <div className="vault-section">
+          <h3>Target Allocations</h3>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', height: 24, borderRadius: 6, overflow: 'hidden', background: 'var(--surface-3)' }}>
+              {onChainData.targetAllocations.map((a, i) => {
+                const colors = {
+                  'USDC': '#22C55E', 'sTSLA': '#3B82F6', 'sNVDA': '#8B5CF6', 'sSPY': '#6366F1',
+                  'sBTC': '#F97316', 'sGOLD': '#D4A853', 'sOIL': '#92400E', 'sNKY': '#EC4899',
+                }
+                return (
+                  <div key={i} style={{
+                    width: `${a.weightBps / 100}%`,
+                    background: colors[a.symbol] || '#6B7280',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '0.65rem', fontWeight: 600, color: '#fff',
+                    minWidth: a.weightBps > 500 ? undefined : 0,
+                  }} title={`${a.symbol}: ${a.weightBps / 100}%`}>
+                    {a.weightBps >= 500 ? a.symbol.replace('s', '') : ''}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          <div className="vault-holdings-list">
+            {onChainData.targetAllocations.map((a, i) => (
+              <div key={i} className="vault-holding-row">
+                <span className="vault-holding-symbol">{a.symbol}</span>
+                <span className="vault-holding-weight">{(a.weightBps / 100).toFixed(1)}%</span>
+                <code className="caption">{a.token.slice(0, 10)}...{a.token.slice(-4)}</code>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {detail?.strategy_ids && detail.strategy_ids.length > 0 && (
         <div className="vault-section">
           <h3>Associated Strategies</h3>

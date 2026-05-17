@@ -7,6 +7,12 @@ chain services that read/write Arc smart contracts.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# Load .env into os.environ at import time for modules that use os.getenv()
+# (circle_signer, oracle_updater) — pydantic ChainSettings handles ARC_ vars itself.
+from dotenv import load_dotenv
+load_dotenv("../.env", override=True)  # Project root .env first (has real secrets)
+load_dotenv(".env", override=False)  # Backend-local .env fills in any missing (no override)
+
 from archimedes.api.routes import (
     agent_router,
     assets_router,

@@ -12,6 +12,7 @@ from web3.contract import AsyncContract
 
 from archimedes.chain.client import chain_client
 from archimedes.chain.contracts import ContractLoader, get_contract_loader
+from archimedes.chain.circle_signer import circle_signer
 from archimedes.models.portfolio import (
     Portfolio,
     PortfolioHolding,
@@ -86,12 +87,8 @@ class ChainExecutor:
     ) -> list[str]:
         """Execute rebalance trades for a vault.
 
-        Calls Vault.rebalance() with the buy and sell arrays.
+        Uses Circle dev-controlled wallet if configured, falls back to raw private key.
         """
-        account = chain_client.settings.agent_account
-        if not account:
-            raise RuntimeError("No agent account configured")
-
         # Split trades into buys and sells
         tokens_in: list[str] = []
         amounts_in: list[int] = []
@@ -107,6 +104,24 @@ class ChainExecutor:
                 tokens_out.append(token_addr)
                 amounts_out.append(int(trade.amount))
 
+        # Circle path
+        if circle_signer.is_configured:
+            # Convert address[] and uint256[] to ABI-compatible strings
+            checksummed_in = [chain_client.to_checksum(t) for t in tokens_in]
+            checksummed_out = [chain_client.to_checksum(t) for t in tokens_out]
+            tx_hash = await circle_signer.execute_contract(
+                contract_address=vault_address,
+                abi_function="rebalance(address[],uint256[],address[],uint256[])",
+                abi_params=[checksummed_in, amounts_in, checksummed_out, amounts_out],
+            )
+            logger.info(f"Rebalance tx via Circle: {tx_hash}")
+            return [tx_hash]
+
+        # Fallback: raw private key
+        account = chain_client.settings.agent_account
+        if not account:
+            raise RuntimeError("No agent account configured — set CIRCLE_API_KEY or ARC_AGENT_PRIVATE_KEY")
+
         vault = self.loader.vault(vault_address)
         nonce = await chain_client.w3.eth.get_transaction_count(account.address)
 
@@ -117,7 +132,7 @@ class ChainExecutor:
                 "from": account.address,
                 "nonce": nonce,
                 "chainId": chain_client.settings.chain_id,
-                "gas": 2_000_000,  # Rebalance can be gas-heavy
+                "gas": 2_000_000,
                 "gasPrice": await chain_client.w3.eth.gas_price,
             }
         )
@@ -136,12 +151,40 @@ class ChainExecutor:
         performance_fee_bps: int,
         agent_assisted: bool,
     ) -> str:
-        """Deploy a new vault via VaultFactory."""
+        """Deploy a new vault via VaultFactory.
+
+        Uses Circle dev-controlled wallet if configured, falls back to raw private key.
+        """
+        factory = self.loader.vault_factory
+
+        # Circle path
+        if circle_signer.is_configured:
+            tx_hash = await circle_signer.execute_contract(
+                contract_address=chain_client.settings.vault_factory_address,
+                abi_function="createVault(string,string,uint16,uint16,bool)",
+                abi_params=[name, symbol, management_fee_bps, performance_fee_bps, agent_assisted],
+            )
+            logger.info(f"Vault created via Circle, tx: {tx_hash}")
+
+            # Wait for confirmation, then find the new vault address
+            # Circle's tx_hash is the on-chain hash — parse receipt for VaultCreated event
+            receipt = await chain_client.w3.eth.wait_for_transaction_receipt(
+                chain_client.w3.to_bytes(hexstr=tx_hash.removeprefix("0x"))
+                if isinstance(tx_hash, str) else tx_hash
+            )
+            vault_address = self._parse_vault_created(factory, receipt)
+            if not vault_address:
+                # Fallback: get last vault from factory
+                all_vaults = await factory.functions.getVaults().call()
+                vault_address = all_vaults[-1]
+            logger.info(f"Vault created at {vault_address}")
+            return vault_address
+
+        # Fallback: raw private key
         account = chain_client.settings.agent_account
         if not account:
-            raise RuntimeError("No agent account configured")
+            raise RuntimeError("No agent account configured — set CIRCLE_API_KEY or ARC_AGENT_PRIVATE_KEY")
 
-        factory = self.loader.vault_factory
         nonce = await chain_client.w3.eth.get_transaction_count(account.address)
 
         tx = await factory.functions.createVault(
@@ -151,26 +194,15 @@ class ChainExecutor:
                 "from": account.address,
                 "nonce": nonce,
                 "chainId": chain_client.settings.chain_id,
-                "gas": 5_000_000,  # Vault deployment is expensive
+                "gas": 5_000_000,
                 "gasPrice": await chain_client.w3.eth.gas_price,
             }
         )
 
         signed = account.sign_transaction(tx)
         tx_hash = await chain_client.w3.eth.send_raw_transaction(signed.raw_transaction)
-
-        # Wait for receipt to get the vault address from the event
         receipt = await chain_client.w3.eth.wait_for_transaction_receipt(tx_hash)
-
-        # Parse VaultCreated event to get the new vault address
-        vault_address = None
-        for log in receipt.logs:
-            try:
-                result = factory.events.VaultCreated().process_log(log)
-                vault_address = result["args"]["vault"]
-                break
-            except Exception:
-                continue
+        vault_address = self._parse_vault_created(factory, receipt)
 
         if not vault_address:
             raise RuntimeError("Failed to extract vault address from deployment receipt")
@@ -246,7 +278,67 @@ class ChainExecutor:
         factory = self.loader.vault_factory
         return await factory.functions.vaultCount().call()
 
+    async def set_target_allocations(
+        self,
+        vault_address: str,
+        tokens: list[str],
+        weights_bps: list[int],
+    ) -> str:
+        """Set target allocations on a vault via setTargetAllocations.
+
+        Uses Circle dev-controlled wallet if configured, falls back to raw private key.
+        """
+        checksummed = [chain_client.to_checksum(t) for t in tokens]
+
+        # Circle path
+        if circle_signer.is_configured:
+            tx_hash = await circle_signer.execute_contract(
+                contract_address=vault_address,
+                abi_function="setTargetAllocations(address[],uint256[])",
+                abi_params=[checksummed, weights_bps],
+            )
+            logger.info(f"setTargetAllocations via Circle: {tx_hash} for vault {vault_address}")
+            return tx_hash
+
+        # Fallback: raw private key
+        account = chain_client.settings.agent_account
+        if not account:
+            raise RuntimeError("No agent account configured — set CIRCLE_API_KEY or ARC_AGENT_PRIVATE_KEY")
+
+        vault = self.loader.vault(vault_address)
+        nonce = await chain_client.w3.eth.get_transaction_count(account.address)
+
+        tx = await vault.functions.setTargetAllocations(
+            checksummed,
+            weights_bps,
+        ).build_transaction(
+            {
+                "from": account.address,
+                "nonce": nonce,
+                "chainId": chain_client.settings.chain_id,
+                "gas": 500_000,
+                "gasPrice": await chain_client.w3.eth.gas_price,
+            }
+        )
+
+        signed = account.sign_transaction(tx)
+        tx_hash = await chain_client.w3.eth.send_raw_transaction(signed.raw_transaction)
+
+        logger.info(f"setTargetAllocations tx sent: {tx_hash.hex()} for vault {vault_address}")
+        return tx_hash.hex()
+
     # ─── Helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_vault_created(factory, receipt) -> str | None:
+        """Extract vault address from VaultCreated event in receipt."""
+        for log in receipt.logs:
+            try:
+                result = factory.events.VaultCreated().process_log(log)
+                return result["args"]["vault"]
+            except Exception:
+                continue
+        return None
 
     async def _get_token_symbol(self, token_address: str) -> str:
         """Get ERC-20 symbol, with fallback for known tokens."""

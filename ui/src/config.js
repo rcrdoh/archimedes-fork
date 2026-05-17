@@ -298,6 +298,8 @@ export const VAULT_ABI = [
   { name: 'highWaterMark',       type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { name: 'asset',               type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { name: 'approve',             type: 'function', stateMutability: 'nonpayable', inputs: [{ type: 'address' }, { type: 'uint256' }], outputs: [{ type: 'bool' }] },
+  { name: 'setTargetAllocations', type: 'function', stateMutability: 'nonpayable', inputs: [{ type: 'address[]', name: 'tokens' }, { type: 'uint256[]', name: 'weightsBps' }], outputs: [] },
+  { name: 'getTargetAllocations', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address[]' }, { type: 'uint256[]' }] },
 ]
 
 export const VAULT_FACTORY_ABI = [
