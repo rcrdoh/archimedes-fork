@@ -13,6 +13,7 @@ import Strategies from './components/Strategies'
 import CreateVault from './components/CreateVault'
 import VaultDetail from './components/VaultDetail'
 import VaultChat from './components/VaultChat'
+import Marketplace from './Marketplace'
 import './App.css'
 
 const PRICE_DECIMALS = 6
@@ -636,7 +637,7 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
-      case 'explore':       return <ComingSoon title="Marketplace" />
+      case 'explore':       return <Marketplace />
       case 'strategies':    return <Strategies />
       case 'trade':         return <Trade />
       case 'dashboard':     return <Dashboard data={data} prevData={prevData} errors={errors} loading={loading} lastFetch={lastFetch} countdown={countdown} fetchAll={fetchAll} />

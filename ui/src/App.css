@@ -1371,3 +1371,78 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   border-top: 1px solid var(--glass-border);
   margin: 40px 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   MARKETPLACE SPECIFIC
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Allocation Bar */
+.alloc-bar {
+  display: flex;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  gap: 2px;
+}
+.alloc-bar .seg {
+  border-radius: 1px;
+  transition: width 0.5s ease;
+}
+
+/* Tier Badges */
+.tier {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.tier-verified {
+  background: linear-gradient(135deg, rgba(212,168,83,0.12), rgba(212,168,83,0.06));
+  border: 1px solid rgba(212,168,83,0.2);
+  color: var(--accent);
+}
+.tier-community {
+  background: var(--surface-3);
+  border: 1px solid var(--surface-4);
+  color: var(--text-3);
+}
+
+/* Timeline */
+.timeline {
+  position: relative;
+  padding-left: 20px;
+}
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--surface-4);
+}
+.tl-item {
+  position: relative;
+  padding-bottom: var(--space-5);
+}
+.tl-item::before {
+  content: '';
+  position: absolute;
+  left: -19px;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--surface-4);
+  border: 2px solid var(--canvas);
+}
+.tl-item.active::before {
+  background: var(--accent);
+}
+
+/* Clickable table rows */
+.pointer {
+  cursor: pointer;
+}
