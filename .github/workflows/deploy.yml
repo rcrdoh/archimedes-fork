@@ -44,8 +44,8 @@ jobs:
             git reset --hard origin/main
 
             # Rebuild and restart services (detached)
-            docker compose build --no-cache nginx
-            docker compose up -d --remove-orphans
+            docker compose build --no-cache
+            docker compose up -d --force-recreate --remove-orphans
 
             # Prune old images to save disk
             docker image prune -f
