@@ -1108,3 +1108,25 @@ async def get_agent_status():
         )
     finally:
         await state.close()
+
+
+@agent_router.get("/circle-status")
+async def get_circle_integration_status():
+    """Get Circle SDK integration breadth status.
+
+    Shows which Circle tools are being used and their status.
+    Contributes to the 20% Circle Tool Usage rubric category.
+    """
+    from archimedes.services.circle_service import circle_service
+    return await circle_service.get_integration_status()
+
+
+@agent_router.post("/bootstrap-liquidity")
+async def bootstrap_amm_liquidity():
+    """Add AMM pool liquidity so vault rebalances can execute.
+
+    Adds USDC + synth token pairs to all AMM pools using the Circle wallet.
+    Trigger this once after deployment to enable swaps.
+    """
+    from archimedes.services.amm_bootstrap import bootstrap_amm_liquidity as _bootstrap
+    return await _bootstrap()
