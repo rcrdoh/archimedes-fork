@@ -25,6 +25,7 @@ from archimedes.api.routes import (
 )
 from archimedes.api.chat_routes import chat_router
 from archimedes.api.marketplace_routes import marketplace_router
+from archimedes.api.risk_routes import risk_router
 from archimedes.db import init_db
 
 app = FastAPI(
@@ -56,6 +57,7 @@ app.include_router(config_router)
 app.include_router(agent_router)
 app.include_router(chat_router)
 app.include_router(marketplace_router)
+app.include_router(risk_router)
 
 
 @app.get("/health")
