@@ -31,9 +31,11 @@ May 11–25, 2026.
 
 - Repository: [`github.com/hackagora/archimedes-arcadia`](https://github.com/hackagora/archimedes-arcadia)
 - Discord: **Archimedes Arcadia** server
-- Branch model: `develop` is the integration branch; `main` is protected and promoted-to
-  once stable. Per-owner staging branches (e.g. `dbrowneup/<name>`, `moonshot/<name>`,
-  `marten`) are personal scratch space before opening a PR
+- Branch model: **`main` is the single live branch — build-on-deploy.** Every merge to
+  `main` triggers a CI build + deploy to the live EC2 stack. No `develop`/integration
+  branch (retired 2026-05-18, unused). Short-lived per-owner branches
+  (`dbrowneup/<name>`, `marten`, …) → PR → merge to `main`; `main` moves continuously
+  (Chuan's agentic system lands + self-iterates on it), so rebase late and merge fast
 - Live testnet deploy: [`http://18.171.230.205/`](http://18.171.230.205/) (EC2,
   Chain ID `5042002` / `0x4cef52`, Arc testnet)
 - License: [Unlicense](https://unlicense.org) — full public-domain dedication
@@ -240,23 +242,24 @@ decisions (5 of them as of Day 3):
 
 ## Engineering conventions
 
-### Branch model (5-person hackathon team, async-first)
+### Branch model (build-on-deploy, main-only)
 
-- `main` is protected. Every change goes through a PR. (Day-4 reality: small infra fixes
-  have occasionally landed on `main` directly via merge from the contracts owner's branch
-  for hotfix expediency. Keep this rare — `develop` is the integration target.)
-- `develop` is the integration branch — merge feature branches here first; promote to
-  `main` once stable.
-- Feature branches: `feat/<short-name>`, e.g. `feat/strategy-passport`,
-  `feat/regime-detection`, `feat/ec2-infra-cicd`.
-- Per-owner branches: `<discord-handle>/<short-name>`, e.g. `moonshot/contracts-v0`,
-  `marten/arc-cli-spike`, `dbrowneup/strategy-foundation`,
-  `danielscoffee/backtest`. Personal staging.
-- Smart-contract branches: `smart-contracts` (the live branch Chuan uses) or
-  `contract/<short-name>` for spikes — these get **two reviews** (Chuan + one generalist)
-  before merge.
-- **No force-push to `main` or `develop`. Ever.** Force-push to your own branch before
-  opening a PR is fine.
+Codified 2026-05-18 to match how the team actually works (see
+"Working with AI agents on this repo" below):
+
+- **`main` is the only long-lived branch, and it is the deploy branch.** Every merge
+  to `main` triggers a CI build + deploy to the live EC2 stack. There is no
+  `develop`/integration branch — it drifted unused and was retired.
+- **`main` moves continuously.** Chuan's agentic system merges work and iterates on
+  its own CI failures directly on `main`. Treat `main` as fast-moving: branch from it
+  late, rebase onto it right before merging, and merge in a tight window before it
+  drifts again. Don't wait for it to "settle" — it won't.
+- Short-lived per-owner branches `<discord-handle>/<short-name>` → PR → merge to
+  `main`. Delete the branch after merge.
+- **The few hard rules — universal, and they do not impede speed:** never force-push
+  `main`; never commit secrets or `.env`; one logical change per PR. Force-pushing
+  your *own* unmerged feature branch is fine and expected (rebase-before-merge).
+- On-chain / smart-contract changes still warrant Chuan's eyes given live-funds risk.
 
 ### PR reviews
 
@@ -350,10 +353,13 @@ the resulting PR.
 
 Non-negotiable, and load-bearing because the judges read this repo like operators:
 
-- `main` and `develop` are protected. **Never force-push them.** Ever.
-- Every change is a branch + PR. **Never commit directly to `main`.** One logical
-  change per PR; atomic commits.
-- Sync before you start: branch from current `main` (or rebase onto it).
+- **Never force-push `main`.** Ever. (Force-pushing your own unmerged feature
+  branch is fine.)
+- Humans: branch + PR → merge to `main`. One logical change per PR; atomic commits.
+  The agentic system integrates on `main` directly (build-on-deploy) — that's the
+  accepted reality, not a violation; the rule that matters is no force-push + no
+  secrets, not "never touch `main`."
+- `main` moves continuously — rebase onto it right before merge and merge fast.
 - **Never commit secrets or `.env`** — `.env` is gitignored; keep it that way; no
   private keys in the tree.
 - If an AI agent is uncertain, it **stops and asks** — it does not invent APIs,
