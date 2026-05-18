@@ -33,10 +33,11 @@ Arc, May 11–25, 2026.
 (chain ID `5042002`). React/Vite UI with multi-wallet connect. The autonomous agent
 loop, statistical regime detector, Kelly/risk-parity portfolio constructor, and the
 four-control selection-bias gate (DSR / PBO / walk-forward OOS / look-ahead audit) are
-all implemented and run as services in the docker-compose stack. The current
-critical-path work is **integration** — wiring the analytics-engine backtests through to
-the strategy passport so the rigor numbers are real rather than placeholder (see open
-issues + PRs). See [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md)
+all implemented and run as services in the docker-compose stack. The
+analytics-engine → strategy-passport pipeline is now wired end-to-end: real persisted
+backtests feed the selection-bias gate and the passport surfaces real backtest-backed
+metrics rather than placeholders, with backtest seeding run by the deploy pipeline.
+See [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md)
 for the running self-score and [`docs/`](docs/) for design + planning artifacts.
 
 ## Why Archimedes?
@@ -379,9 +380,10 @@ docker compose ps
 
 The Swagger UI shows the live routes. The strategy provider, chain integration, oracle
 runner, autonomous agent loop, statistical regime detector, Kelly/risk-parity portfolio
-constructor, and the selection-bias gate are all implemented. The open work is wiring
-real analytics-engine backtests through to the strategy passport — see the open issues
-and [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md).
+constructor, and the selection-bias gate are all implemented and wired end-to-end:
+the analytics-engine → passport bridge and the rigor gate run on real persisted
+backtests. See [`docs/judging-rubric-assessment.md`](docs/judging-rubric-assessment.md)
+for the running self-score.
 
 ### Step 4 — Drive the strategy library from the Python side
 
