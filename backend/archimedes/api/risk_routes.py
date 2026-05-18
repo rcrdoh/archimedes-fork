@@ -1,6 +1,6 @@
 """Risk analysis API endpoints.
 
-Dedicated risk router that aggregates strategy backtest stubs and
+Dedicated risk router that aggregates persisted strategy backtests and
 on-chain vault holdings into portfolio-level risk summaries.
 """
 
@@ -105,7 +105,7 @@ async def get_risk_profiles():
 
 @risk_router.get("/portfolio", response_model=PortfolioRiskResponse)
 async def get_portfolio_risk():
-    """Aggregate portfolio-level risk metrics from strategy backtest stubs.
+    """Aggregate portfolio-level risk metrics from persisted backtests.
 
     Computes:
       - Avg Sharpe, worst max drawdown, avg correlation to SPY, best Calmar
@@ -124,11 +124,13 @@ async def get_portfolio_risk():
     vol_vals: list[float] = []
 
     for s in strategies:
-        sharpe = s.stub_sharpe
-        max_dd = s.stub_max_dd
-        cagr = s.stub_cagr
-        calmar = s.stub_calmar
-        corr = s.stub_corr_spy
+        bt = _strategy_provider.get_backtest_result(s.id)
+
+        sharpe = bt.sharpe_ratio if bt else None
+        max_dd = bt.max_drawdown if bt else None
+        cagr = bt.cagr if bt else None
+        calmar = bt.calmar_ratio if bt else None
+        corr = bt.correlation_to_spy if bt else None
 
         # Derive annualized volatility: σ ≈ |CAGR| / Sharpe
         # (rough approximation from Sharpe = (r - rf) / σ, assuming rf ≈ 0)
@@ -156,7 +158,7 @@ async def get_portfolio_risk():
                 volatility=volatility,
                 max_drawdown=max_dd,
                 cagr=cagr,
-                win_rate=s.stub_win_rate,
+                win_rate=bt.win_rate if bt else None,
                 calmar_ratio=calmar,
                 correlation_to_spy=corr,
                 risk_level=_derive_risk_level(sharpe),

@@ -47,6 +47,51 @@ app.add_middleware(
 # Initialize database (creates chat tables if needed)
 init_db()
 
+
+@app.on_event("startup")
+async def _startup_populate_rigor_gate():
+    """On first startup, compute and persist selection-bias rigor gate fields.
+
+    Idempotent: only populates strategies that don't yet have DSR/PBO values.
+    Skips entirely if the backtest_results table is empty.
+    """
+    import logging
+    _logger = logging.getLogger("archimedes.startup")
+    try:
+        from archimedes.services.strategy_provider import default_provider
+        from archimedes.db import get_session
+        from archimedes.models.backtest_store import BacktestResultRecord
+
+        provider = default_provider()
+        strategies = provider.list_strategies()
+        if not strategies:
+            return
+
+        strategy_ids = [s.id for s in strategies]
+        with get_session() as session:
+            rows = session.query(BacktestResultRecord).filter(
+                BacktestResultRecord.strategy_id.in_(strategy_ids)
+            ).all()
+
+            # Check if any need rigor gate computation
+            needs_rigor = [r for r in rows if r.deflated_sharpe_ratio is None]
+            if not needs_rigor:
+                _logger.info("startup: all %d backtest rows have rigor gate fields", len(rows))
+                return
+
+        _logger.info("startup: computing rigor gate for %d strategies...", len(needs_rigor))
+
+        # Call the rigor gate endpoint logic (triggers full computation + persist)
+        from archimedes.api.selection_bias_routes import evaluate_rigor_gate
+        import asyncio
+        result = await evaluate_rigor_gate()
+        _logger.info(
+            "startup: rigor gate computed — %d/%d passing",
+            result.passing, result.total,
+        )
+    except Exception as exc:
+        _logger.warning("startup: rigor gate population failed (non-fatal): %s", exc)
+
 # Wire all routers
 app.include_router(assets_router)
 app.include_router(vaults_router)

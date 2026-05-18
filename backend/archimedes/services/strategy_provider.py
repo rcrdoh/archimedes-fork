@@ -24,14 +24,19 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any
 
+from archimedes.db import get_session
+from archimedes.models.backtest import BacktestResult
 from archimedes.models.strategy import (
     PositionSizing,
     RebalanceFrequency,
     Strategy,
     StrategyStatus,
 )
+
+from archimedes.services.backtest_repository import latest_backtests_by_strategy
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +68,6 @@ _METADATA_KEYS: tuple[str, ...] = (
     "EXTRACTION_LLM",
     # Lifecycle status
     "STATUS",
-    # Placeholder backtest stubs — sourced from BACKTEST_* constants in strategy files.
-    # Replaced by real BacktestResult when IBacktestEvaluator runs.
-    "BACKTEST_SHARPE",
-    "BACKTEST_CAGR",
-    "BACKTEST_MAX_DD",
-    "BACKTEST_WIN_RATE",
-    "BACKTEST_CALMAR",
-    "BACKTEST_CORR_SPY",
 )
 
 
@@ -185,14 +182,6 @@ def _to_strategy(path: Path, metadata: dict[str, Any], code_hash: str) -> Strate
     paper_claimed_cagr = metadata.get("PAPER_CLAIMED_CAGR")
     paper_claimed_max_dd = metadata.get("PAPER_CLAIMED_MAX_DD")
 
-    # Stub backtest values from BACKTEST_* constants (PLACEHOLDER until IBacktestEvaluator runs)
-    stub_sharpe = metadata.get("BACKTEST_SHARPE")
-    stub_cagr = metadata.get("BACKTEST_CAGR")
-    stub_max_dd = metadata.get("BACKTEST_MAX_DD")
-    stub_win_rate = metadata.get("BACKTEST_WIN_RATE")
-    stub_calmar = metadata.get("BACKTEST_CALMAR")
-    stub_corr_spy = metadata.get("BACKTEST_CORR_SPY")
-
     # Use file mtime so timestamps reflect the strategy file's curation
     # time rather than process start time — otherwise every restart would
     # bump created_at/updated_at for unchanged strategies.
@@ -231,12 +220,6 @@ def _to_strategy(path: Path, metadata: dict[str, Any], code_hash: str) -> Strate
         strategy_code_path=str(path),
         strategy_code_hash=code_hash,
         on_chain_registration_tx=None,
-        stub_sharpe=float(stub_sharpe) if stub_sharpe is not None else None,
-        stub_cagr=float(stub_cagr) if stub_cagr is not None else None,
-        stub_max_dd=float(stub_max_dd) if stub_max_dd is not None else None,
-        stub_win_rate=float(stub_win_rate) if stub_win_rate is not None else None,
-        stub_calmar=float(stub_calmar) if stub_calmar is not None else None,
-        stub_corr_spy=float(stub_corr_spy) if stub_corr_spy is not None else None,
     )
 
 
@@ -254,6 +237,7 @@ class LocalStrategyProvider:
     def __init__(self, strategies_dir: Path) -> None:
         self._strategies_dir = strategies_dir
         self._strategies: dict[str, Strategy] = {}
+        self._backtests: dict[str, BacktestResult] = {}
         self.refresh()
 
     def refresh(self) -> int:
@@ -278,8 +262,40 @@ class LocalStrategyProvider:
             except Exception as exc:  # noqa: BLE001 — defensive on startup
                 logger.exception("failed to load strategy %s: %s", path, exc)
         self._strategies = loaded
-        logger.info("loaded %d strategies from %s", len(loaded), self._strategies_dir)
+        self._backtests = self._load_backtests(loaded.keys())
+        for sid, strategy in self._strategies.items():
+            bt = self._backtests.get(sid)
+            if bt is None:
+                continue
+            strategy.stub_sharpe = bt.sharpe_ratio
+            strategy.stub_cagr = bt.cagr
+            strategy.stub_max_dd = bt.max_drawdown
+            strategy.stub_win_rate = bt.win_rate
+            strategy.stub_calmar = bt.calmar_ratio
+            strategy.stub_corr_spy = bt.correlation_to_spy
+
+        logger.info(
+            "loaded %d strategies from %s (%d with backtests)",
+            len(loaded),
+            self._strategies_dir,
+            len(self._backtests),
+        )
         return len(loaded)
+
+    def _load_backtests(self, strategy_ids: Iterable[str]) -> dict[str, BacktestResult]:
+        ids = list(strategy_ids)
+        if not ids:
+            return {}
+        try:
+            with get_session() as session:
+                rows = latest_backtests_by_strategy(session, ids)
+            return {
+                strategy_id: row.to_backtest_result()
+                for strategy_id, row in rows.items()
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("backtest load failed (using None fallback): %s", exc)
+            return {}
 
     # ── IStrategyProvider ───────────────────────────────────
 
@@ -298,6 +314,24 @@ class LocalStrategyProvider:
 
     def get_strategy(self, strategy_id: str) -> Strategy | None:
         return self._strategies.get(strategy_id)
+
+    def get_backtest_result(self, strategy_id: str) -> BacktestResult | None:
+        """Return latest persisted backtest for a strategy, if present."""
+        cached = self._backtests.get(strategy_id)
+        if cached is not None:
+            return cached
+        latest = self._load_backtests([strategy_id]).get(strategy_id)
+        if latest is not None:
+            self._backtests[strategy_id] = latest
+            strategy = self._strategies.get(strategy_id)
+            if strategy is not None:
+                strategy.stub_sharpe = latest.sharpe_ratio
+                strategy.stub_cagr = latest.cagr
+                strategy.stub_max_dd = latest.max_drawdown
+                strategy.stub_win_rate = latest.win_rate
+                strategy.stub_calmar = latest.calmar_ratio
+                strategy.stub_corr_spy = latest.correlation_to_spy
+        return latest
 
     def get_strategies_for_risk_profile(self, risk_profile_name: str) -> list[Strategy]:
         wanted = risk_profile_name.lower()

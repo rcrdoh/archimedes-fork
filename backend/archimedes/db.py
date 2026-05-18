@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
 from archimedes.models.chat import Base
+from archimedes.models.backtest_store import BacktestResultRecord  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

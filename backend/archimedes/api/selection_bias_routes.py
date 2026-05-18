@@ -87,30 +87,36 @@ async def evaluate_rigor_gate():
     if not strategies:
         return RigorGateResponse(strategies=[], total=0, passing=0, failing=0)
 
-    # Collect daily returns from strategy backtest stubs
-    # In production, these come from the analytics-engine BacktestResult.
-    # For the hackathon demo, we generate synthetic returns from the stub metrics.
-    returns_by_strategy: dict[str, list[float]] = {}
+    # ── Collect real daily returns from persisted backtest results ──
+    from archimedes.db import get_session, init_db
+    from archimedes.services.backtest_repository import (
+        get_all_daily_returns,
+        update_rigor_gate_fields,
+    )
+
+    init_db()
+
+    strategy_ids = [s.id for s in strategies]
     strategy_code_map: dict[str, str | None] = {}
 
-    for s in strategies:
-        # Generate synthetic daily returns from stub metrics
-        # This is a placeholder until the full analytics-engine integration
-        if s.stub_sharpe is not None and s.strategy_code_path:
-            returns = _synthetic_returns_from_stub(
-                sharpe=s.stub_sharpe,
-                cagr=s.stub_cagr,
-                max_dd=s.stub_max_dd,
-            )
-            returns_by_strategy[s.id] = returns
+    # Load real returns from DB
+    with get_session() as session:
+        returns_by_strategy = get_all_daily_returns(session, strategy_ids)
 
-            # Load strategy source code for look-ahead audit
-            code = _load_strategy_code(s.strategy_code_path)
-            strategy_code_map[s.id] = code
-        else:
-            # No stub data — can't evaluate
-            returns_by_strategy[s.id] = []
-            strategy_code_map[s.id] = None
+    for s in strategies:
+        code = _load_strategy_code(s.strategy_code_path) if s.strategy_code_path else None
+        strategy_code_map[s.id] = code
+
+    # Fallback: if no persisted data, try stub-based synthetic returns
+    # (graceful degradation for strategies not yet backtested)
+    for s in strategies:
+        if s.id not in returns_by_strategy or len(returns_by_strategy[s.id]) < 10:
+            if s.stub_sharpe is not None:
+                returns_by_strategy[s.id] = _synthetic_returns_from_stub(
+                    sharpe=s.stub_sharpe,
+                    cagr=s.stub_cagr,
+                    max_dd=s.stub_max_dd,
+                )
 
     # Compute PBO across all strategies that have returns
     valid_returns = {k: v for k, v in returns_by_strategy.items() if len(v) >= 10}
@@ -137,15 +143,39 @@ async def evaluate_rigor_gate():
             ))
             continue
 
+        # Use real in-sample Sharpe from persisted data when available
+        in_sample_sharpe = s.stub_sharpe
+        with get_session() as session:
+            from archimedes.services.backtest_repository import (
+                latest_backtests_by_strategy,
+            )
+            bt_map = latest_backtests_by_strategy(session, [s.id])
+            if s.id in bt_map:
+                in_sample_sharpe = bt_map[s.id].sharpe_ratio
+
         gate_result = run_rigor_gate(
             strategy_id=s.id,
             daily_returns=daily_returns,
             num_trials=num_trials,
             pbo_scores=pbo_scores,
             strategy_code=strategy_code_map.get(s.id),
-            in_sample_sharpe=s.stub_sharpe,
+            in_sample_sharpe=in_sample_sharpe,
             paper_claimed_sharpe=s.paper_claimed_sharpe,
         )
+
+        # Persist rigor gate results to DB
+        with get_session() as session:
+            update_rigor_gate_fields(
+                session,
+                s.id,
+                deflated_sharpe_ratio=gate_result.deflated_sharpe,
+                dsr_p_value=gate_result.dsr_p_value,
+                num_trials_in_selection=num_trials,
+                pbo_score=gate_result.pbo_score,
+                out_of_sample_sharpe=gate_result.oos_sharpe,
+                look_ahead_audit_passed=gate_result.look_ahead_passed,
+            )
+            session.commit()
 
         details = gate_result.gate_details
         results.append(StrategyRigorResult(
@@ -182,13 +212,14 @@ async def evaluate_strategy_rigor(strategy_id: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Strategy not found")
 
-    # Reuse the full gate endpoint with single strategy
-    # (the per-strategy computation is the same)
+    # Run the full gate and extract the matching strategy result
+    full_response = await evaluate_rigor_gate()
+    for result in full_response.strategies:
+        if result.strategy_id == strategy_id:
+            return result
+
     from fastapi import HTTPException
-    raise HTTPException(
-        status_code=501,
-        detail="Use GET /api/selection-bias/gate for full library evaluation",
-    )
+    raise HTTPException(status_code=404, detail="Strategy not found in gate results")
 
 
 @selection_bias_router.post("/pbo", response_model=PBOResponse)

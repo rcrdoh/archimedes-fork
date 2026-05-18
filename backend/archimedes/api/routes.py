@@ -81,14 +81,12 @@ _architect = default_architect()
 
 
 def _to_strategy_response(s: Strategy) -> StrategyResponse:
-    """Map the shared Strategy dataclass to the frontend response shape.
+    """Map Strategy + persisted BacktestResult to API schema.
 
-    Backtest fields sourced from BACKTEST_* stub constants in strategy files
-    (is_backtest_placeholder=True) until Önder's IBacktestEvaluator runs and
-    populates a real BacktestResult. Stub values are clearly labelled so the UI
-    can render them with an honest "estimate" disclaimer.
+    Source of truth for backtest metrics is DB table `backtest_results`.
+    If no row exists yet for a strategy, metrics surface as None.
     """
-    has_stubs = s.stub_sharpe is not None
+    bt = _strategy_provider.get_backtest_result(s.id)
     return StrategyResponse(
         id=s.id,
         paper_arxiv_id=s.paper_arxiv_id,
@@ -111,15 +109,20 @@ def _to_strategy_response(s: Strategy) -> StrategyResponse:
         curator_note=s.curator_note,
         on_chain_registration_tx=s.on_chain_registration_tx,
         # Paper claims (for delta display)
-        paper_claimed_sharpe=s.paper_claimed_sharpe,
-        # Backtest (stubs from strategy file; None when IBacktestEvaluator has not run)
-        sharpe_ratio=s.stub_sharpe,
-        cagr=s.stub_cagr,
-        max_drawdown=s.stub_max_dd,
-        win_rate=s.stub_win_rate,
-        calmar_ratio=s.stub_calmar,
-        correlation_to_spy=s.stub_corr_spy,
-        is_backtest_placeholder=has_stubs,
+        paper_claimed_sharpe=bt.paper_claimed_sharpe if bt else s.paper_claimed_sharpe,
+        # Backtest (real DB row or None fallback)
+        sharpe_ratio=bt.sharpe_ratio if bt else None,
+        sortino_ratio=bt.sortino_ratio if bt else None,
+        cagr=bt.cagr if bt else None,
+        max_drawdown=bt.max_drawdown if bt else None,
+        win_rate=bt.win_rate if bt else None,
+        total_trades=bt.total_trades if bt else None,
+        calmar_ratio=bt.calmar_ratio if bt else None,
+        correlation_to_spy=bt.correlation_to_spy if bt else None,
+        deflated_sharpe_ratio=bt.deflated_sharpe_ratio if bt else None,
+        pbo_score=bt.pbo_score if bt else None,
+        out_of_sample_sharpe=bt.out_of_sample_sharpe if bt else None,
+        is_backtest_placeholder=False,
     )
 
 

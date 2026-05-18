@@ -1,15 +1,10 @@
 """Tests for strategy provider and response schema.
 
 Covers:
-- LocalStrategyProvider loading the seed strategy files
-- STATUS constant parsed correctly (live / candidate)
-- BACKTEST_* stub constants parsed and exposed on Strategy
-- Paper claim fields parsed
-- StrategyResponse schema — field presence and value mapping
-
-Note: does NOT import archimedes.api.routes (which transitively imports chain/
-web3 services requiring eth_account/web3). The mapping logic is tested via
-schema construction directly.
+- LocalStrategyProvider loading seed strategy files
+- STATUS constant parsing
+- Paper/passport fields parsing
+- Backtest read path from DB table (result or None fallback)
 """
 
 from __future__ import annotations
@@ -56,31 +51,17 @@ def test_tsmom_status_is_live(provider):
     assert tsmom.status == StrategyStatus.LIVE
 
 
-def test_buy_hold_status_is_candidate(provider):
+def test_buy_hold_status_is_live(provider):
+    # NOTE (consolidation 2026-05-18): analytics-engine/strategies/pipeline_buy_hold.py
+    # declares STATUS = "live" on current main, like the other seeded strategies, so
+    # the provider yields LIVE. Daniel's original commit (22 commits behind) asserted
+    # CANDIDATE. Aligned to current reality. OPEN DESIGN QUESTION for the team: a
+    # buy-and-hold baseline arguably should stay CANDIDATE until it clears the
+    # selection-bias rigor gate (#53) — but that is a product/strategy-file decision,
+    # not a test fix. Flagged in the PR; not silently changed here.
     baseline = next((s for s in provider.list_strategies() if s.paper_title == "Buy-and-Hold Baseline"), None)
     if baseline is not None:
-        assert baseline.status == StrategyStatus.CANDIDATE
-
-
-# ── BACKTEST_* stub constants ─────────────────────────────────
-
-
-def test_faber_has_stub_sharpe(provider):
-    faber = next(s for s in provider.list_strategies() if "Tactical Asset Allocation" in s.paper_title)
-    assert faber.stub_sharpe is not None
-    assert isinstance(faber.stub_sharpe, float)
-    assert 0 < faber.stub_sharpe < 3.0
-
-
-def test_tsmom_has_stub_calmar(provider):
-    tsmom = next(s for s in provider.list_strategies() if s.paper_title == "Time Series Momentum")
-    assert tsmom.stub_calmar is not None
-
-
-def test_vol_managed_has_stub_corr_spy(provider):
-    vol = next(s for s in provider.list_strategies() if s.paper_title == "Volatility-Managed Portfolios")
-    assert vol.stub_corr_spy is not None
-    assert 0 <= vol.stub_corr_spy <= 1.0
+        assert baseline.status == StrategyStatus.LIVE
 
 
 # ── Paper claim fields ────────────────────────────────────────
@@ -115,12 +96,20 @@ def test_strategy_id_is_deterministic(provider):
     assert ids1 == ids2, "Strategy IDs must be deterministic across loads"
 
 
-# ── StrategyResponse schema mapping (no routes import) ───────
+# ── Backtest read path ────────────────────────────────────────
 
 
-def _map_to_response(s: Strategy) -> StrategyResponse:
-    """Inline mapping logic matching _to_strategy_response in routes.py."""
-    has_stubs = s.stub_sharpe is not None
+def test_provider_backtest_lookup_returns_row_or_none(provider):
+    for s in provider.list_strategies():
+        bt = provider.get_backtest_result(s.id)
+        assert bt is None or bt.strategy_id == s.id
+
+
+# ── StrategyResponse mapping (no routes import) ───────────────
+
+
+def _map_to_response(s: Strategy, provider) -> StrategyResponse:
+    bt = provider.get_backtest_result(s.id)
     return StrategyResponse(
         id=s.id,
         paper_arxiv_id=s.paper_arxiv_id,
@@ -140,20 +129,20 @@ def _map_to_response(s: Strategy) -> StrategyResponse:
         curator_wallet=s.curator_wallet,
         curator_note=s.curator_note,
         on_chain_registration_tx=s.on_chain_registration_tx,
-        paper_claimed_sharpe=s.paper_claimed_sharpe,
-        sharpe_ratio=s.stub_sharpe,
-        cagr=s.stub_cagr,
-        max_drawdown=s.stub_max_dd,
-        win_rate=s.stub_win_rate,
-        calmar_ratio=s.stub_calmar,
-        correlation_to_spy=s.stub_corr_spy,
-        is_backtest_placeholder=has_stubs,
+        paper_claimed_sharpe=bt.paper_claimed_sharpe if bt else s.paper_claimed_sharpe,
+        sharpe_ratio=bt.sharpe_ratio if bt else None,
+        cagr=bt.cagr if bt else None,
+        max_drawdown=bt.max_drawdown if bt else None,
+        win_rate=bt.win_rate if bt else None,
+        calmar_ratio=bt.calmar_ratio if bt else None,
+        correlation_to_spy=bt.correlation_to_spy if bt else None,
+        is_backtest_placeholder=False,
     )
 
 
 def test_response_includes_passport_fields(provider):
     faber = next(s for s in provider.list_strategies() if "Tactical Asset Allocation" in s.paper_title)
-    resp = _map_to_response(faber)
+    resp = _map_to_response(faber, provider)
     assert resp.paper_venue == "The Journal of Wealth Management"
     assert resp.paper_year == 2007
     assert resp.paper_citation_count == 850
@@ -161,37 +150,25 @@ def test_response_includes_passport_fields(provider):
     assert resp.curator_note is not None
 
 
-def test_response_backtest_stubs_populated(provider):
-    faber = next(s for s in provider.list_strategies() if "Tactical Asset Allocation" in s.paper_title)
-    resp = _map_to_response(faber)
-    assert resp.sharpe_ratio is not None
-    assert resp.cagr is not None
-    assert resp.max_drawdown is not None
-    assert resp.calmar_ratio is not None
-    assert resp.correlation_to_spy is not None
-    assert resp.is_backtest_placeholder is True
-
-
-def test_response_paper_claimed_sharpe(provider):
-    faber = next(s for s in provider.list_strategies() if "Tactical Asset Allocation" in s.paper_title)
-    resp = _map_to_response(faber)
-    assert resp.paper_claimed_sharpe == pytest.approx(0.78)
+def test_response_backtest_none_when_no_row(provider):
+    # At minimum ensure mapping tolerates no backtest row.
+    strat = next(iter(provider.list_strategies()))
+    resp = _map_to_response(strat, provider)
+    bt = provider.get_backtest_result(strat.id)
+    if bt is None:
+        assert resp.sharpe_ratio is None
+        assert resp.max_drawdown is None
+    else:
+        assert resp.sharpe_ratio == bt.sharpe_ratio
+        assert resp.max_drawdown == bt.max_drawdown
 
 
 def test_response_status_live(provider):
     live = [s for s in provider.list_strategies() if s.status == StrategyStatus.LIVE]
     assert len(live) >= 2, "Expected at least 2 live strategies"
     for s in live:
-        resp = _map_to_response(s)
+        resp = _map_to_response(s, provider)
         assert resp.status == "live"
-
-
-def test_response_buy_hold_no_stubs(provider):
-    baseline = next((s for s in provider.list_strategies() if s.paper_title == "Buy-and-Hold Baseline"), None)
-    if baseline is None:
-        pytest.skip("Buy-and-Hold baseline not loaded")
-    resp = _map_to_response(baseline)
-    assert resp.is_backtest_placeholder is False
 
 
 # ── Filtering ─────────────────────────────────────────────────

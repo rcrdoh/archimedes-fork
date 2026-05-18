@@ -1,0 +1,44 @@
+{
+  "run_id": "20260516T151551Z",
+  "strategy": {
+    "backtest_code_hash": "sha256:buyhold-fixture-0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    "paper_claimed_sharpe": null,
+    "paper_claimed_cagr": null,
+    "paper_claimed_max_dd": null
+  },
+  "assumptions": {
+    "transaction_cost_bps": 10,
+    "walk_forward_split": 0.7,
+    "backtest_engine": "backtrader"
+  },
+  "integrity_flags": {
+    "lookahead_audit_passed": true
+  },
+  "results": [
+    {
+      "operation": "SPY",
+      "symbol": "SPY",
+      "metrics": {
+        "sharpe_ratio": 0.7135863248834242,
+        "sortino_ratio": 0.91,
+        "calmar_ratio": 0.42,
+        "max_drawdown_pct": 34.07931346227104,
+        "cagr": 0.142,
+        "win_rate": 0.58,
+        "profit_factor": 1.31,
+        "total_trades": 12,
+        "avg_holding_period_days": 21.0,
+        "correlation_to_spy": 1.0,
+        "correlation_to_btc": 0.34,
+        "equity_curve": [100000.0, 104200.0, 110318.0],
+        "monthly_returns": [0.012, -0.018, 0.024],
+        "backtest_start": "2018-01-01",
+        "backtest_end": "2026-01-01",
+        "out_of_sample_sharpe": 0.61,
+        "look_ahead_audit_passed": true,
+        "backtest_engine": "backtrader",
+        "transaction_cost_bps": 10
+      }
+    }
+  ]
+}

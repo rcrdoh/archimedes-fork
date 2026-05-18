@@ -175,8 +175,7 @@ class StrategyResponse(BaseModel):
     on_chain_registration_tx: str | None = None
 
     # Backtest results (if evaluated; None = not yet run)
-    # is_backtest_placeholder=True means values come from BACKTEST_* stubs in strategy files,
-    # not from a real BacktestResult — surfaced so the UI can label them honestly.
+    # Values come from persisted backtest_results rows (analytics-engine output).
     sharpe_ratio: float | None = None
     sortino_ratio: float | None = None
     max_drawdown: float | None = None
