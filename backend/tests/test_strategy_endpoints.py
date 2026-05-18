@@ -51,10 +51,17 @@ def test_tsmom_status_is_live(provider):
     assert tsmom.status == StrategyStatus.LIVE
 
 
-def test_buy_hold_status_is_candidate(provider):
+def test_buy_hold_status_is_live(provider):
+    # NOTE (consolidation 2026-05-18): analytics-engine/strategies/pipeline_buy_hold.py
+    # declares STATUS = "live" on current main, like the other seeded strategies, so
+    # the provider yields LIVE. Daniel's original commit (22 commits behind) asserted
+    # CANDIDATE. Aligned to current reality. OPEN DESIGN QUESTION for the team: a
+    # buy-and-hold baseline arguably should stay CANDIDATE until it clears the
+    # selection-bias rigor gate (#53) — but that is a product/strategy-file decision,
+    # not a test fix. Flagged in the PR; not silently changed here.
     baseline = next((s for s in provider.list_strategies() if s.paper_title == "Buy-and-Hold Baseline"), None)
     if baseline is not None:
-        assert baseline.status == StrategyStatus.CANDIDATE
+        assert baseline.status == StrategyStatus.LIVE
 
 
 # ── Paper claim fields ────────────────────────────────────────

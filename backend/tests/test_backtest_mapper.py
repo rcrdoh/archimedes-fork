@@ -12,7 +12,7 @@ from archimedes.services.backtest_mapper import (
 
 
 def test_artifact_schema_round_trip() -> None:
-    artifact_path = Path(__file__).resolve().parents[2] / "analytics-engine" / "artifacts" / "20260516T151551Z.json"
+    artifact_path = Path(__file__).resolve().parent / "fixtures" / "analytics_artifact_buy_hold.json"
     payload = artifact_path.read_text(encoding="utf-8")
 
     parsed = AnalyticsArtifactModel.model_validate_json(payload)
@@ -25,7 +25,7 @@ def test_artifact_schema_round_trip() -> None:
 
 
 def test_mapper_preserves_buy_hold_sharpe() -> None:
-    artifact_path = Path(__file__).resolve().parents[2] / "analytics-engine" / "artifacts" / "20260516T151551Z.json"
+    artifact_path = Path(__file__).resolve().parent / "fixtures" / "analytics_artifact_buy_hold.json"
     payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     artifact = AnalyticsArtifactModel.model_validate(payload)
 
