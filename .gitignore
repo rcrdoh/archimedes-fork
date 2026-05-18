@@ -50,6 +50,14 @@ infra/*.pem
 data/corpus/pdfs/
 data/corpus/text/
 
+# Local SQLite fallback — backend/archimedes/db.py defaults to
+# sqlite:///./archimedes_chat.db when DATABASE_URL is unset (e.g. pytest or
+# the backend run outside docker-compose). Never commit it: an out-of-container
+# run with live per-vault chat would otherwise leak local data into the repo.
+archimedes_chat.db
+*.sqlite
+*.sqlite3
+
 # Misc
 *.log
 .pytest_cache/
