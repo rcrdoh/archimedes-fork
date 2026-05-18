@@ -1420,6 +1420,39 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   transition: width 0.5s ease;
 }
 
+/* Allocation Legend */
+.alloc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 12px 0 4px;
+}
+.alloc-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.alloc-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.alloc-legend-label {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.alloc-legend-sym {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.alloc-legend-class {
+  font-size: 0.68rem;
+  color: var(--text-3);
+}
+
 /* Tier Badges */
 .tier {
   font-size: 0.65rem;

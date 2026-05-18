@@ -207,6 +207,35 @@ function getRiskColor(risk) {
   }
 }
 
+// ─── Allocation Legend ────────────────────────────────────────
+
+const ALLOC_CLASSES = [
+  { sym: 'sTSLA',  color: '#3B82F6', label: 'Tesla',        cls: 'Equities · Tech' },
+  { sym: 'sNVDA',  color: '#8B5CF6', label: 'Nvidia',       cls: 'Equities · Tech' },
+  { sym: 'sSPY',   color: '#6366F1', label: 'S&P 500',      cls: 'Equities · Index' },
+  { sym: 'sNKY',   color: '#EC4899', label: 'Nikkei ETF',   cls: 'Equities · Int\'l' },
+  { sym: 'sGOLD',  color: '#D4A853', label: 'Gold ETF',     cls: 'Commodities' },
+  { sym: 'sOIL',   color: '#06B6D4', label: 'Oil ETF',      cls: 'Commodities' },
+  { sym: 'sBTC',   color: '#F97316', label: 'Bitcoin',      cls: 'Crypto' },
+  { sym: 'USDC',   color: '#22C55E', label: 'USDC',         cls: 'Stablecoin · Yield' },
+]
+
+function AllocationLegend() {
+  return (
+    <div className="alloc-legend">
+      {ALLOC_CLASSES.map(a => (
+        <div key={a.sym} className="alloc-legend-item">
+          <div className="alloc-legend-dot" style={{ background: a.color }} />
+          <div className="alloc-legend-label">
+            <span className="alloc-legend-sym">{a.sym}</span>
+            <span className="alloc-legend-class">{a.cls}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Strategy Detail Modal ───────────────────────────────────
 
 function StrategyDetailModal({ strategy, detail, onClose, onDeploy }) {
@@ -885,6 +914,7 @@ export default function Marketplace() {
             </tbody>
           </table>
         </div>
+        <AllocationLegend />
       </div>
 
       {/* API error banner */}
