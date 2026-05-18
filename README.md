@@ -614,8 +614,9 @@ matches Dan + Daniel + Önder's Linux/macOS workflow exactly.
 
 See [`CLAUDE.md`](CLAUDE.md) for full conventions. Headline points:
 
-- **Branch model:** `feat/<name>` for features; `<discord-handle>/<name>` for personal
-  staging. PRs to `develop`; promote to `main` once stable.
+- **Branch model:** `main` is the single live branch — build-on-deploy (every merge
+  triggers a CI deploy). Short-lived `<discord-handle>/<name>` branches → PR → `main`;
+  rebase late and merge fast (`main` moves continuously). No `develop` branch.
 - **One approving review** for non-contract changes; two for contract changes.
 - **Commit style:** imperative mood with optional scope tags (`[strategy]`, `[backend]`,
   `[contracts]`, etc.).
