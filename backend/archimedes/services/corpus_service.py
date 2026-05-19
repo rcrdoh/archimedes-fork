@@ -157,7 +157,7 @@ def intake_from_arxiv(max_results: int | None = None) -> int:
     # Build query for q-fin categories
     cat_query = "+OR+".join(f"cat:{c}" for c in QFIN_CATEGORIES)
     url = (
-        f"http://export.arxiv.org/api/query"
+        f"https://export.arxiv.org/api/query"
         f"?search_query=({cat_query})"
         f"&sortBy=submittedDate&sortOrder=descending"
         f"&max_results={min(cap, 200)}"
