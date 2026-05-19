@@ -1464,3 +1464,34 @@ async def get_paper(arxiv_id: str):
         "abstract": paper.abstract,
         "citing_strategies": citing_strategies,
     }
+
+
+# ── Corpus Overview ──────────────────────────────────────────────
+
+
+@papers_router.get("/corpus/overview")
+async def get_corpus_overview():
+    """High-level library breakdown: category mix, year distribution, totals."""
+    from collections import Counter
+    from archimedes.services.strategy_fusion import load_corpus
+
+    corpus = load_corpus()
+    category_counts: Counter = Counter()
+    year_counts: Counter = Counter()
+    for p in corpus:
+        category_counts[p.primary_category] += 1
+        for c in p.categories:
+            category_counts[c] += 1
+        if p.published:
+            year = p.published[:4]
+            if year.isdigit():
+                year_counts[year] += 1
+
+    top_categories = category_counts.most_common(20)
+    year_dist = sorted(year_counts.items())
+
+    return {
+        "total_papers": len(corpus),
+        "categories": [{"name": cat, "count": cnt} for cat, cnt in top_categories],
+        "year_distribution": [{"year": yr, "count": cnt} for yr, cnt in year_dist],
+    }
