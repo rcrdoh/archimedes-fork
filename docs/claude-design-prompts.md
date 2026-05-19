@@ -68,10 +68,14 @@ all downstream prompt outputs without re-explaining the project each time.
 ### Field: Company name and blurb
 
 ```
-Archimedes: an autonomous portfolio agent that grounds investment strategies in
-peer-reviewed quant finance research, settled in USDC on Arc (Circle's stablecoin-native
-L1). Surfaces: web app (React + Vite), pitch deck, repo README + GitHub presence. Built
-for the Agora Agents Hackathon (Canteen × Circle × Arc, May 11–25, 2026).
+Archimedes: a research-grounded strategy-generation instrument. You describe what you
+want; it fuses your intent with live market data and a ~10,000-paper quantitative-finance
+research library into novel strategies, gates them through selection-bias rigor
+(deflated Sharpe / overfitting probability), and lets you execute + monitor them on Arc
+(Circle's stablecoin-native L1) — every reasoning step traceable to the source paper and
+anchored on-chain. Currently runs on the Arc *testnet* (no mainnet yet) with faucet USDC.
+Surfaces: web app (React + Vite), pitch deck, repo README + GitHub presence. Built for
+the Agora Agents Hackathon (Canteen × Circle × Arc, May 11–25, 2026).
 ```
 
 ### Field: Any other notes
@@ -99,10 +103,16 @@ Architecture diagram: `docs/architecture-diagram.html`. Curated per-asset design
 prompts: `docs/claude-design-prompts.md`. Pitch + demo context:
 `docs/demo-script-pitch-deck-outline.md`.
 
-Product narrative: "every claim the agent makes is wrong-able on the record."
-Strategies carry a passport (paper citation + methodology hash + paper-claim delta
-surfaced honestly); reasoning traces are hashed and anchored on Arc. Visual language
-should signal academic rigor + on-chain provenance, not crypto-speculation vibes.
+Product narrative: "every claim the agent makes is wrong-able on the record." The wedge:
+on-chain curation is run on *trust*; the Nov-2025 industry crisis showed that breaks on
+rigor. Archimedes is the *proof-based* alternative — research-grounded generation +
+selection-bias rigor gate + provenance traceable to the source paper, anchored on Arc.
+Be honest in copy: AI can be wrong; the goal is to win more than you lose, not to never
+lose; testnet-only by design. Strategies carry a passport (paper citation + methodology
+hash + paper-claim delta surfaced honestly). Visual language should signal academic
+rigor + on-chain provenance + honest risk, not crypto-speculation vibes. Canonical
+narrative + competitive framing live in `docs/demo-script-pitch-deck-outline.md` and
+`docs/competitor-landscape.md` — any slide/marketing copy must match those.
 ```
 
 After saving the design system, run **Prompt 1 (logo)** below first — smallest scope,

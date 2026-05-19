@@ -1,36 +1,35 @@
 # Demo Script & Pitch Deck Outline
 
 > **Audience:** Archimedes hackathon team (deck owner + demo runner + Q&A primaries)
-> **Status:** Day-4 revision (2026-05-14); **2026-05-19 realignment pending.** The flow
-> below still narrates the retired "connect wallet → pick a risk profile" path. The
-> submission demo MUST follow the locked spine in [`user-stories.md`](user-stories.md):
-> describe intent → generate → rigor-gate → execute → monitor → explore, read-only until
-> Deposit. Steps 2–4 below are superseded; the **rigor gate is the central pitch** — the
-> curation protocol that makes the strategy library trustworthy. Full rewrite tracked as
-> a docs-realignment follow-up.
-> **Pitch length assumption:** 3-minute pitch + ~2 minute live demo + Q&A. Adjust if
-> Canteen tells us otherwise.
-> **Shipped reality the demo can lean on (as of Day 4):**
-> - Live deploy at [`http://18.171.230.205/`](http://18.171.230.205/)
-> - 10 Solidity contracts on Arc testnet (chain ID `5042002`): `AMMPool`, `AMMRouter`,
->   `AssetRegistry`, `PriceOracle`, `ReasoningTraceRegistry`, `SyntheticFactory`,
->   `SyntheticToken`, `SyntheticVault`, `Vault`, `VaultFactory`
-> - React 19 + Vite + viem UI with three-way wallet connect (MetaMask / Coinbase / generic
->   browser wallet) and an add-liquidity / trade tab
-> - Oracle service pushing prices via Circle Wallets API on a docker-compose schedule
-> - Backend strategy provider serving 4 strategies (3 paper-grounded + buy-and-hold) with
->   passport metadata exposed via the API
-> - Selection-bias spec (DSR / PBO / OOS / look-ahead) and commit-reveal trace spec
->   landed; implementations are on Önder's and Chuan's queues respectively
+> **Status:** Rewritten 2026-05-19 to the **locked product spine** ([`user-stories.md`](user-stories.md))
+> and the **tiered competitive thesis** ([`competitor-landscape.md`](competitor-landscape.md)).
+> Supersedes the Day-4 "connect wallet → pick a risk profile" script entirely.
+> **Length assumption:** ~3-minute pitch + ~2-minute live demo + Q&A. Adjust if Canteen says otherwise.
+>
+> **Honesty rules baked into this script (non-negotiable — they are our credibility):**
+> - **Arc is testnet-only — there is no mainnet.** We say so. Faucet USDC, no real funds
+>   at risk *by design*. This is the correct posture for an Arc-stage project, not a hedge.
+> - **AI can be wrong.** The goal is to *win more than you lose, not to never lose*. Whether
+>   the engine generates *profitable* strategies is genuinely TBD — the proof is in the
+>   pudding and we say that out loud. What we *can* prove today is provenance and rigor.
+> - Real-funds custody + the regulatory architecture (off-chain redemptions, RIA posture)
+>   are the **mainnet/business-plan roadmap**, not claimed as shipped.
 
 ## The headline message
 
-> **"Markets aggregate knowledge. Archimedes lets AI agents do it for you — built on
-> peer-reviewed quant research, settled on Arc, with every decision verifiable on-chain."**
+> **"The on-chain asset-management stack now has billion-dollar rails and billion-dollar
+> curators — and November 2025 proved the curation layer above them breaks on rigor.
+> Archimedes is the proof-based answer: a research-grounded strategy-generation instrument,
+> rigor-gated, with every decision traceable to a peer-reviewed paper and anchored on Arc."**
 
-That's the one-line. Everything else in the deck supports it.
+One line beneath it, the product in a sentence:
 
-## The Agora narrative
+> *Describe what you want. Archimedes fuses your intent with live market data and a
+> 10,000-paper quantitative-finance research library into novel strategies, gates them
+> through deflated-Sharpe / overfitting-probability rigor, and lets you execute and monitor
+> them on Arc — every reasoning step traceable down to the source paper.*
+
+## The Agora narrative *(unchanged — this framing is earned, keep it)*
 
 Agora (the hackathon) chose its name carefully. [From the official description](https://luma.com/7i50p2r9):
 
@@ -42,358 +41,224 @@ Agora (the hackathon) chose its name carefully. [From the official description](
 > new citizens."*
 
 **Archimedes is named after another Athenian-era figure** — the Syracusan mathematician
-and engineer (~287–212 BCE). The name choice is deliberate: Archimedes is the patron
-saint of *empirical reasoning from first principles*. He calculated π by exhaustion. He
-designed war machines. He shouted "Eureka!" when discovering the displacement principle
-in his bath. He famously said "Give me a lever long enough and a fulcrum on which to
-place it, and I shall move the world."
+and engineer (~287–212 BCE), the patron saint of *empirical reasoning from first
+principles*. He calculated π by exhaustion, designed war machines, shouted "Eureka!" in
+his bath, and said "Give me a lever long enough and a fulcrum on which to place it, and I
+shall move the world."
 
-**Our framing for the pitch:**
+**Our framing:**
 
-> The agora is where citizens reasoned out loud. Archimedes was a citizen who reasoned
-> with rigor — empirically, from first principles, with proofs. **Archimedes the product
-> is an AI citizen who participates in the modern agora with the same rigor: every
-> portfolio decision is grounded in peer-reviewed research, every reasoning step is
-> auditable, every trade settles on Arc with sub-second finality. The lever is academic
-> research; the fulcrum is autonomous AI; the world is your portfolio.**
+> The agora is where citizens reasoned out loud. Archimedes reasoned with rigor —
+> empirically, from first principles, with proofs. **Archimedes the product is an AI
+> citizen who participates in the modern agora with that same rigor: every strategy is
+> fused from peer-reviewed research, every reasoning step is auditable down to its source
+> document, every trade settles on Arc. The lever is academic research; the fulcrum is
+> autonomous AI; the world is your portfolio.**
 
-This frame is **specific, defensible, and earned** — it's not "we picked a cool Greek
-name." It's "we built a product whose architecture matches the original empiricist."
+Specific, defensible, earned — the architecture matches the original empiricist.
 
-## The "wow moment" the demo must hit
+## The "wow moment" the demo must hit (the locked spine)
 
-A user, in front of judges, lives the full Archimedes flow on the live testnet deploy
-at [`http://18.171.230.205/`](http://18.171.230.205/). The demo is anchored to what's
-actually clickable on Day 4, with the items still on the orchestrator/regime-detector/
-reasoning-trace queue marked **🚧 Week 2** so we can be honest about what's live vs.
-what's narrated.
+Run live on the testnet deploy. **Read-only until Deposit** — a judge can traverse the
+whole story with no wallet, hitting the wall only at the one funded action. Mark anything
+still converging as **🚧 in progress** so we are honest about live-vs-narrated.
 
-1. Lands on the Archimedes site. Sees the marketing page with the Archimedes hero.
-2. Clicks **"Connect Wallet."** Sees the three-way wallet selector (MetaMask / Coinbase
-   Wallet / generic browser wallet). Connects to Arc testnet (chain ID `5042002`).
-3. **Picks a risk profile.** Four cards: Conservative / Moderate / Aggressive /
-   Hyper-Risky. Each card shows the target vol band, max drawdown, USYC floor, and a
-   one-line description. 🚧 Week 2 — currently a planned screen; the data shape is
-   defined in [`docs/design.md`](design.md) § Risk Profiles.
-4. **Sees a constructed portfolio.** Donut chart of weights. Underneath: the strategies
-   selected (with paper citations), the backtest performance for each, the regime
-   classification at construction time. 🚧 Week 2 (portfolio constructor is on Önder's
-   queue per [`specs/component-interfaces-spec.md`](specs/component-interfaces-spec.md)).
-5. **Clicks on a strategy card** — e.g., *"Time Series Momentum — Moskowitz, Ooi,
-   Pedersen 2012, J. Fin. Econ. 104(2)."* Sees the paper title, arxiv link, methodology
-   summary, our re-validated Sharpe vs. the paper's claimed Sharpe, equity curve. The
-   strategy provider already serves this metadata today via the backend API; the
-   strategy-detail screen is Week 2 UI work.
-6. **Clicks "Deposit USDC."** Approves the transaction. USDC flows into the live
-   `Vault` contract on Arc (deployed Day 4, real testnet tx, real Arc explorer link).
-7. **Watches the agent build the portfolio live.** Progress UI shows: regime check ✓ →
-   strategy selection ✓ → weight optimization ✓ → on-chain transfers via `AMMRouter` ✓ →
-   portfolio live. Each step has a "View on Arc" link. 🚧 Week 2 — the orchestrator
-   loop is the headline Week-2 deliverable.
-8. **The portfolio dashboard appears.** Live positions sourced from the deployed `Vault`
-   contract. Live performance vs. benchmark.
-9. **Clicks the Decisions tab.** Sees the agent's construction decision with full
-   reasoning trace. **Clicks "Verify trace hash."** Browser recomputes the hash in JS;
-   green checkmark appears showing it matches the on-chain anchor in the deployed
-   `ReasoningTraceRegistry` contract. 🚧 Week 2 — the contract is live; the
-   reasoning-trace generator + anchoring writer is the wiring still to ship.
-10. **(Optional advanced demo)** Fast-forward in the demo environment to trigger a
-    regime change. Watch the agent autonomously rebalance. New reasoning trace appears;
-    new on-chain anchor in `ReasoningTraceRegistry`; the portfolio shifts toward
-    defensive strategies + USYC. 🚧 Week 2 (regime detector + portfolio constructor).
+1. **Land + the honest frame.** The hero states what it is and that it runs on the Arc
+   *testnet* with faucet USDC — no real money, by design. (Sets the credibility tone
+   immediately; judges are operators, they reward this.)
+2. **Describe intent (the instrument).** Free-text brief + a risk appetite — e.g.
+   *"trend-following with low drawdown, defensive in risk-off regimes."* This is the
+   creative lever: unique inputs → unique strategies. **WOW #1 setup.**
+3. **Generate (async job).** The request *queues a background job* (no blocking spinner) —
+   fusion combines **three inputs**: the user brief, **live market/regime data**, and the
+   **q-fin research library**. Show the job going queued → running → done.
+4. **The WOW: research-grounded strategies appear.** Several novel fused strategies, each
+   with a **rigor badge** (Deflated Sharpe / PBO verdict) and **source-paper citations** —
+   click one and it deep-links into the **Corpus Explorer** to the exact arXiv papers it
+   was fused from. *"It didn't pick from a menu — it composed these from the literature,
+   and here are the papers."*
+5. **The Corpus Explorer (WOW #2).** ~10,000 q-fin papers, clustered by topic, an
+   interactive similarity graph and a high-level library breakdown — the research
+   substrate, visible. *This is what underpins the generation;* the primary sources are
+   exposed, so any claim is verifiable or falsifiable.
+6. **Rigor gate.** The strategy's passport: paper provenance, methodology hash, the
+   selection-bias scorecard — **the curation protocol that the rest of the industry is
+   missing.** Honest deltas, no placeholder numbers.
+7. **Execute (the one gated step).** Deposit *faucet* USDC into the non-custodial vault
+   on Arc — a real testnet tx, real Arc explorer link.
+8. **Monitor + autonomous rebalance (WOW #3).** The portfolio dashboard, and a visible
+   *"the agent is autonomously managing this"* panel: last rebalance, the regime that
+   triggered it, and its reasoning trace — **trace → strategy → source paper**, hashed in
+   the deployed `ReasoningTraceRegistry`. Verifiable history, not promised performance.
+9. **Explore.** The user's compounding strategy library — every generation and rigor
+   verdict accrues and is provenance-anchored. The asset that compounds.
 
-**Steps 5 (paper citation), 9 (verify trace hash), and 10 (autonomous rebalance) are the
-three differentiators.** Without them, the demo is a robo-advisor on Arc. With them, the
-demo is Archimedes. Three of the ten contracts on Arc are load-bearing for these three
-moments: `ReasoningTraceRegistry` (step 9), `Vault` + `AMMRouter` (steps 6–10).
+**The three differentiators:** (4) research-grounded *generation* (not selection),
+(8) autonomous decisions *traceable to source* + on-chain, (5/6) the **proof-based
+curation** the industry lacks. Without these it's a robo-advisor on a testnet. With them
+it's Archimedes.
 
-### What we can confidently demo today (Day 4 fallback)
+### Honest fallback (if a piece is mid-flight)
 
-If Week 2 falls behind, the Day-4-and-honest version of the demo still tells a strong
-story:
-
-- Wallet connect on Arc testnet (live).
-- Deposit USDC into the deployed `Vault` (live — real on-chain tx, real Arc explorer link).
-- AMM swap against the deployed `AMMPool` (live).
-- Synthetic-asset mint via `SyntheticFactory` + `SyntheticVault` (live).
-- Backend API call returning the 4 seeded strategies with passport metadata
-  (`paper_grounded=True`, paper citation, risk profiles) — live, demonstrable in the
-  Swagger UI at `/docs`.
-- The selection-bias spec ([`specs/selection-bias-corrections-spec.md`](specs/selection-bias-corrections-spec.md))
-  and commit-reveal trace spec ([`specs/commit-reveal-trace-spec.md`](specs/commit-reveal-trace-spec.md))
-  as the *intellectual differentiators* — these are what set Archimedes apart from the 96
-  other AI-portfolio submissions at the last Arc HackMoney even before the full live loop
-  ships.
+Still a strong story with only what's live: the **Corpus Explorer** over a real
+multi-thousand-paper library; a **generated strategy with its rigor scorecard and
+source-paper provenance**; a **real testnet deposit** into the deployed `Vault`; the
+selection-bias gate as the intellectual differentiator. We never demo canned output as
+real — `/health` shows live-vs-canned and we'd say so.
 
 ## Pitch deck — 9-slide structure
 
 ### Slide 1: Title + tagline
+**Archimedes** — *Peer-reviewed AI portfolios, settled on Arc.*
+Subtitle: *The original empiricist meets autonomous on-chain finance.*
+Visual: logo + Agora/Archimedes motif; Canteen × Circle × Arc attribution.
 
-**Title:** Archimedes
+### Slide 2: The problem (30s) — the curation wound, with numbers
+On-chain asset management already has scale **and** a proven failure:
+- **Morpho** — ~**$7.5B TVL**, ~$73M raised (incl. a $50M round). The *rails*.
+- **Gauntlet** — the largest curator (~$1.5–1.9B TVL, $23.8M Series B, ~$1B val). The
+  fee-incentivized *curation* layer.
+- **November 2025 crisis** — a ~$93M failure cascaded ecosystem-wide (~$160M frozen).
+  Morpho's isolation held; **the curation layer above it broke precisely on rigor.**
 
-**Tagline:** *Peer-reviewed AI portfolios, settled on Arc.*
+**Curation is run on trust, not proof. That is the open wound.** (Robo-advisors /
+DeFi-yield / token-mediated AI agents are the legacy foils; the *real* gap is proof-based
+curation.) Visual: the rails-held / curation-broke split.
 
-**Subtitle:** *The original empiricist meets autonomous on-chain finance.*
+### Slide 3: What we built (60s — the meat)
+A **research-grounded strategy-generation instrument**:
+- **3-input fusion** — your intent × live market data × a **~10,000-paper q-fin research
+  library** (built on our own KnowledgeBase pipeline: SPECTER2 embeddings, topic
+  clustering, similarity + knowledge graphs). Generation, not a static menu.
+- **Proof-based curation** — every strategy passes Deflated Sharpe + Probability of
+  Backtest Overfitting + walk-forward OOS + look-ahead audit. *This is the thing the
+  Nov-2025 crisis showed the incumbents lack.*
+- **Memory-first + provenance** — every generation and rigor verdict **accrues** into a
+  compounding, content-hashed library; every reasoning trace resolves down to the origin
+  paper and is anchored on Arc (`ReasoningTraceRegistry`). Verifiable/falsifiable after
+  the trade resolves.
+- **Live on Arc testnet** — 10 contracts (chain ID `5042002`), multi-wallet UI, fusion
+  wired to `POST /api/strategies/generate`. Honest about what's converging.
 
-**Visual:** Logo + the Agora/Archimedes mythology image (see `claude-design-prompts.md`
-for logo prompts). Hackathon + Canteen + Circle + Arc attribution.
+### Slide 4: Live demo (90s)
+Just "**DEMO**" + the testnet URL. Run the spine above.
 
-### Slide 2: The problem (30 seconds)
-
-Three categories of portfolio products today:
-
-- **TradFi robo-advisors** (Wealthfront, Betterment) — rule-based, no on-chain, opaque
-  about *why* they pick what they pick.
-- **DeFi yield aggregators** (Yearn, Yield Seeker) — chase current yields, no academic
-  rigor, narrow to stablecoin yield.
-- **AI-flavored crypto agents** (Virtuals, SingularityDAO, Theoriq) — token-mediated,
-  speculation-shaped, reasoning is opaque.
-
-**Nobody is grounding portfolio decisions in peer-reviewed quant research, with
-verifiable on-chain reasoning, settled in pure USDC.**
-
-Visual: three-column comparison with an empty fourth column where Archimedes goes.
-
-### Slide 3: What we built (60 seconds — the meat)
-
-Archimedes — an autonomous portfolio agent where:
-
-- **Strategies come from peer-reviewed quant papers.** Every strategy carries a
-  paper-grounded passport (paper ID, citation, methodology hash, paper-claim vs.
-  re-implemented metrics with deltas surfaced honestly). Day 4: 3 paper-grounded
-  strategies seeded (Faber 2007, Moreira & Muir 2017, Moskowitz Ooi Pedersen 2012)
-  plus a buy-and-hold baseline, served live by the strategy provider.
-- **Selection-bias gate at admission.** Every Tier-1 strategy passes Deflated Sharpe,
-  Probability of Backtest Overfitting, walk-forward OOS, and a look-ahead audit. The
-  spec is published; implementation is on Önder's queue.
-- **The agent operates autonomously** post-deployment — regime detection, rebalancing,
-  strategy rotation. Every decision produces a reasoning trace.
-- **Every reasoning trace is hashed on Arc** via the deployed `ReasoningTraceRegistry`
-  contract. Users can audit any decision the agent has ever made — with the v1.5
-  commit-reveal upgrade in spec, "trace existed at T" strengthens to "trace existed
-  *before* the trade."
-- **10 contracts already on Arc testnet** (chain ID `5042002`): Vault / VaultFactory,
-  AMM / Router, Synthetic Factory / Token / Vault, Asset + Price + Trace registries.
-  Live UI with multi-wallet connect at `18.171.230.205`.
-
-Visual: simplified version of [`architecture-diagram.html`](architecture-diagram.html)
-with the four key components highlighted (Strategy Engine + Passport, Selection-Bias
-Gate, Autonomous Portfolio Agent, ReasoningTraceRegistry on Arc).
-
-### Slide 4: Live demo (90 seconds)
-
-Just "**DEMO**" in large text, with `archimedes.hackagora.com` or `18.171.230.205`
-underneath. Run the wow-moment script above. The demo URL should be locked in Week 2;
-the EC2 IP works as the fallback.
-
-### Slide 5: Competitive landscape (30 seconds)
-
-The competitive slide from [`competitor-landscape.md`](competitor-landscape.md):
-
+### Slide 5: Competitive landscape (30s) — tiered, from `competitor-landscape.md`
 ```
-TODAY'S PORTFOLIO PRODUCTS                         ARCHIMEDES' WEDGE
-─────────────────────────────                      ────────────────────
-Wealthfront — TradFi robo, rule-based, no on-chain  Multi-asset RWA on Arc, settled in USDC.
-Yield Seeker — USDC yield, no academic provenance   Strategies sourced from peer-reviewed papers.
-DynaSets — shared on-chain vaults, native token     Per-user risk-profiled portfolios.
-Theoriq — DeFi attestations, THQ token              Pure USDC. Verifiable. Consumer UX.
-Olas Pearl — staking, operator-shaped               Hire-shaped: deposit USDC, get a portfolio.
-Virtuals — buy the agent's token                    Hire the agent. Audit every decision.
-Numerai — crowdsourced ML, opaque                   Paper-grounded, methodology in plain sight.
-
-→ Rule-based, opaque, or token-mediated               → AI-driven, paper-provenanced, USDC-native
+TIER 0 — live mainnet infra (vision/TAM, NOT today's competitor)
+  Morpho $7.5B rails · Gauntlet largest curator · Upshift trusts curators
+  Accountable proves capital (partner-shaped)         → all trust-based curation
+TIER 1 — our real peer set (Arc, pre-product)
+  Pantheon-Trades · ReasoningReceipt · CronusCapital  → none claim research rigor
+ARCHIMEDES → proof-based curation: research-grounded + DSR/PBO-gated + on-chain provenance
 ```
-
-Calling out Circle directly: *"Circle gave agents wallets and nanopayments. We give users
-a place to invest those nanopayments wisely."*
+Line: *"Circle gave agents wallets. The Nov-2025 crisis showed curation is the unsolved
+layer. We're the proof layer."*
 
 ### Slide 6: Why we'll score well
+| Criterion | Weight | How we score |
+|---|---|---|
+| Agentic Sophistication | 30% | 3-input fusion, async generation jobs, autonomous rebalance with traces resolving to source papers, on-chain anchoring. |
+| Traction | 30% | arc-canteen telemetry on every ship + user conversation; live testnet; the Corpus Explorer is a tangible, shareable artifact. |
+| Circle Tool Usage | 20% | Circle Wallets oracle signer, USDC settlement, faucet/testnet flow, 10 Arc contracts; Circle Agent Stack alignment tracked. |
+| Innovation | 20% | Proof-based curation (DSR+PBO) vs the Nov-2025 industry failure; memory-first compounding provenance substrate; ~10k-paper research engine. |
+See [`judging-rubric-assessment.md`](judging-rubric-assessment.md) for the running self-score.
 
-RFB + judging-criteria coverage. From [`rfb-alignment.md`](rfb-alignment.md):
+### Slide 7: Why now (30s)
+- **[Circle Agent Stack, May 2026](https://decrypt.co/367490/circle-ai-agents-usdc-stablecoin-powers-222m-arc-token-sale)** — the agent economy is funded ($222M Arc presale).
+- **The Nov-2025 curation crisis** — the incumbents' failure mode is *fresh and public*;
+  the proof-based alternative is timely.
+- Demand (Olas ~700K tx/mo) and supply (Virtuals 18K+ agents) of on-chain agents are real.
+**Nobody is shipping proof-based, research-grounded curation. That's the gap.**
 
-| Criterion                    | Weight | How we score                                                      |
-| ---------------------------- | ------ | ----------------------------------------------------------------- |
-| Agentic Sophistication       | 30%    | Regime detection, autonomous rebalancing, strategy rotation, on-chain reasoning traces. Five frozen interfaces, three queues converging on the live loop. |
-| Traction                     | 30%    | Pre-curated strategies → day-1 portfolios. arc-canteen telemetry firing on every product ship + user conversation. Live testnet from Day 4. |
-| Circle Tool Usage            | 20%    | Wallets (Circle-managed oracle signer, live), USDC settlement, USYC risk-off floor, CCTP for RWA bridging, Gateway for nanopayments, 10 contracts on Arc. |
-| Innovation                   | 20%    | Paper-grounded passport with paper-claim deltas. On-chain reasoning traces with commit-reveal temporal binding. Selection-bias gate (DSR + PBO + OOS + look-ahead) at admission. |
+### Slide 8: What we ship next (30s)
+Honest roadmap (explicitly *not* claimed as done): Arc **mainnet** + real-funds custody;
+the regulatory architecture (off-chain redemptions, RIA posture, exploit alerting);
+**multi-user + the social network of shared/forked strategies**; productized corpus
+ingestion; EURC/multi-currency. Visual: now / 30 / 90 / 180.
 
-See [`judging-rubric-assessment.md`](judging-rubric-assessment.md) for the running
-self-score and the gap analysis driving the Week-2 critical path.
+### Slide 9: Team + ask (30s)
+Five people + one-line credentials:
+- **Dan Browne** — PhD biochemistry, Sr Scientist @ LanzaTech. (Research rigor + the KnowledgeBase pipeline.)
+- **Marten Windler** — Systems Engineering, U. Bremen. (Off-chain ↔ on-chain.)
+- **Daniel Reis dos Santos** — backend/distributed systems. (Frontend ownership.)
+- **Chuan Bai** — CTO @ Gyld Finance; built CoinShares' next-gen trading platform. (Architecture + on-chain.)
+- **Önder Akkaya** — ASA Statistical Insight World Champion; trainee actuary. (Portfolio math + rigor gate.)
 
-RFB 04 primary; RFB 02 math primitive (Kelly); RFB 06 adjacent (strategy leaderboard).
+Ask: *"Not funding. (a) Feedback on the strategy passport + provenance trace as a
+candidate open standard; (b) intros to quant researchers to contribute to the corpus;
+(c) RWA-issuer partnerships for the mainnet roadmap."*
 
-### Slide 7: Why now (30 seconds)
+## Q&A preparation — anticipated judge questions *(aligned to the real vision)*
 
-Three signals that say "this market is real, today":
+**Q: Is this live? Can I use it with real money?**
+A: **No — and we'll be the first to say it.** Arc is testnet-only; there is no mainnet
+yet. You use faucet USDC; no real funds are at risk *by design*. That's the correct
+posture for an Arc-stage project. Mainnet + the custody/regulatory architecture is the
+roadmap, and we present it as roadmap, not as shipped.
 
-- **[Circle launched Agent Stack May 11, 2026](https://decrypt.co/367490/circle-ai-agents-usdc-stablecoin-powers-222m-arc-token-sale)** — $222M Arc presale, BlackRock among
-  investors. The agent economy thesis is funded.
-- **[Olas Pearl is doing 700K transactions/month, 30% MoM growth](https://www.theblock.co/post/338713/olas-raises-13-8-million-to-launch-pearl-an-app-store-for-autonomous-ai-agents-in-crypto)** — the demand for autonomous on-chain agents is real.
-- **[Virtuals Protocol has 18K+ agents, $470M+ Agentic GDP](https://coinmarketcap.com/cmc-ai/virtual-protocol/latest-updates/)** —
-  the supply side of the agent economy is real.
-
-But: nobody is building **paper-grounded, verifiably-auditable portfolio agents**. That's
-the gap Archimedes fills.
-
-### Slide 8: What we ship next (30 seconds)
-
-Post-hackathon roadmap:
-
-- **Productize the arxiv ingest pipeline** — every quant researcher can submit a paper,
-  the platform extracts/validates/lists.
-- **EURC + multi-currency support** for European users.
-- **Strategy marketplace** — third-party researchers earn yield when their strategies
-  are selected by user portfolios.
-- **DAO-governed curation** — community votes on strategy inclusion.
-- **v2 verticals:** prediction-market portfolio construction (RFB 03 adjacent),
-  perp-aware portfolios (RFB 01 adjacent).
-
-Visual: vertical "now / 30 days / 90 days / 180 days" roadmap.
-
-### Slide 9: Team + ask (30 seconds)
-
-Team photos (5 people) + one-line credentials. Use the credentials precisely:
-
-- **Dan Browne** — PhD biochemistry, Senior Scientist at LanzaTech. (Domain rigor for
-  paper curation.)
-- **Marten Windler** — Systems Engineering, U. Bremen. (Off-chain ↔ on-chain integration.)
-- **Daniel Reis dos Santos** — Backend engineer, distributed systems. (Frontend
-  ownership.)
-- **Chuan Bai** — CTO @ Gyld Finance; built CoinShares' next-gen trading platform;
-  RWA tokenization expertise. (Architecture + on-chain.)
-- **Önder Akkaya** — ASA Statistical Insight World Champion; President of TİD-Genç;
-  trainee actuary. (Portfolio math + Kelly Criterion.)
-
-Ask:
-
-> "We're not asking for funding today. We're asking for: (a) feedback on the strategy
-> passport schema as a candidate open standard; (b) introductions to quant researchers
-> who'd want to contribute strategies; (c) partnerships with RWA-token issuers we should
-> include in v2."
-
-The "asking for nothing transactional" ask is often the strongest.
-
-## Q&A preparation — anticipated judge questions
-
-**Q: How is this different from Wealthfront / Betterment?**
-
-A: They're rule-based with no on-chain settlement, no AI in the actual sense, and no
-verifiable per-decision reasoning. Archimedes is AI-driven (regime detection, strategy
-selection, rebalance reasoning are all LLM-mediated decisions), on-chain native, and
-makes every decision auditable. We also support multi-asset RWA + USYC, not just
-equity/bond ETFs.
-
-**Q: How is this different from Yield Seeker / DynaSets?**
-
-A: Yield Seeker chases current DeFi yields — different category. DynaSets are shared
-vaults with native-token economics — different ownership model. Archimedes is a
-per-user, risk-profiled portfolio agent with paper-grounded strategies and pure-USDC
-settlement.
+**Q: Does it actually generate *profitable* strategies?**
+A: Honestly — that's TBD; the proof is in the pudding and we won't claim otherwise. What
+we *prove today* is the things that are checkable: research provenance (every strategy
+traces to peer-reviewed papers), rigor (DSR/PBO/OOS/look-ahead), and on-chain
+verifiability. The goal is to win more than you lose, not to never lose — and to make
+every decision auditable so performance accrues as *verifiable history*.
 
 **Q: Won't the AI hallucinate strategies?**
+A: Three defenses. (1) Generation is *grounded* — fused from a ~10k-paper corpus with
+source citations you can open. (2) The **selection-bias gate** (Deflated Sharpe + PBO +
+walk-forward + look-ahead) is the curation protocol — the exact layer the Nov-2025
+industry crisis showed the incumbents lacked. (3) Every reasoning trace resolves to its
+source document and is hashed on Arc, so a bad call is *attributable*, not deniable. The
+4 example strategies in the repo are explicitly illustrative — real strategies come from
+the generator.
 
-A: That's exactly why the v1 library is hand-curated by Dan. The arxiv ingest pipeline
-runs as a demo of the future workflow, not as the source of live strategies. Every
-strategy in v1's library has a paper citation, a methodology hash, and a human-validated
-backtest. Hallucination is a v2 conversation when the pipeline graduates from demo to
-product.
+**Q: How is this different from Gauntlet / Morpho / Upshift?**
+A: They're live mainnet infra at billion-dollar scale — a different league, and we say
+so; they're our *vision/TAM*, not today's competitor. The point is they all run
+*trust-based* curation, and Nov-2025 showed that breaks on rigor. Archimedes is the
+*proof-based* alternative: research-grounded + rigor-gated + provenance-anchored.
+Accountable is partner-shaped (it proves capital is real; we prove the *method* is real).
 
-**Q: What if the paper's claimed Sharpe doesn't hold out-of-sample?**
+**Q: What's the moat?**
+A: A **compounding, provenance-anchored research substrate**. The durable asset isn't the
+model or the UI — it's the accruing, citation-typed library where every generation and
+rigor verdict is recorded and on-chain-anchored. That compounds; a static curator doesn't.
 
-A: We capture both. The strategy passport records the paper's claimed Sharpe AND our
-re-implementation's Sharpe at conservative transaction costs. If the delta is large, the
-strategy is either rejected or surfaced with a warning. We're explicit that **past
-performance is not predictive** — the reputation primitive is *auditable history*, not
-*predicted performance*.
+**Q: How does autonomous rebalancing decide?**
+A: Drift / regime-change / strategy-decay / calendar triggers, each weighing expected
+benefit vs. cost; every rebalance emits a reasoning trace that resolves to source papers
+and is anchored on Arc. Live triggers are converging; the trace→source provenance is the
+differentiator we lead with.
 
-**Q: How does the agent know when to rebalance?**
+**Q: Regulatory profile?**
+A: On testnet with no real funds, there is no custody/RIA trigger — that's *why* the
+regulatory architecture (off-chain redemptions, preset-strategy / RIA posture, exploit
+alerting) is presented as the **mainnet business-plan**, designed-for not claimed-as-shipped.
 
-A: Four triggers per [Chuan's design](design.md): drift threshold (any position > 5%
-from target), regime change (the regime classifier transitions), strategy decay (rolling
-30-day Sharpe < 0.5), or calendar (weekly check). Every trigger evaluates expected
-benefit vs. transaction cost before executing. The trigger logic lives in the
-`IRegimeDetector` + `IAgentOrchestrator` interfaces in
-[`specs/component-interfaces-spec.md`](specs/component-interfaces-spec.md); the
-implementations land in Week 2.
+**Q: Why USDC, no token?** A: No native token ([anti-features](anti-features.md));
+revenue = take-rate on settlement + USYC yield share. Optimizing for users with a job to
+do, not tokenholders.
 
-**Q: What about taxes?**
-
-A: v1.5 conversation. Tax-loss harvesting is acknowledged in the design doc but not on
-the demo critical path. v2 ships full tax-loss-harvesting + cost-basis tracking.
-
-**Q: Why USDC, not your own token?**
-
-A: Per [anti-features](anti-features.md), no native token. Revenue model is take-rate on
-USDC settlement + share of USYC yield. We're optimizing for users who want a job done,
-not for tokenholders. No native token also means no token-launch risk surface.
-
-**Q: How big is the addressable market?**
-
-A: TradFi robo-advisors collectively manage ~$1T+; DeFi TVL is ~$200B; Olas alone is
-doing 700K transactions/month. We don't need to forecast precisely to know the cross-
-section of "wants AI portfolio management" + "comfortable with on-chain" is material and
-growing.
-
-**Q: What's the regulatory profile?**
-
-A: Non-custodial, permissionless, no KYC in v1 — same regulatory category as a
-non-custodial DeFi protocol. We hold no user funds; the smart contracts hold the user's
-own assets with the agent having only rebalance authority. No fiat on-ramp = no money
-transmission. Decentralized + non-custodial is the right v1 posture.
-
-**Q: How do you handle a bad strategy?**
-
-A: Multiple layers. (1) Curation gate at strategy listing — Dan vets methodology + we
-re-run the backtest. (2) Live monitoring — strategy decay detection triggers rotation
-out. (3) Regime awareness — Crisis regime auto-deleverages to USYC floor. The Önder
-math module enforces Kelly-bounded position sizing so no single strategy can blow up the
-portfolio.
-
-**Q: What's your moat against Circle building this themselves?**
-
-A: Circle is structurally neutral infrastructure. Curation requires opinions. We bet
-they won't ship strong paper-grounded curation themselves because it conflicts with their
-permissionless ethos. If they do, the moat is execution speed + community trust + the
-academic-researcher network we plan to build for v2.
+**Q: Market size?** A: TradFi robo ~$1T+; on-chain curation infra is already
+billion-dollar TVL (Morpho ~$7.5B). We don't need a precise forecast — the wound
+(trust-based curation) is large, funded, and freshly exposed.
 
 ## Logistics for demo day
-
-- **Run the demo on a dedicated testnet wallet** with pre-funded USDC. No real-value
-  assets connected.
-- **Have a backup video recording** of the demo flow as insurance. Don't lean on it.
-- **Test the live demo at the same time of day** as the actual judging — network
-  conditions matter for sub-second-finality claims.
-- **Rehearse the Q&A out loud** with the team, ideally twice in Week 2.
+- Dedicated testnet wallet, pre-funded with **faucet** USDC. No real-value assets.
+- Backup video recording as insurance — don't lean on it.
+- Test the live demo at the actual judging time-of-day (network conditions).
+- Rehearse Q&A out loud with the team, twice, before submission.
 
 ## Owner: who drives this?
-
-- **Pitch deck owner:** Dan (Product Owner background; owns slide content; integrates
-  team input). Marten reviews for coherence + flow.
-- **Demo runner:** Daniel (he owns the frontend; he knows the system intimately and the
-  visual flow). Plays the user role in the live demo.
-- **Q&A primaries (rotate by topic):**
-  - **Dan** — architecture, vision, strategy curation, the academic-rigor framing.
-  - **Chuan** — custody, on-chain, Arc, Circle SDK, RWA-context framing.
-  - **Önder** — portfolio math, Kelly, risk pricing, regime detection thresholds.
-  - **Daniel** — live system, frontend, UX.
-  - **Marten** — off-chain ↔ on-chain integration questions, infrastructure.
-
-Lock these roles by end of Week 1.
+- **Deck owner:** Dan (owns slide content + the rigor/research framing; Marten reviews flow).
+- **Demo runner:** Daniel (owns the frontend; plays the user).
+- **Q&A primaries:** Dan (vision, research rigor, the curation thesis) · Chuan (on-chain, Arc, Circle) · Önder (rigor math, Kelly) · Daniel (live system/UX) · Marten (infra, off↔on-chain).
+Lock roles before submission.
 
 ## Open questions
-
-- Should the demo include the arxiv ingest pipeline segment, or save it for the "what we
-  ship next" slide? **Recommendation:** save for the slide. Live demo should be tight on
-  the curated path.
-- Should we name specific RWA tokens (tokenized TSLA, NVDA, GLD) in the demo, or use
-  symbolic placeholders? **Day-4 reality:** the deployed `SyntheticFactory` mints synthetic
-  versions today (e.g. sOIL, sNKY visible in the deploy script defaults). **Recommendation:**
-  demo with the actually-minted synthetics; mention real RWA bridging via CCTP as the
-  v1.5 step.
-- Do we want a written one-pager for the judges to take with them? **Recommendation:** yes,
-  if Canteen accepts handouts. One-page version of this deck.
-- Does Week 2 prioritize the **orchestrator loop** (closing Agentic Sophistication gap)
-  or **arc-canteen telemetry density** (closing Traction zero)? Both are required to
-  break ~13/40; the rubric assessment argues telemetry is the cheapest +points and should
-  be parallelized from Day 4 forward regardless of which engineering work lands next.
+- Include a live Corpus-Explorer segment in the 90s demo, or save graph/KG for a slide?
+  **Recommendation:** show it briefly live — it is a genuine wow and proves the substrate.
+- Name specific RWA tokens or use the minted synthetics? **Recommendation:** demo the
+  actually-minted synthetics; real RWA bridging via CCTP is the mainnet roadmap line.
+- One-page judge handout? **Recommendation:** yes if Canteen allows — a one-pager of this deck.
