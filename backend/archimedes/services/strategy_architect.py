@@ -301,7 +301,12 @@ class StrategyArchitect:
         backend: LLMBackend | None = None,
     ) -> None:
         self._provider = provider or default_provider()
-        self._backend = backend or default_backend()
+        self._backend = backend  # lazy: resolved on first use via _resolve_backend()
+
+    def _resolve_backend(self) -> LLMBackend:
+        if self._backend is None:
+            self._backend = default_backend()
+        return self._backend
 
     def _candidates(self, risk_profile: RiskProfile) -> list[Strategy]:
         scoped = self._provider.get_strategies_for_risk_profile(risk_profile.value)
@@ -333,7 +338,7 @@ class StrategyArchitect:
             intent, risk_profile, capital_usdc, regime, candidates
         )
 
-        raw = self._backend.complete(system, user)
+        raw = self._resolve_backend().complete(system, user)
         try:
             parsed = extract_json(raw)
         except ValueError:
@@ -349,7 +354,7 @@ class StrategyArchitect:
                     "allocation proposed — safer than shipping a guess."
                 ),
                 risk_notes="Model output was not valid JSON.",
-                model_id=self._backend.model_id,
+                model_id=self._resolve_backend().model_id,
             )
 
         selected: list[StrategySelection] = []
