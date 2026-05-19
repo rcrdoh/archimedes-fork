@@ -356,6 +356,39 @@ spec quality is the throughput lever. This is Maestro/Worker discipline at scale
 humans + hosted Claude plan and spec; the agentic system executes; humans review
 the resulting PR.
 
+**Operational mechanics (hard-won 2026-05-18 — the spec is only half the job):**
+
+- **Trigger = assignment.** The system only picks up an issue **assigned to
+  `t2o2`** (`gh issue edit <n> --add-assignee t2o2`). The `APIN - <Area> - <Title>`
+  prefix is a naming convention, *not* the trigger. An unassigned judge-grade
+  spec sits idle.
+- **Acceptance must be machine-checkable.** Give the exact command *and* its
+  exact expected output (`pytest → 0 failed`, `coverage ≥ 80%`), never prose like
+  "make it robust." The system optimizes to the literal criteria.
+- **Pin the environment.** The system's env has Docker/Redis/DB; a judge's
+  cold clone does not. If it must pass clean, say "clean clone, no docker, no
+  env vars" explicitly — it won't infer the constraint.
+- **Anti-goals are load-bearing.** State what *not* to touch ("don't weaken
+  thresholds, don't edit `pytest.ini`, don't add e2e deps") to bound blast radius.
+- **Cite a precedent.** Point at an existing good pattern to copy (a fixture, a
+  sibling test file) — it reuses the right shape instead of inventing one.
+- **Verify independently — "closed" ≠ "fixed".** The system sometimes closes an
+  issue without resolving it. Re-check against the acceptance command on a cold
+  clone before trusting completion; reopen with evidence if unmet.
+
+Copy-paste skeleton:
+
+```markdown
+## Summary             <!-- one paragraph: the problem, why it matters -->
+## Scope               <!-- exact files/interfaces; "do exactly this, nothing more" -->
+## Acceptance criteria <!-- checkboxes, each a runnable command + expected output -->
+## Verify              <!-- the literal commands a reviewer runs -->
+## Anti-goals          <!-- what NOT to do; what NOT to touch -->
+<!-- then: gh issue edit <n> --add-assignee t2o2 -->
+```
+
+Exemplars: issues #76 and #77 are written to this standard.
+
 ### Git safety — every contributor and their agents
 
 Non-negotiable, and load-bearing because the judges read this repo like operators:
