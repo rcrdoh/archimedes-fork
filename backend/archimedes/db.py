@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from archimedes.models.chat import Base
 from archimedes.models.backtest_store import BacktestResultRecord  # noqa: F401
+from archimedes.models.strategy_store import StrategyRecord  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
