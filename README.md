@@ -10,11 +10,24 @@
 
 ## Contents
 
-- [What is Archimedes?](#what-is-archimedes) · [Why Archimedes?](#why-archimedes)
-- **Get it running:** [Setup](#setup) → [Run Archimedes locally](#run-archimedes-locally) (the one-command path) → [Local↔prod parity](#localprod-parity) → [Understanding the RPC URL](#understanding-the-rpc-url)
-- **Reference:** [Quick Links](#quick-links) (all design docs) · [Repository Structure](#repository-structure) · [Tech Stack](#tech-stack)
-- **Working here:** [Development workflow](#development-workflow) · [Reporting traction](#reporting-traction-the-30-rubric-weight) · [Security notes](#security-notes) · [Platform-specific notes](#platform-specific-notes)
-- [Using the context-arc submodule](#using-the-context-arc-submodule) · [Roadmap](#roadmap) · [Team](#team) · [Contributing](#contributing) · [License](#license)
+1. [What is Archimedes?](#what-is-archimedes)
+2. [Why Archimedes?](#why-archimedes)
+3. [Quick Links](#quick-links)
+4. [Repository Structure](#repository-structure)
+5. [Tech Stack](#tech-stack)
+6. [Setup](#setup)
+7. [Run Archimedes locally](#run-archimedes-locally)
+8. [Local↔prod parity](#localprod-parity)
+9. [Understanding the RPC URL](#understanding-the-rpc-url)
+10. [Reporting traction (the 30% rubric weight)](#reporting-traction-the-30-rubric-weight)
+11. [Using the context-arc submodule](#using-the-context-arc-submodule)
+12. [Platform-specific notes](#platform-specific-notes)
+13. [Development workflow](#development-workflow)
+14. [Security notes](#security-notes)
+15. [Roadmap](#roadmap)
+16. [Team](#team)
+17. [Contributing](#contributing)
+18. [License](#license)
 
 > **TL;DR to run it locally:** install Docker + conda, `cp .env.example .env`, `docker compose up -d --build`, open <http://localhost>. Full walkthrough in [Run Archimedes locally](#run-archimedes-locally).
 
