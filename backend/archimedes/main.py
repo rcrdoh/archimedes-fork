@@ -22,6 +22,7 @@ from archimedes.api.routes import (
     regime_router,
     swap_router,
     config_router,
+    papers_router,
 )
 from archimedes.api.chat_routes import chat_router
 from archimedes.api.marketplace_routes import marketplace_router
@@ -108,6 +109,7 @@ app.include_router(chat_router)
 app.include_router(marketplace_router)
 app.include_router(risk_router)
 app.include_router(selection_bias_router)
+app.include_router(papers_router)
 
 
 @app.get("/health")

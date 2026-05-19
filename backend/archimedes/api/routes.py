@@ -77,6 +77,7 @@ strategies_router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 traces_router = APIRouter(prefix="/api/traces", tags=["traces"])
 regime_router = APIRouter(prefix="/api/regime", tags=["regime"])
 swap_router = APIRouter(prefix="/api/swap", tags=["swap"])
+papers_router = APIRouter(prefix="/api/papers", tags=["papers"])
 config_router = APIRouter(prefix="/api/config", tags=["config"])
 agent_router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -1308,3 +1309,74 @@ async def bootstrap_amm_liquidity():
 
     asyncio.create_task(_run())
     return {"status": "started", "message": "Liquidity bootstrap running in background. Check /api/swap/pools in 2-3 minutes."}
+
+
+# ── Paper Browser (corpus source-exposure) ─────────────────────
+
+
+@papers_router.get("/")
+async def list_papers(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    category: str | None = None,
+    search: str | None = None,
+):
+    """Paginated corpus catalog from the mounted manifest. Metadata only — no PDFs."""
+    from archimedes.services.strategy_fusion import load_corpus
+
+    corpus = load_corpus()
+    papers = [
+        {
+            "arxiv_id": p.arxiv_id,
+            "title": p.title,
+            "primary_category": p.primary_category,
+            "categories": list(p.categories),
+            "published": p.published,
+            "abstract": p.abstract[:200] + "..." if len(p.abstract) > 200 else p.abstract,
+        }
+        for p in corpus
+    ]
+    if category:
+        category_lower = category.lower()
+        papers = [p for p in papers if category_lower in " ".join(p["categories"]).lower()]
+    if search:
+        search_lower = search.lower()
+        papers = [p for p in papers if search_lower in p["title"].lower() or search_lower in p["abstract"].lower()]
+    total = len(papers)
+    start = (page - 1) * page_size
+    page_papers = papers[start:start + page_size]
+    return {"total": total, "page": page, "page_size": page_size, "papers": page_papers}
+
+
+@papers_router.get("/{arxiv_id}")
+async def get_paper(arxiv_id: str):
+    """Single paper detail + citing strategies (bidirectional provenance)."""
+    from archimedes.services.strategy_fusion import load_corpus
+    from archimedes.models.strategy_store import strategies_by_paper
+
+    corpus = load_corpus()
+    paper = next((p for p in corpus if p.arxiv_id == arxiv_id), None)
+    if paper is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    citing_strategies = []
+    try:
+        with get_session() as session:
+            records = strategies_by_paper(session, arxiv_id)
+            citing_strategies = [
+                {"id": r.id, "name": r.strategy_name, "status": r.status, "method": r.generation_method}
+                for r in records
+            ]
+    except Exception:
+        pass
+
+    return {
+        "arxiv_id": paper.arxiv_id,
+        "title": paper.title,
+        "primary_category": paper.primary_category,
+        "categories": list(paper.categories),
+        "published": paper.published,
+        "abstract": paper.abstract,
+        "citing_strategies": citing_strategies,
+    }
