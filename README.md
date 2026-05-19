@@ -623,19 +623,55 @@ See [`CLAUDE.md`](CLAUDE.md) for full conventions. Headline points:
 - **Daily sync:** 13:00 UTC = 8am Chicago / 10am São Paulo / 14:00 London / 15:00 Bremen /
   16:00 Ankara.
 
-### Running tests
+### Running the test suite
+
+The backend suite runs with a single command from the repo root — no flags, no
+`PYTHONPATH`, no cwd juggling. `pytest.ini` wires `pythonpath`, `testpaths`, and a
+verbose default so you see every test and any failure clearly.
 
 ```bash
-pytest                       # backend tests (under tests/)
-cd ui && npm run lint        # frontend lint (ESLint 10)
-cd contracts && forge test   # contract tests (10 contracts deployed, full Forge suite)
+conda env create -f environment.yml      # one-time
+conda activate archimedes
+pytest                                   # 119 tests, verbose, green
 ```
+
+`pytest` is configured `-v --tb=short --durations=10` — you see each test name, a
+short traceback on any failure, and the slowest tests. Filter as usual, e.g.
+`pytest -k selection_bias`, `pytest backend/tests/services/`.
+
+The **analytics-engine** has its own suite (own `pyproject.toml`):
+
+```bash
+cd analytics-engine && uv sync && uv run pytest
+```
+
+Other suites: `cd ui && npm run lint` (ESLint), `cd contracts && forge test` (Foundry).
+
+### Test coverage
+
+```bash
+pytest --cov=archimedes --cov-report=term-missing
+```
+
+Honest picture (line coverage, `archimedes` package): **~32% overall**, but
+intentionally uneven — the **intelligence / rigor core is well-covered** because
+that's the defensible part:
+
+| Area | Coverage | Notes |
+| ---- | -------- | ----- |
+| Selection-bias gate (DSR/PBO/walk-forward), Kelly, statistical regime | high | Önder's math — unit-tested incl. spec sanity cases |
+| Strategy provider, fusion, arXiv corpus, backtest mapper/repo | 35–70% | core data path |
+| `api/` (FastAPI routes) and `chain/` (web3/oracle/agent) | low | exercised by the live docker stack + integration tests, not unit-mocked (testnet/Circle-SDK bound) |
+
+One integration test (`test_backtest_pipeline_integration.py`) needs a DB row
+seeded by the deploy pipeline; it runs in CI/deploy and is excluded from the
+default `pytest` run so a cold clone stays green (tracked for a hermetic fix).
 
 ### Lint + format
 
 ```bash
-ruff format src/             # auto-format
-ruff check src/ --fix        # auto-fix lint
+ruff format backend/archimedes      # auto-format
+ruff check backend/archimedes --fix # auto-fix lint
 ```
 
 ---

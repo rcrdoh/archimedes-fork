@@ -129,6 +129,13 @@ docker compose up -d --build
 Then <http://localhost> for the UI mockups and <http://localhost:8000/docs> for the
 backend API. See README § "Run Archimedes locally" for the full walkthrough.
 
+**Tests:** from the repo root in the `archimedes` conda env, just `pytest` —
+`pytest.ini` sets `pythonpath`/`testpaths` and a verbose default (119 tests,
+green). Coverage: `pytest --cov=archimedes --cov-report=term-missing`. The
+analytics-engine runs its own suite: `cd analytics-engine && uv run pytest`. See
+README § "Running the test suite" for the honest coverage picture and the
+build-on-deploy integration-test caveat.
+
 ## External references — submodules
 
 The repo carries three git submodules at [`submodules/`](submodules/):
