@@ -32,8 +32,8 @@ QFIN_CATEGORIES = [
 
 API_BASE = "https://export.arxiv.org/api/query"
 BATCH_SIZE = 200  # arXiv max per request
-POLITE_DELAY = 3  # seconds between requests
-BACKOFF_BASE = 30  # seconds, doubled on each 429
+POLITE_DELAY = 5  # seconds between requests
+BACKOFF_BASE = 60  # seconds, doubled on each 429
 
 
 def load_existing_ids(path: Path) -> set[str]:
