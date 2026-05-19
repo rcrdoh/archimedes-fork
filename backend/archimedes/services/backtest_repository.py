@@ -74,7 +74,7 @@ def get_daily_returns(session: Session, strategy_id: str) -> list[float]:
                 daily = r.get("metrics", {}).get("daily_returns", [])
                 if daily:
                     return daily
-        except (json.JSONDecodeError, KeyError):
+        except (_json.JSONDecodeError, KeyError):
             pass
 
     # Fallback: derive from equity_curve

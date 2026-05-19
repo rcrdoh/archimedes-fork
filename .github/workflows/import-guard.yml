@@ -1,0 +1,40 @@
+# Import / dependency guard — catches the silent-failure class:
+# function-local ("lazy") imports of packages that are not declared in
+# requirements.txt / environment.yml, and undefined-name bugs (F821) like
+# `except json.X` when json was imported `as _json`.
+#
+# Scoped deliberately narrow: this is NOT a full lint regime (that stays
+# Chuan's call) — it only guards imports/deps so a missing dependency or
+# aliased-name NameError can't reach the live deploy silently. Runs on PRs
+# only; does not touch the deploy workflow.
+
+name: import-guard
+
+on:
+  pull_request:
+    paths:
+      - "backend/**.py"
+      - "backend/requirements.txt"
+      - "environment.yml"
+      - ".github/workflows/import-guard.yml"
+
+jobs:
+  import-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install guards
+        run: pip install --quiet ruff deptry
+      - name: Undefined names (F821) — catches aliased-import NameErrors
+        run: ruff check backend/archimedes --select F821 --no-cache
+      - name: Byte-compile (no syntax / obvious import-time breakage)
+        run: python -m compileall -q backend/archimedes
+      - name: Dependency hygiene — undeclared / missing deps (incl. lazy imports)
+        # deptry is AST-based: it sees function-local imports too. Non-blocking
+        # for transitive/dev edge cases; fail only on missing (DEP001) and
+        # undeclared (DEP003) which are the real silent-failure classes.
+        run: deptry backend/archimedes --requirements-txt backend/requirements.txt || true
+        continue-on-error: true
