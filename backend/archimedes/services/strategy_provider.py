@@ -75,6 +75,7 @@ _METADATA_KEYS: tuple[str, ...] = (
 # Keyword heuristic for risk profile inference when a strategy file does
 # not declare RISK_PROFILES explicitly. Lowercased substring match.
 _RISK_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "fixed_income": ("treasury", "t-bill", "tbill", "capital preservation", "usyc", "cash equivalent", "fixed income"),
     "conservative": ("mean reversion", "low-vol", "bond", "defensive", "yield"),
     "moderate": ("trend", "balanced", "factor", "value", "carry"),
     "aggressive": ("momentum", "high-conviction", "concentrated", "growth"),

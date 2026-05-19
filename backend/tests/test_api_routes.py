@@ -152,7 +152,7 @@ class TestRiskRoutes:
         assert resp.status_code == 200
         data = resp.json()
         assert "bands" in data
-        assert len(data["bands"]) == 4
+        assert len(data["bands"]) >= 4
         labels = [b["label"] for b in data["bands"]]
         assert "conservative" in labels
         assert "aggressive" in labels

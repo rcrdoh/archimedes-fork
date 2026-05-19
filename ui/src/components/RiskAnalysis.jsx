@@ -11,6 +11,7 @@ async function apiGet(path) {
 // ─── Risk Profile Band Visualization ────────────────────────
 
 const PROFILE_COLORS = {
+  fixed_income: '#3B82F6',
   conservative: '#22C55E',
   moderate: '#D4A853',
   aggressive: '#F97316',
@@ -18,6 +19,7 @@ const PROFILE_COLORS = {
 }
 
 const PROFILE_LABELS = {
+  fixed_income: 'Fixed Income',
   conservative: 'Conservative',
   moderate: 'Moderate',
   aggressive: 'Aggressive',
@@ -88,7 +90,7 @@ function RiskProfileBand({ bands, actualProfile, worstMaxDD }) {
       </div>
 
       {/* Threshold details */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${bands.length}, 1fr)`, gap: 8, marginTop: 16 }}>
         {bands.map(band => {
           const isActive = band.label === actualProfile
           return (
@@ -365,6 +367,7 @@ export default function RiskAnalysis() {
 
           // Default bands if endpoint not available
           setBands([
+            { label: 'fixed_income', max_dd: 0.05, target_sharpe: 0.3, max_vol: 0.04, color: '#3B82F6' },
             { label: 'conservative', max_dd: 0.10, target_sharpe: 0.5, max_vol: 0.10, color: '#22C55E' },
             { label: 'moderate', max_dd: 0.20, target_sharpe: 0.8, max_vol: 0.18, color: '#D4A853' },
             { label: 'aggressive', max_dd: 0.35, target_sharpe: 1.0, max_vol: 0.30, color: '#F97316' },

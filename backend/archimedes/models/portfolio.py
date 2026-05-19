@@ -10,6 +10,7 @@ from enum import Enum
 class RiskProfile(str, Enum):
     """User-selected risk profile — design.md § 4.3.1."""
 
+    FIXED_INCOME = "fixed_income"  # <2% vol, 5% max DD, 70-95% USYC floor
     CONSERVATIVE = "conservative"  # 5-8% vol, 10% max DD, 40-60% USYC floor
     MODERATE = "moderate"  # 10-15% vol, 20% max DD, 20-40% USYC floor
     AGGRESSIVE = "aggressive"  # 20-30% vol, 35% max DD, 5-15% USYC floor
@@ -18,6 +19,13 @@ class RiskProfile(str, Enum):
 
 # Risk profile parameters — Önder uses these for portfolio construction
 RISK_PROFILE_PARAMS: dict[RiskProfile, dict[str, float]] = {
+    RiskProfile.FIXED_INCOME: {
+        "target_vol_min": 0.00,
+        "target_vol_max": 0.02,
+        "max_drawdown": 0.05,
+        "usyc_floor": 0.70,
+        "usyc_ceiling": 0.95,
+    },
     RiskProfile.CONSERVATIVE: {
         "target_vol_min": 0.05,
         "target_vol_max": 0.08,

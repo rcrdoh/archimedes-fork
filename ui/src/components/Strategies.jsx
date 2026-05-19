@@ -19,6 +19,7 @@ async function apiPost(path, body) {
 }
 
 const RISK_PROFILES = [
+  { id: 'fixed_income', label: 'Fixed Income' },
   { id: 'conservative', label: 'Conservative' },
   { id: 'moderate', label: 'Moderate' },
   { id: 'aggressive', label: 'Aggressive' },

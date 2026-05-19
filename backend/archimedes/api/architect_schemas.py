@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 RiskProfileLiteral = Literal[
-    "conservative", "moderate", "aggressive", "hyper_risky"
+    "fixed_income", "conservative", "moderate", "aggressive", "hyper_risky"
 ]
 
 

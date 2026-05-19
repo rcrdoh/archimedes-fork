@@ -21,11 +21,18 @@ risk_router = APIRouter(prefix="/api/risk", tags=["risk"])
 _strategy_provider = default_provider()
 
 # ── Risk Profile Bands ───────────────────────────────────────
-# Thresholds used to classify a portfolio into one of four tiers.
-# These are the same four levels used by the strategy architect
+# Thresholds used to classify a portfolio into one of five tiers.
+# These are the same five levels used by the strategy architect
 # (architect_schemas.py RiskProfileLiteral).
 
 RISK_BANDS: list[dict] = [
+    {
+        "label": "fixed_income",
+        "max_dd": 0.05,
+        "target_sharpe": 0.30,
+        "max_vol": 0.04,
+        "color": "#3B82F6",  # blue
+    },
     {
         "label": "conservative",
         "max_dd": 0.10,
