@@ -49,6 +49,15 @@ from archimedes.api.architect_schemas import (
     StrategyConstructionRequest,
     StrategyConstructionResponse,
 )
+from archimedes.services.strategy_fusion import (
+    StrategyFusion,
+    FusionBrief,
+    default_fusion,
+    fusion_enabled,
+    load_corpus,
+)
+from archimedes.models.strategy_store import upsert_strategy, resolve_source_papers
+from archimedes.db import get_session
 from archimedes.api.vault_schemas import (
     VaultCreateRequest, VaultCreateResponse,
     VaultMetadataRequest, VaultMetadataResponse,
@@ -434,6 +443,126 @@ async def get_strategy(strategy_id: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Strategy not found")
     return _to_strategy_response(strategy)
+
+
+@strategies_router.post("/generate")
+async def generate_strategy(
+    asset_classes: str = "",
+    risk_appetite: str = "moderate",
+    strategic_direction: str = "",
+    max_papers: int = 4,
+    mode: str = "fusion",
+):
+    """Generate a research-grounded strategy via fusion (primary) or architect (fast).
+
+    Fusion: multi-paper novelty-seeking synthesis (requires corpus + LLM backend).
+    Architect: fast single-paper path (?mode=fast).
+    """
+    from fastapi import HTTPException
+    from archimedes.models.portfolio import RiskProfile
+
+    if mode == "fast":
+        # Architect single-paper sub-mode
+        try:
+            proposal = await asyncio.to_thread(
+                _architect.propose,
+                strategic_direction or "Generate a strategy",
+                risk_appetite,
+                10000.0,
+                None,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"LLM backend unavailable: {exc}") from exc
+        guardrail = apply_guardrail(proposal)
+        return {
+            "mode": "architect",
+            "status": "ok",
+            "proposal": {
+                "intent": proposal.intent,
+                "model_id": proposal.model_id,
+                "selected": [
+                    {"strategy_id": s.strategy_id, "weight": w, "rationale": s.rationale}
+                    for s, w in zip(proposal.selected, guardrail.strategy_weights.values())
+                ],
+                "overall_reasoning": proposal.overall_reasoning,
+                "usyc_weight": guardrail.usyc_weight,
+            },
+        }
+
+    # Primary path: fusion
+    if not fusion_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Fusion is disabled. Set ARCHIMEDES_FUSION_ENABLED=1.",
+        )
+
+    corpus = load_corpus()
+    if len(corpus) < 2:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Insufficient corpus ({len(corpus)} papers). Need ≥2 for fusion.",
+        )
+
+    try:
+        rp = RiskProfile(risk_appetite)
+    except ValueError:
+        rp = RiskProfile.MODERATE
+
+    brief = FusionBrief(
+        asset_classes=[a.strip() for a in asset_classes.split(",") if a.strip()],
+        risk_appetite=rp,
+        strategic_direction=strategic_direction,
+        max_papers=max_papers,
+    )
+
+    fusion = default_fusion()
+    try:
+        result = await asyncio.to_thread(fusion.propose, brief)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"LLM backend unavailable: {exc}") from exc
+
+    if not result.is_actionable:
+        return {
+            "mode": "fusion",
+            "status": result.status,
+            "message": result.thesis,
+        }
+
+    # Persist to StrategyStore
+    try:
+        with get_session() as session:
+            source_papers = [
+                {"arxiv_id": aid, "sha256": ""}
+                for aid in result.source_arxiv_ids
+            ]
+            record = upsert_strategy(
+                session,
+                generation_method="fusion",
+                strategy_name=result.strategy_name,
+                thesis=result.thesis,
+                source_papers=source_papers,
+                asset_universe=brief.asset_classes,
+                risk_profile=rp.value,
+                provenance_hash=result.model,
+            )
+            session.commit()
+            strategy_id = record.id
+    except Exception:
+        strategy_id = None
+
+    return {
+        "mode": "fusion",
+        "status": result.status,
+        "strategy_name": result.strategy_name,
+        "thesis": result.thesis,
+        "source_arxiv_ids": result.source_arxiv_ids,
+        "fusion_reasoning": result.fusion_reasoning,
+        "novelty_rationale": result.novelty_rationale,
+        "risk_notes": result.risk_notes,
+        "model": result.model,
+        "requested_model": result.requested_model,
+        "strategy_id": strategy_id,
+    }
 
 
 @strategies_router.post("/construct", response_model=StrategyConstructionResponse)
