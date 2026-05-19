@@ -128,8 +128,9 @@ async def health():
     _fusion_on = fusion_enabled()
     backend = make_llm_backend()
     llm_provider = os.getenv("LLM_PROVIDER", "auto")
+    is_available = getattr(backend, "available", False)
     llm_backend = (
-        "live" if getattr(backend, "available", False)
+        "live" if is_available
         else backend.model_id if hasattr(backend, "model_id")
         else "unavailable"
     )
@@ -141,6 +142,10 @@ async def health():
         "fusion_enabled": _fusion_on,
         "llm_provider": llm_provider,
         "llm_backend": llm_backend,
+        "llm_available": is_available,
+        "llm_has_api_key": bool(os.getenv("LLM_API_KEY") or os.getenv("ANTHROPIC_API_KEY")),
+        "llm_has_auth_token": bool(os.getenv("LLM_AUTH_TOKEN") or os.getenv("ANTHROPIC_AUTH_TOKEN")),
+        "llm_has_base_url": bool(os.getenv("LLM_BASE_URL") or os.getenv("ANTHROPIC_BASE_URL")),
     }
 
 
