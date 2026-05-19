@@ -357,12 +357,24 @@ Open `.env` in your editor and fill in the values that are blank. Defaults work 
 
 | Variable                     | Where to get it                                       | Required for             |
 | ---------------------------- | ----------------------------------------------------- | ------------------------ |
-| `ANTHROPIC_API_KEY`          | <https://console.anthropic.com>                       | Reasoning-trace + arxiv extraction features |
+| **LLM** — one of: `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL`, *or* `ANTHROPIC_API_KEY` | GLM token via the **Canteen submission** (judges), or your own key at <https://console.anthropic.com> | **Real strategy intelligence** — blank = silent canned fallback |
 | `RPC`                        | `~/.arc-canteen/env` (after `arc-canteen login`)      | On-chain features (contracts, trace anchoring) |
 | `DEV_WALLET_ADDRESS` / `_PRIVATE_KEY` | `cast wallet new` (generate a fresh dev wallet) | Submitting signed transactions to Arc |
 | `*_ADDRESS`                  | Auto-populated after Chuan deploys contracts          | On-chain features        |
 
 You can leave these blank to start — the API will boot, you can hit the routes, and the UI mockups will render. The on-chain features just won't work until you populate them.
+
+> **🔑 The one secret that actually matters.** Everything except the LLM
+> credential is optional for the core demo. With **no** LLM credential the
+> stack boots and routes work, but strategy fusion / architect / passport
+> extraction return **canned** output (not real intelligence) — and it does so
+> silently. Set exactly one path in your gitignored `.env`:
+> **(A)** `ANTHROPIC_AUTH_TOKEN=<token>` + `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`
+> — this project runs on GLM; the token is delivered to **judges privately via
+> the Canteen submission** and is **never** committed to this public repo; or
+> **(B)** your own free `ANTHROPIC_API_KEY` from <https://console.anthropic.com>.
+> The exact block (with comments) is in `.env.example`. A `/health` field
+> reporting live-vs-canned so this can't fail silently is tracked in #88.
 
 ### Step 2 — Spin up the stack
 
