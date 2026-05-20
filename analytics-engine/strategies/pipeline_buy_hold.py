@@ -20,11 +20,11 @@ STATUS = "live"
 
 # Backtest results — REAL (run via scripts/regen_buy_hold_fixture.py, 2004-01-02 → 2026-04-29)
 # SPY buy-and-hold over full available history including 2008-09 crisis and 2022 correction
-BACKTEST_SHARPE = 0.5348
-BACKTEST_CAGR = 0.0859
+BACKTEST_SHARPE = 0.5371
+BACKTEST_CAGR = 0.0864
 BACKTEST_MAX_DD = 0.5627
 BACKTEST_WIN_RATE = None  # Single entry, held to end; no closed-trade win rate
-BACKTEST_CALMAR = 0.1526
+BACKTEST_CALMAR = 0.1535
 BACKTEST_CORR_SPY = 1.0   # IS SPY
 METHODOLOGY_SUMMARY = (
     "Allocate the full available cash to the asset on the first bar; hold "

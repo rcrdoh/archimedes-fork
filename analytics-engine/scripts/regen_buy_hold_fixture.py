@@ -26,7 +26,7 @@ from archimedes_analytics_engine.engine import BuyAndHoldStrategy, run_backtest
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BACKTEST_START = "2004-01-02"
-BACKTEST_END = "2026-04-30"
+BACKTEST_END = "2026-05-01"  # yfinance end is exclusive; includes bars through 2026-04-30
 INITIAL_CASH = 100_000.0
 TX_COST_BPS = 10
 NUM_TRIALS = 6  # total strategies in the current library (for DSR correction)
@@ -190,24 +190,20 @@ def main(write: bool = False) -> None:
 
     max_dd_frac = (result.max_drawdown_pct or 0.0) / 100.0
     calmar = None
-    if result.cagr and max_dd_frac > 0:
+    if result.cagr is not None and max_dd_frac > 0:
         calmar = round(result.cagr / max_dd_frac, 7)
 
-    # backtrader counts *closed* trades; buy-hold never closes, so trades=0.
-    # The actual number of entry decisions is 1.
-    total_trades = max(result.total_trades, 1)
-
     entry = {
-        "sharpe_ratio": round(result.sharpe_ratio, 10) if result.sharpe_ratio else None,
+        "sharpe_ratio": round(result.sharpe_ratio, 10) if result.sharpe_ratio is not None else None,
         "sortino_ratio": (
-            round(result.sortino_ratio, 10) if result.sortino_ratio else None
+            round(result.sortino_ratio, 10) if result.sortino_ratio is not None else None
         ),
         "max_drawdown": round(max_dd_frac, 16),
-        "cagr": round(result.cagr, 16) if result.cagr else None,
+        "cagr": round(result.cagr, 16) if result.cagr is not None else None,
         "calmar_ratio": calmar,
         "win_rate": None,
         "profit_factor": None,
-        "total_trades": total_trades,
+        "total_trades": result.total_trades,
         "avg_holding_period_days": None,
         "correlation_to_spy": 1.0,
         "correlation_to_btc": None,

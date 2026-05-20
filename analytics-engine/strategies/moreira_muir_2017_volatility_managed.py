@@ -67,15 +67,14 @@ EXTRACTION_LLM: str | None = None
 STATUS = "live"
 
 # Real backtest metrics — synced from backtest_fixtures.json (2004-01-02 → 2026-04-30, SPY).
-# Leverage-capped (≤1.0×) version. Paper's 1.43 Sharpe uses leverage >1× in low-vol regimes;
-# our implementation beats the stated paper Sharpe on this horizon because the vol-targeting
-# adds value even cap-constrained, and SPY's post-2009 regime suits the strategy well.
+# Leverage-capped (≤1.0×) version. Paper's claimed Sharpe is 0.60 (leveraged, multi-asset);
+# our single-asset cap-constrained backtest exceeds this on the 2004-2026 SPY sample.
 BACKTEST_SHARPE = 0.7689
 BACKTEST_CAGR = 0.0950
 BACKTEST_MAX_DD = 0.3429
-BACKTEST_WIN_RATE = 0.53
+BACKTEST_WIN_RATE = None
 BACKTEST_CALMAR = 0.2769
-BACKTEST_CORR_SPY = 0.78
+BACKTEST_CORR_SPY = 1.0
 
 _ANNUALIZATION = 252
 
