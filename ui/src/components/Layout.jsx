@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import WalletConnect from './WalletConnect'
 import Breadcrumbs from './Breadcrumbs'
 import { NEW_CONTRACTS } from '../config'
@@ -31,7 +32,13 @@ export const PAGE_LABELS = {
 }
 
 export default function Layout({ page, setPage, walletAddr, onConnect, onDisconnect, children }) {
+  const [menuOpen, setMenuOpen] = useState(false)
   const blockLabel = Object.keys(NEW_CONTRACTS).length ? 'Arc · Testnet live' : 'Arc · Connecting'
+
+  const handleNav = (id) => {
+    setPage(id)
+    setMenuOpen(false)
+  }
   // Semi-hard gate: prompt for wallet on every page except Landing (the marketing
   // surface) until it's connected. Browse is still allowed; deploy + portfolio
   // surfaces themselves enforce wallet at their own action sites.
@@ -39,6 +46,15 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
 
   return (
     <div className="shell">
+      {/* Mobile overlay — uses UnoCSS `fixed inset-0` + App.css `.sidebar-overlay` */}
+      {menuOpen && (
+        <div
+          className="fixed inset-0 sidebar-overlay"
+          onClick={() => setMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {showWalletBanner && (
         <div
           role="banner"
@@ -68,7 +84,7 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
           </a>
         </div>
       )}
-      <aside className="sidebar" style={showWalletBanner ? { paddingTop: 50 } : undefined}>
+      <aside className={`sidebar${menuOpen ? ' sidebar-open' : ''}`} style={showWalletBanner ? { paddingTop: 50 } : undefined}>
         <div className="sidebar-brand">
           <div className="logo-mark">
             <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -76,10 +92,17 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
               <circle cx="8" cy="8" r="2.5" stroke="#09090B" strokeWidth="1.5"/>
             </svg>
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <div className="logo-text">Archimedes</div>
             <div className="logo-sub">Portfolio Intelligence</div>
           </div>
+          <button
+            className="sidebar-close-btn"
+            onClick={() => setMenuOpen(false)}
+            aria-label="Close menu"
+          >
+            ✕
+          </button>
         </div>
 
         <nav>
@@ -91,7 +114,7 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
                   key={item.id}
                   type="button"
                   className={`nav-link${page === item.id || (item.id === 'portfolio' && page === 'vault-detail') ? ' active' : ''}`}
-                  onClick={() => setPage(item.id)}
+                  onClick={() => handleNav(item.id)}
                 >
                   {item.label}
                 </button>
@@ -108,10 +131,23 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
 
       <div className="main-area" style={showWalletBanner ? { paddingTop: 42 } : undefined}>
         <div className="topbar">
-          <Breadcrumbs page={page} setPage={setPage} />
+          {/* Left: hamburger (mobile) + breadcrumbs */}
+          <div className="flex items-center gap-3">
+            <button
+              className={`hamburger-btn${menuOpen ? ' open' : ''}`}
+              onClick={() => setMenuOpen(v => !v)}
+              aria-label="Toggle navigation"
+              aria-expanded={menuOpen}
+            >
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+            </button>
+            <Breadcrumbs page={page} setPage={setPage} />
+          </div>
           <WalletConnect address={walletAddr} onConnect={onConnect} onDisconnect={onDisconnect} />
         </div>
-        <main className="page-content">{children}</main>
+        <main className={`page-content page-${page}`}>{children}</main>
       </div>
     </div>
   )

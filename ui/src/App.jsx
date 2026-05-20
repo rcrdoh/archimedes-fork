@@ -133,6 +133,10 @@ export default function App() {
     }
   }
 
+  if (page === 'landing') {
+    return <Landing onNavigate={navigateToPage} onConnect={handleConnect} walletAddr={walletAddr} />
+  }
+
   return (
     <Layout page={page} setPage={navigateToPage} walletAddr={walletAddr} onConnect={handleConnect} onDisconnect={handleDisconnect}>
       {renderPage()}
