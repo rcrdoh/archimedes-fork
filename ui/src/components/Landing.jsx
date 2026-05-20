@@ -50,8 +50,8 @@ export default function Landing({ onNavigate, onConnect, walletAddr }) {
             <span className="hero-title-dim">Autonomously Managed.</span>
           </h1>
           <p className="hero-subtitle">
-            Archimedes turns published quant research into investable strategies,
-            then constructs personalized portfolios of synthetic RWA tokens on Arc
+            Archimedes turns published quant research into investable strategies.<br/>
+            It constructs personalized portfolios of synthetic RWA tokens on Arc<br/>
             — with every decision hashed and verifiable on-chain.
           </p>
           <div className="hero-actions">
@@ -300,7 +300,8 @@ export default function Landing({ onNavigate, onConnect, walletAddr }) {
         <h2>Give me a lever long enough<br />and I shall move the world.</h2>
         <p className="cta-quote">— Archimedes (paraphrased)</p>
         <p className="cta-sub">
-          The lever is academic research. The fulcrum is autonomous AI.
+          The lever is academic research.<br/>
+          The fulcrum is autonomous AI.<br/>
           The world is your portfolio.
         </p>
         <div className="hero-actions">

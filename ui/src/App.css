@@ -63,7 +63,7 @@
 }
 
 /* --- Base --- */
-html { font-size: 15px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+html { font-size: 15px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scroll-behavior: smooth; overflow-x: hidden; }
 body {
   font-family: var(--sans);
   background: var(--canvas);
@@ -141,6 +141,46 @@ h4, .h4 { font-family: var(--sans); font-size: 0.8rem; font-weight: 600; text-tr
   padding: var(--space-7) var(--space-6);
   max-width: var(--max-w);
   margin: 0 auto;
+}
+
+/* --- Section subnav (Explore) --- */
+.explore-subnav {
+  position: sticky;
+  top: 56px;
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0;
+  margin-bottom: var(--space-5);
+  background: rgba(9, 9, 11, 0.82);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border-bottom: 1px solid var(--glass-border);
+}
+.explore-subnav-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-3);
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.explore-subnav-btn:hover {
+  color: var(--text-1);
+  background: var(--glass-hover);
+  border-color: var(--accent-muted);
+}
+.scroll-anchor { scroll-margin-top: 120px; }
+
+@media (max-width: 900px) {
+  .explore-subnav { top: 0; }
+  .scroll-anchor { scroll-margin-top: 16px; }
 }
 
 /* --- Sidebar --- */
@@ -506,6 +546,8 @@ h4, .h4 { font-family: var(--sans); font-size: 0.8rem; font-weight: 600; text-tr
 .mb-4 { margin-bottom: var(--space-4); }
 .mb-5 { margin-bottom: var(--space-5); }
 .mb-6 { margin-bottom: var(--space-6); }
+.mb-7 { margin-bottom: var(--space-7); }
+.mb-8 { margin-bottom: var(--space-8); }
 .mt-4 { margin-top: var(--space-4); }
 
 /* --- Modal --- */
@@ -588,7 +630,8 @@ h4, .h4 { font-family: var(--sans); font-size: 0.8rem; font-weight: 600; text-tr
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
   max-width: var(--max-w);
-  margin: 0 auto;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Cards for dashboard */
@@ -1316,6 +1359,8 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .table-container table {
   width: 100%;
@@ -1958,10 +2003,9 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Tech logos */
 .tech-logos {
-  display: flex;
-  justify-content: center;
-  gap: 24px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 16px;
   max-width: var(--max-w);
   margin: 0 auto;
 }
@@ -1971,8 +2015,7 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--surface-1);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
-  padding: 20px 24px;
-  min-width: 140px;
+  padding: 20px 16px;
 }
 
 .tech-name {
@@ -2154,6 +2197,34 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   }
 }
 
+/* Tablet: landing section padding reduction */
+@media (max-width: 900px) {
+  .landing-features,
+  .landing-marketplace,
+  .landing-tech,
+  .landing-rigor,
+  .landing-cta {
+    padding: 48px 24px;
+  }
+
+  .landing-hero {
+    padding: 56px 24px 40px;
+  }
+
+  .features-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tier-cards {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+  }
+
+  .rigor-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Phone: compact everything */
 @media (max-width: 600px) {
   :root {
@@ -2179,14 +2250,14 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
     padding: var(--space-3);
   }
 
-  /* Force single column on stat grids */
+  /* Force single column on stat grids — use kebab-case to match React DOM output */
   .grid.g-4,
-  [style*="gridTemplateColumns: repeat(4"] {
+  [style*="grid-template-columns: repeat(4"] {
     grid-template-columns: repeat(2, 1fr) !important;
     gap: 10px !important;
   }
 
-  [style*="gridTemplateColumns: repeat(5"] {
+  [style*="grid-template-columns: repeat(5"] {
     grid-template-columns: repeat(2, 1fr) !important;
   }
 
@@ -2194,12 +2265,6 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   .form-row {
     flex-direction: column !important;
     gap: 10px !important;
-  }
-
-  /* Table scroll */
-  .table-container {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
   }
 
   table {
@@ -2237,6 +2302,22 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .swap-amount {
     font-size: 1.2rem !important;
+  }
+
+  .landing-features,
+  .landing-marketplace,
+  .landing-tech,
+  .landing-rigor,
+  .landing-cta {
+    padding: 36px 16px;
+  }
+
+  .landing-hero {
+    padding: 40px 16px 32px;
+  }
+
+  .features-grid {
+    grid-template-columns: 1fr;
   }
 }
 

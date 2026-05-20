@@ -336,7 +336,7 @@ export default function Trade() {
             <div className="positions-empty fade-up fade-up-1">
               <div style={{ fontSize: '2rem', marginBottom: 10 }}>💧</div>
               <strong>No LP positions detected</strong>
-              <p className="caption" style={{ marginTop: 8, maxWidth: 440 }}>Add liquidity from the Liquidity tab to see pool shares, fees earned, and vault-token premium/discount here.</p>
+              <p className="caption" style={{ margin: '8px auto 0', maxWidth: 440 }}>Add liquidity from the Liquidity tab to see pool shares, fees earned, and vault-token premium/discount here.</p>
             </div>
           )}
         </div>

@@ -793,6 +793,19 @@ export default function Marketplace() {
         </div>
       </div>
 
+      {/* Section subnav */}
+      <nav className="explore-subnav" aria-label="Explore sections">
+        {[
+          { id: 'synthetic-assets',  label: 'Synthetic Assets' },
+          { id: 'vault-leaderboard', label: 'Vault Leaderboard' },
+          { id: 'trending',          label: 'Trending This Week' },
+          { id: 'all-strategies',    label: 'All Strategies' },
+          { id: 'agent-activity',    label: 'Agent Activity' },
+        ].map(s => (
+          <a key={s.id} href={`#${s.id}`} className="explore-subnav-btn">{s.label}</a>
+        ))}
+      </nav>
+
       {/* Ecosystem Stats */}
       <div className="grid g-4 mb-7" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         {[
@@ -812,7 +825,7 @@ export default function Marketplace() {
       <div className="divider" style={{ marginBottom: 24 }} />
 
       {/* Synthetic Asset Prices */}
-      <div className="mb-7">
+      <div id="synthetic-assets" className="mb-7 scroll-anchor">
         <div className="flex items-center justify-between mb-5">
           <div className="label">Synthetic Assets</div>
           <span className="caption">Live oracle prices</span>
@@ -851,7 +864,7 @@ export default function Marketplace() {
       </div>
 
       {/* Vault Leaderboard */}
-      <div className="mb-7">
+      <div id="vault-leaderboard" className="mb-7 scroll-anchor">
         <div className="flex items-center justify-between mb-5">
           <div className="label">Vault Leaderboard</div>
           <div className="flex gap-2">
@@ -945,7 +958,7 @@ export default function Marketplace() {
 
       {/* Trending Strategies */}
       {trendingStrategies.length > 0 && (
-        <div className="mb-7">
+        <div id="trending" className="mb-7 scroll-anchor">
           <div className="flex items-center justify-between mb-5">
             <div className="label flex items-center gap-2"><span>🔥</span> Trending This Week</div>
             <span className="caption">Highest user growth in the last 7 days</span>
@@ -967,7 +980,7 @@ export default function Marketplace() {
 
       {/* All Strategies */}
       {!loadingStrategies && (
-        <div className="mb-7">
+        <div id="all-strategies" className="mb-7 scroll-anchor">
           <div className="flex items-center justify-between mb-5">
             <div className="label">All Strategies</div>
             <div className="flex gap-2 items-center">
@@ -1048,7 +1061,7 @@ export default function Marketplace() {
       )}
 
       {/* Agent Activity */}
-      <div>
+      <div id="agent-activity" className="mb-7 scroll-anchor">
         <div className="flex items-center justify-between mb-5">
           <div className="label">Agent Activity</div>
         </div>
