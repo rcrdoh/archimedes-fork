@@ -22,6 +22,7 @@ const NAV = [
   { group: 'Intelligence', items: [
     { id: 'reasoning',  label: 'Reasoning' },
     { id: 'risk',        label: 'Risk Analysis' },
+    { id: 'corpus',      label: 'Corpus Explorer' },
   ]},
 ]
 
@@ -39,6 +40,7 @@ export const PAGE_LABELS = {
   'vault-detail': 'Vault Details',
   reasoning: 'Reasoning',
   risk: 'Risk Analysis',
+  corpus: 'Corpus Explorer',
   about: 'About',
   imprint: 'Imprint',
 }

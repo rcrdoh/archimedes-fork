@@ -32,6 +32,8 @@ class PaperRecord(Base):
     pdf_sha256: Mapped[str] = mapped_column(String(64), nullable=True)
     full_text_path: Mapped[str] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="seed")
+    cluster_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    topic_label: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=True)
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
@@ -57,6 +59,8 @@ class PaperRecord(Base):
             "pdf_url": self.pdf_url,
             "pdf_sha256": self.pdf_sha256,
             "source": self.source,
+            "cluster_id": self.cluster_id,
+            "topic_label": self.topic_label,
             "ingested_at": self.ingested_at.isoformat() if self.ingested_at else None,
         }
 

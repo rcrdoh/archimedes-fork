@@ -1601,3 +1601,151 @@ async def get_corpus_overview():
         "categories": [{"name": cat, "count": cnt} for cat, cnt in top_categories],
         "year_distribution": [{"year": yr, "count": cnt} for yr, cnt in year_dist],
     }
+
+
+@papers_router.get("/corpus/graph")
+async def get_corpus_graph(
+    sample: int = 500,
+    lod: int = 1,
+):
+    """Similarity graph nodes/edges for the corpus.
+
+    Degrades gracefully: returns a category-cooccurrence graph derived from
+    DB metadata when no precomputed embedding artifact exists. The ``sample``
+    param controls max nodes returned (LOD for ≥10k scale).
+    """
+    import json
+    from collections import defaultdict
+    from archimedes.models.corpus_store import PaperRecord
+    from sqlalchemy import func
+
+    with get_session() as session:
+        total = session.query(func.count(PaperRecord.arxiv_id)).scalar() or 0
+        if total == 0:
+            return {"status": "empty", "nodes": [], "edges": [], "total_papers": 0}
+
+        # Build a category-based co-occurrence graph from paper metadata
+        papers = (
+            session.query(PaperRecord.arxiv_id, PaperRecord.title, PaperRecord.categories, PaperRecord.cluster_id, PaperRecord.topic_label)
+            .limit(sample)
+            .all()
+        )
+
+        nodes = []
+        edges = []
+        cat_papers = defaultdict(list)
+
+        for p in papers:
+            label = p.topic_label or p.primary_category if hasattr(p, 'primary_category') else None
+            try:
+                cats = json.loads(p.categories) if p.categories else []
+            except (json.JSONDecodeError, TypeError):
+                cats = []
+            if not cats:
+                cats = ["uncategorized"]
+
+            nodes.append({
+                "id": p.arxiv_id,
+                "title": p.title[:80] if p.title else p.arxiv_id,
+                "cluster": p.cluster_id or cats[0],
+                "label": label,
+                "categories": cats[:3],
+            })
+
+            for c in cats[:3]:
+                cat_papers[c].append(p.arxiv_id)
+
+        # Create edges between papers sharing categories
+        edge_set = set()
+        for cat, pids in cat_papers.items():
+            for i in range(min(len(pids), 20)):
+                for j in range(i + 1, min(len(pids), 20)):
+                    pair = tuple(sorted([pids[i], pids[j]]))
+                    if pair not in edge_set:
+                        edge_set.add(pair)
+                        edges.append({"source": pair[0], "target": pair[1], "weight": 1, "type": "category_cooccurrence"})
+
+        return {
+            "status": "metadata_derived",
+            "note": "Category co-occurrence graph from metadata. Embedding-based similarity pending KB pipeline port (#101).",
+            "total_papers": total,
+            "sampled": len(nodes),
+            "nodes": nodes,
+            "edges": edges[:2000],  # cap for perf
+        }
+
+
+@papers_router.get("/corpus/kg")
+async def get_corpus_kg(
+    entity: str | None = None,
+    depth: int = 1,
+):
+    """Knowledge-graph subgraph filtered by entity.
+
+    Degrades gracefully: returns author co-authorship and category-entity
+    relationships from DB metadata when no precomputed KG artifact exists.
+    """
+    import json
+    from collections import defaultdict
+    from archimedes.models.corpus_store import PaperRecord
+    from sqlalchemy import func, or_
+
+    with get_session() as session:
+        total = session.query(func.count(PaperRecord.arxiv_id)).scalar() or 0
+        if total == 0:
+            return {"status": "empty", "entities": [], "relations": [], "total_papers": 0}
+
+        q = session.query(PaperRecord)
+        if entity:
+            like = f"%{entity}%"
+            q = q.filter(
+                or_(
+                    PaperRecord.title.ilike(like),
+                    PaperRecord.abstract.ilike(like),
+                    PaperRecord.authors.ilike(like),
+                    PaperRecord.categories.ilike(like),
+                )
+            )
+        papers = q.limit(200).all()
+
+        entities = {}
+        relations = []
+
+        for p in papers:
+            # Paper node
+            entities[f"paper:{p.arxiv_id}"] = {
+                "type": "paper",
+                "id": p.arxiv_id,
+                "label": p.title[:100] if p.title else p.arxiv_id,
+            }
+
+            # Author entities
+            try:
+                authors = json.loads(p.authors) if p.authors else []
+            except (json.JSONDecodeError, TypeError):
+                authors = []
+            for a in authors[:5]:
+                a_key = f"author:{a}"
+                if a_key not in entities:
+                    entities[a_key] = {"type": "author", "id": a, "label": a}
+                relations.append({"source": f"paper:{p.arxiv_id}", "target": a_key, "type": "authored_by"})
+
+            # Category entities
+            try:
+                cats = json.loads(p.categories) if p.categories else []
+            except (json.JSONDecodeError, TypeError):
+                cats = []
+            for c in cats[:3]:
+                c_key = f"category:{c}"
+                if c_key not in entities:
+                    entities[c_key] = {"type": "category", "id": c, "label": c}
+                relations.append({"source": f"paper:{p.arxiv_id}", "target": c_key, "type": "belongs_to"})
+
+        return {
+            "status": "metadata_derived",
+            "note": "Author/category KG from metadata. Full REBEL/SciSpacy KG pending KB pipeline port (#101).",
+            "total_papers": total,
+            "filtered": len(papers),
+            "entities": list(entities.values()),
+            "relations": relations[:2000],
+        }

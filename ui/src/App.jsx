@@ -16,6 +16,7 @@ import VaultChat from './components/VaultChat'
 import Reasoning from './components/Reasoning'
 import RiskAnalysis from './components/RiskAnalysis'
 import FinancialAnalysis from './components/FinancialAnalysis'
+import CorpusExplorer from './components/CorpusExplorer'
 import Landing from './components/Landing'
 import Marketplace from './Marketplace'
 import './App.css'
@@ -35,6 +36,7 @@ const PAGE_TO_PATH = {
   financial: '/portfolio/financial',
   reasoning: '/intelligence/reasoning',
   risk: '/intelligence/risk',
+  corpus: '/intelligence/corpus',
   about: '/about',
   imprint: '/imprint',
   landing: '/',
@@ -884,6 +886,7 @@ export default function App() {
       case 'vault-detail':  return <VaultDetail address={selectedVault} onBack={backToVaults} />
       case 'reasoning':     return <Reasoning />
       case 'risk':           return <RiskAnalysis />
+      case 'corpus':         return <CorpusExplorer />
       case 'about':          return <StaticPage title="About Archimedes" content="Archimedes is a fund-of-funds portfolio agent that turns published quant finance research into investable, backtested strategies, then constructs personalized portfolios of RWA tokens and yield instruments on Arc with USDC settlement.\n\nBuilt for the Agora Agents Hackathon — Canteen × Circle × Arc, May 2026.\n\nEvery position the agent takes, every rebalance it executes, every regime shift it responds to, is hashed and verifiable on-chain. The mathematician's name is fitting: he was the original empiricist working from first principles. We work from peer-reviewed first principles." />
       case 'imprint':        return <StaticPage title="Imprint" content="Archimedes Arcadia\nHackathon Team\n\nThis project was built for the Agora Agents Hackathon (May 11-25, 2026).\n\nTeam: Dan Browne, Marten Windler, Daniel Reis dos Santos, Chuan Bai, Önder Akkaya\n\nLicense: Unlicense — full public-domain dedication." />
       default:              return <Trade />
