@@ -213,7 +213,7 @@ def main(write: bool = False) -> None:
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         raise SystemExit(
             f"Cannot read fixture file {_FIXTURE_PATH}: {exc}\n"
-            "Run from the analytics-engine directory with an existing backtest_fixtures.json."
+            f"Ensure the fixture file exists at {_FIXTURE_PATH} and contains valid JSON."
         ) from exc
     num_trials = len(fixtures)
     existing = fixtures.get("pipeline_buy_hold", {})
@@ -242,7 +242,9 @@ def main(write: bool = False) -> None:
     kelly = compute_kelly(daily)
     print(f"  DSR: {dsr}  p={dsr_p}  OOS Sharpe: {oos}  Kelly: {kelly}")
 
-    max_dd_frac = (result.max_drawdown_pct or 0.0) / 100.0
+    if result.max_drawdown_pct is None:
+        raise SystemExit("Backtest returned no max_drawdown_pct; cannot write a valid fixture.")
+    max_dd_frac = result.max_drawdown_pct / 100.0
     calmar = None
     if result.cagr is not None and max_dd_frac > 0:
         calmar = round(result.cagr / max_dd_frac, 7)
@@ -278,7 +280,7 @@ def main(write: bool = False) -> None:
         "passes_rigor_gate": _compute_passes_rigor_gate(
             passes_validation=(
                 result.sharpe_ratio is not None and result.sharpe_ratio > 0.5
-                and result.max_drawdown_pct is not None and max_dd_frac < 0.5
+                and max_dd_frac < 0.5
                 and result.cagr is not None and result.cagr < 10.0
                 and (result.total_trades < 2 or result.total_trades >= 10)
             ),
