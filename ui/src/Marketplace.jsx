@@ -1061,7 +1061,7 @@ export default function Marketplace() {
       )}
 
       {/* Agent Activity */}
-      <div id="agent-activity" className="scroll-anchor">
+      <div id="agent-activity" className="mb-7 scroll-anchor">
         <div className="flex items-center justify-between mb-5">
           <div className="label">Agent Activity</div>
         </div>
