@@ -165,24 +165,40 @@ def compute_kelly(
 # ── Rigor gate ────────────────────────────────────────────────────────────────
 
 def _compute_passes_rigor_gate(
+    passes_validation: bool,
+    dsr: float | None,
     dsr_p: float | None,
+    num_trials: int | None,
     full_sharpe: float | None,
     oos_sharpe: float | None,
     pbo_score: float | None,
     look_ahead_passed: bool | None,
 ) -> bool:
-    """Recompute the rigor gate from fresh metrics (mirrors rigor_evaluator thresholds).
+    """Recompute the rigor gate — mirrors BacktestResult.passes_rigor_gate exactly.
 
-    Gate: DSR p-value ≥ 0.95, OOS Sharpe ≥ 50% of full-sample Sharpe,
-    PBO score ≤ 0.5, and look-ahead audit passed.
+    Criteria (in order):
+      1. Base validation passes (Sharpe/DD/CAGR/trade-count).
+      2. DSR value, p-value, and num_trials all populated.
+      3. DSR p-value >= 0.95.
+      4. PBO score populated and < 0.5 (strictly; >= 0.5 fails).
+      5. Look-ahead audit passed.
+      6. OOS Sharpe populated; if full Sharpe > 0, OOS/full >= 0.5.
     """
-    if dsr_p is None or dsr_p < 0.95:
+    if not passes_validation:
         return False
-    if full_sharpe is None or oos_sharpe is None or oos_sharpe < 0.5 * full_sharpe:
+    if dsr is None or dsr_p is None or num_trials is None:
         return False
-    if pbo_score is None or pbo_score > 0.5:
+    if dsr_p < 0.95:
         return False
-    return bool(look_ahead_passed)
+    if pbo_score is None or pbo_score >= 0.5:
+        return False
+    if look_ahead_passed is not True:
+        return False
+    if oos_sharpe is None:
+        return False
+    if full_sharpe is not None and full_sharpe > 0 and oos_sharpe / full_sharpe < 0.5:
+        return False
+    return True
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -256,7 +272,15 @@ def main(write: bool = False) -> None:
         # PBO requires all strategies' daily returns simultaneously; carry forward.
         "pbo_score": existing.get("pbo_score"),
         "passes_rigor_gate": _compute_passes_rigor_gate(
+            passes_validation=(
+                result.sharpe_ratio is not None and result.sharpe_ratio > 0.5
+                and max_dd_frac < 0.5
+                and result.cagr is not None and result.cagr < 10.0
+                and (result.total_trades < 2 or result.total_trades >= 10)
+            ),
+            dsr=dsr,
             dsr_p=dsr_p,
+            num_trials=num_trials,
             full_sharpe=result.sharpe_ratio,
             oos_sharpe=oos,
             pbo_score=existing.get("pbo_score"),
