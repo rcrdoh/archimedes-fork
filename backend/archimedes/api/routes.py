@@ -658,34 +658,316 @@ async def get_portfolio_advisor(
     # Get active strategies with real backtest data
     strategies = [s for s in _strategy_provider.list_strategies() if s.real_sharpe is not None]
 
-    # Score strategies via Kelly + risk-parity
-    scored = []
-    for s in strategies:
-        sr = s.real_sharpe if s.real_sharpe is not None else 0.5
-        if sr < 0.3:
-            continue
-        # Estimate daily vol from SR and CAGR
-        mu_d = (s.real_cagr if s.real_cagr is not None else 0.08) / 252
-        sigma_d = abs(mu_d / (sr / math.sqrt(252))) if sr != 0 else 0.01
-        vol_ann = sigma_d * math.sqrt(252)
-        # Kelly fraction (half-Kelly cap at 0.5)
-        kelly = min((sr ** 2) / max(vol_ann ** 2, 0.001), 0.5)
-        scored.append({
-            "id": s.id,
-            "title": s.paper_title,
-            "symbol": (s.asset_universe[0] if s.asset_universe else "sSPY"),
-            "sharpe": round(sr, 4),
-            "cagr": round(s.real_cagr if s.real_cagr is not None else 0.0, 4),
-            "max_drawdown": round(s.real_max_dd if s.real_max_dd is not None else 0.0, 4),
-            "vol_ann": round(vol_ann, 4),
-            "kelly_fraction": round(kelly, 4),
-            "passes_rigor_gate": s.passes_rigor_gate,
-            "dsr_p_value": s.dsr_p_value,
-            "pbo_score": s.pbo_score,
-        })
+    # ── Global market scan + LLM agent ─────────────────────────────
+    # The agent searches a global universe (US/EU/Asian/Turkish equities,
+    # individual stocks, bonds, futures, FX, crypto), ranks opportunities
+    # by recent risk-adjusted return, then either:
+    #   (a) hands the ranked scan + paper strategies to an LLM portfolio
+    #       agent that picks INDIVIDUAL instruments with reasoning, OR
+    #   (b) falls back to rule-based per-(strategy × asset) aggregation
+    #       when no LLM backend is configured.
+    import asyncio
+    from archimedes.services.strategy_signal_evaluator import (
+        strategy_evaluator,
+        Signal as _Signal,
+        DEFAULT_SCAN_UNIVERSE,
+        GLOBAL_ASSETS,
+        _fetch_price_histories,
+    )
+    from archimedes.services.portfolio_agent import get_portfolio_agent
+
+    try:
+        price_histories = await asyncio.wait_for(
+            asyncio.to_thread(_fetch_price_histories, DEFAULT_SCAN_UNIVERSE, "2y"),
+            timeout=45.0,
+        )
+    except Exception:
+        price_histories = {}
+
+    # Rank the universe by recent risk-adjusted return (top opportunities).
+    try:
+        market_ranking = strategy_evaluator.rank_market(
+            price_histories, lookback_days=90, top_n=25,
+        )
+    except Exception:
+        market_ranking = []
+
+    # Try the LLM portfolio agent first
+    agent = get_portfolio_agent()
+    agent_portfolio = None
+    if agent.available and market_ranking:
+        try:
+            agent_portfolio = await asyncio.wait_for(
+                asyncio.to_thread(
+                    agent.propose_portfolio,
+                    regime_value,
+                    regime_confidence,
+                    risk_profile,
+                    usdc_floor,
+                    synth_budget,
+                    market_ranking,
+                    strategies,
+                    set(DEFAULT_SCAN_UNIVERSE),
+                ),
+                timeout=60.0,
+            )
+        except Exception:
+            agent_portfolio = None
+
+    # Top-ranked synth codes drive the rule-based fallback scan list.
+    top_synths = [r["synth"] for r in market_ranking] if market_ranking else list(price_histories.keys())
+
+    try:
+        all_signals = await asyncio.wait_for(
+            asyncio.to_thread(
+                strategy_evaluator.evaluate_strategies,
+                strategies,
+                top_synths,
+                price_histories,
+                True,  # scan_full_universe — every strategy sees every top-ranked asset
+            ),
+            timeout=30.0,
+        )
+    except Exception:
+        all_signals = []
+
+    strat_by_id = {s.id: s for s in strategies}
+
+    scored: list[dict] = []
+
+    # ── Agent path: convert AgentPicks into `scored` rows ──────────
+    if agent_portfolio and agent_portfolio.picks:
+        def _find_strategy_for_anchor(anchor: str):
+            anchor_l = (anchor or "").lower()
+            if not anchor_l:
+                return strategies[0] if strategies else None
+            for st in strategies:
+                if (anchor_l in (st.strategy_code_path or "").lower()
+                        or anchor_l in (st.paper_title or "").lower()
+                        or anchor_l in st.id.lower()):
+                    return st
+            return strategies[0] if strategies else None
+
+        for pick in agent_portfolio.picks:
+            anchor_strat = _find_strategy_for_anchor(pick.paper_anchor)
+            if anchor_strat is None:
+                continue
+            sr = anchor_strat.real_sharpe if anchor_strat.real_sharpe is not None else 0.5
+            mu_d = (anchor_strat.real_cagr if anchor_strat.real_cagr is not None else 0.08) / 252
+            sigma_d = abs(mu_d / (sr / math.sqrt(252))) if sr != 0 else 0.01
+            vol_ann = sigma_d * math.sqrt(252)
+            scored.append({
+                "id": f"agent_{pick.synth}",
+                "title": f"{anchor_strat.paper_title} → {pick.ticker}",
+                "symbol": pick.ticker,
+                "asset_class": pick.asset_class,
+                "exchange": pick.exchange,
+                "sharpe": round(sr, 4),
+                "cagr": round(anchor_strat.real_cagr if anchor_strat.real_cagr is not None else 0.0, 4),
+                "max_drawdown": round(anchor_strat.real_max_dd if anchor_strat.real_max_dd is not None else 0.0, 4),
+                "vol_ann": round(vol_ann, 4),
+                "kelly_fraction": round(pick.weight, 4),  # agent's intended weight as conviction
+                "passes_rigor_gate": anchor_strat.passes_rigor_gate,
+                "dsr_p_value": anchor_strat.dsr_p_value,
+                "pbo_score": anchor_strat.pbo_score,
+                "signal_reason": pick.reasoning,
+                "agent_weight": pick.weight,
+                "paper_anchor": pick.paper_anchor,
+                "vote_count": 1,
+                "strategies": [{"title": anchor_strat.paper_title, "kelly": pick.weight}],
+            })
+
+    # ── Rule-based fallback (no LLM, or LLM produced no picks) ─────
+    if not scored and all_signals:
+        # Cap entries per strategy so one strategy can't dominate the table.
+        _MAX_PER_STRATEGY = 4
+        for strat_signals in all_signals:
+            s = strat_by_id.get(strat_signals.strategy_id)
+            if s is None or s.real_sharpe is None:
+                continue
+            sr = s.real_sharpe
+            if sr < 0.3:
+                continue
+            mu_d = (s.real_cagr if s.real_cagr is not None else 0.08) / 252
+            sigma_d = abs(mu_d / (sr / math.sqrt(252))) if sr != 0 else 0.01
+            vol_ann = sigma_d * math.sqrt(252)
+            base_kelly = min((sr ** 2) / max(vol_ann ** 2, 0.001), 0.5)
+
+            # Pick the highest-conviction (signal weight) picks for this strategy.
+            active = [
+                sig for sig in strat_signals.signals
+                if sig.signal != _Signal.FLAT and sig.weight > 0
+            ]
+            active.sort(key=lambda x: x.weight, reverse=True)
+            for asset_signal in active[:_MAX_PER_STRATEGY]:
+                entry = GLOBAL_ASSETS.get(asset_signal.asset)
+                display_symbol = entry[1] if entry else asset_signal.asset
+                asset_class = entry[2] if entry else "unknown"
+                exchange = entry[3] if entry else "?"
+                effective_kelly = round(base_kelly * asset_signal.weight, 4)
+                scored.append({
+                    "id": f"{s.id}_{asset_signal.asset}",
+                    "title": s.paper_title,
+                    "symbol": display_symbol,
+                    "asset_class": asset_class,
+                    "exchange": exchange,
+                    "sharpe": round(sr, 4),
+                    "cagr": round(s.real_cagr if s.real_cagr is not None else 0.0, 4),
+                    "max_drawdown": round(s.real_max_dd if s.real_max_dd is not None else 0.0, 4),
+                    "vol_ann": round(vol_ann, 4),
+                    "kelly_fraction": effective_kelly,
+                    "passes_rigor_gate": s.passes_rigor_gate,
+                    "dsr_p_value": s.dsr_p_value,
+                    "pbo_score": s.pbo_score,
+                    "signal_reason": asset_signal.reason,
+                })
+
+    # Fallback (yfinance down): expand each strategy's hardcoded universe
+    # instead of collapsing everything onto asset_universe[0].
+    if not scored:
+        _TICKER_DISPLAY = {
+            "SPY": "SPY", "NIKKEI": "NIKKEI", "GOLD": "GLD",
+            "TREASURY": "BIL", "OIL": "OIL", "BIL": "BIL",
+        }
+        for s in strategies:
+            sr = s.real_sharpe if s.real_sharpe is not None else 0.5
+            if sr < 0.3:
+                continue
+            mu_d = (s.real_cagr if s.real_cagr is not None else 0.08) / 252
+            sigma_d = abs(mu_d / (sr / math.sqrt(252))) if sr != 0 else 0.01
+            vol_ann = sigma_d * math.sqrt(252)
+            kelly = min((sr ** 2) / max(vol_ann ** 2, 0.001), 0.5)
+            universe = s.asset_universe if s.asset_universe else ["SPY"]
+            per_asset_kelly = round(kelly / len(universe), 4)
+            for ticker in universe:
+                scored.append({
+                    "id": f"{s.id}_{ticker}",
+                    "title": s.paper_title,
+                    "symbol": _TICKER_DISPLAY.get(ticker, ticker),
+                    "asset_class": "unknown",
+                    "exchange": "?",
+                    "sharpe": round(sr, 4),
+                    "cagr": round(s.real_cagr if s.real_cagr is not None else 0.0, 4),
+                    "max_drawdown": round(s.real_max_dd if s.real_max_dd is not None else 0.0, 4),
+                    "vol_ann": round(vol_ann, 4),
+                    "kelly_fraction": per_asset_kelly,
+                    "passes_rigor_gate": s.passes_rigor_gate,
+                    "dsr_p_value": s.dsr_p_value,
+                    "pbo_score": s.pbo_score,
+                    "signal_reason": None,
+                })
 
     if not scored:
         return {"error": "No strategies with real backtest data available", "allocations": []}
+
+    # ── Agent path: use LLM-assigned weights directly ──────────────
+    if agent_portfolio and agent_portfolio.picks:
+        # Each agent pick is already unique by symbol; skip vote aggregation.
+        # Use the agent's intended weight, capped at 0.20 per asset, normalized
+        # to the synth budget.
+        allocations = []
+        for sc in scored:
+            w = float(sc.get("agent_weight", sc.get("kelly_fraction", 0.0)))
+            w = min(max(w, 0.0), 0.20)
+            allocations.append({**sc, "weight": round(w, 4)})
+
+        total = sum(a["weight"] for a in allocations)
+        if total > 0:
+            for a in allocations:
+                a["weight"] = round(a["weight"] / total * synth_budget, 4)
+
+        allocations.sort(key=lambda x: -x["weight"])
+        total_w = sum(a["weight"] for a in allocations)
+        exp_sharpe = sum(a["sharpe"] * a["weight"] for a in allocations) / max(total_w, 1e-9)
+        exp_cagr = sum(a["cagr"] * a["weight"] for a in allocations) / max(total_w, 1e-9)
+        exp_max_dd = sum(a["max_drawdown"] * a["weight"] for a in allocations) / max(total_w, 1e-9)
+
+        regime_narratives_agent = {
+            "risk_on": "Markets are calm (low VIX, price above MA). Full synth exposure recommended.",
+            "transition": "Markets are transitioning. Moderate caution; holding base USDC floor.",
+            "risk_off": "Markets are stressed. USDC floor increased 2.5×; reduced synth exposure.",
+            "crisis": "Crisis conditions. Maximum USDC floor (5× multiplier); minimal synth exposure.",
+        }
+
+        return {
+            "regime": regime_value,
+            "regime_confidence": round(regime_confidence, 4),
+            "regime_narrative": regime_narratives_agent.get(regime_value, ""),
+            "risk_profile": risk_profile,
+            "usdc_weight": round(usdc_floor, 4),
+            "synth_weight": round(synth_budget, 4),
+            "allocations": allocations,
+            "expected_portfolio": {
+                "sharpe": round(exp_sharpe, 4),
+                "cagr": round(exp_cagr, 4),
+                "max_drawdown": round(exp_max_dd, 4),
+            },
+            "market_scan": {
+                "universe_size": len(DEFAULT_SCAN_UNIVERSE),
+                "fetched": len(price_histories),
+                "top_opportunities": market_ranking,
+            },
+            "agent": {
+                "used": True,
+                "thesis": agent_portfolio.thesis,
+                "model_id": agent_portfolio.model_id,
+                "served_model": agent_portfolio.served_model,
+                "num_picks": len(agent_portfolio.picks),
+            },
+        }
+
+    # ── Aggregate by symbol (rule-based path) ──────────────────────
+    # Multiple strategies often vote for the same asset.  Collapse the
+    # (strategy × asset) rows into one row per asset, with the combined
+    # Kelly conviction and the list of strategies that voted for it.
+    agg: dict[str, dict] = {}
+    for sc in scored:
+        sym = sc["symbol"]
+        if sym not in agg:
+            agg[sym] = {
+                "id": f"agg_{sym}",
+                "symbol": sym,
+                "asset_class": sc.get("asset_class", "unknown"),
+                "exchange": sc.get("exchange", "?"),
+                "title": f"Multi-strategy: {sym}",
+                "strategies": [],
+                "signal_reasons": [],
+                "sharpe": sc["sharpe"],
+                "cagr": sc["cagr"],
+                "max_drawdown": sc["max_drawdown"],
+                "vol_ann": sc["vol_ann"],
+                "kelly_fraction": 0.0,
+                "passes_rigor_gate": False,
+                "dsr_p_value": sc.get("dsr_p_value"),
+                "pbo_score": sc.get("pbo_score"),
+            }
+        row = agg[sym]
+        row["strategies"].append({"title": sc["title"], "kelly": sc["kelly_fraction"]})
+        if sc.get("signal_reason"):
+            row["signal_reasons"].append(sc["signal_reason"])
+        # Take the highest-conviction Kelly (most confident strategy wins),
+        # with a small bonus for multi-strategy agreement.
+        row["kelly_fraction"] = max(row["kelly_fraction"], sc["kelly_fraction"])
+        # Best Sharpe / CAGR across voting strategies
+        row["sharpe"] = max(row["sharpe"], sc["sharpe"])
+        row["cagr"] = max(row["cagr"], sc["cagr"])
+        # Most conservative max-dd across voters
+        row["max_drawdown"] = max(row["max_drawdown"], sc["max_drawdown"])
+        row["passes_rigor_gate"] = row["passes_rigor_gate"] or sc["passes_rigor_gate"]
+
+    # Apply a sqrt(votes) multi-strategy agreement bonus, capped at 0.5
+    for row in agg.values():
+        n_votes = len(row["strategies"])
+        row["kelly_fraction"] = round(min(row["kelly_fraction"] * math.sqrt(n_votes), 0.5), 4)
+        row["vote_count"] = n_votes
+        # Build a readable title: top strategy + "(+N more)"
+        top_strat = max(row["strategies"], key=lambda s: s["kelly"])["title"]
+        if n_votes == 1:
+            row["title"] = top_strat
+        else:
+            row["title"] = f"{top_strat} (+{n_votes - 1} other{'s' if n_votes > 2 else ''})"
+
+    scored = list(agg.values())
 
     # Kelly weights (proportional to Kelly fractions)
     total_kelly = sum(sc["kelly_fraction"] for sc in scored)
@@ -737,6 +1019,18 @@ async def get_portfolio_advisor(
             "sharpe": round(exp_sharpe, 4),
             "cagr": round(exp_cagr, 4),
             "max_drawdown": round(exp_max_dd, 4),
+        },
+        "market_scan": {
+            "universe_size": len(DEFAULT_SCAN_UNIVERSE),
+            "fetched": len(price_histories),
+            "top_opportunities": market_ranking,
+        },
+        "agent": {
+            "used": False,
+            "thesis": None,
+            "model_id": None,
+            "served_model": None,
+            "num_picks": 0,
         },
     }
 
