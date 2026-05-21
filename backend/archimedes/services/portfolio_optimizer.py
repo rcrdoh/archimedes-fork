@@ -104,6 +104,73 @@ def optimize_weights(
 # ─── Objectives ──────────────────────────────────────────────────────
 
 
+def compute_efficient_frontier(
+    symbols: list[str],
+    daily_returns: dict[str, list[float]],
+    n_points: int = 30,
+) -> list[dict]:
+    """Compute the mean-variance efficient frontier.
+
+    Sweeps from the minimum-variance portfolio to the maximum-return portfolio,
+    returning n_points (vol, return, weights) triples.
+
+    Returns [] if data is insufficient (< 20 bars).
+    """
+    n = len(symbols)
+    if n == 0:
+        return []
+
+    R = _aligned_return_matrix(symbols, daily_returns)
+    if R is None:
+        return []
+
+    mu = R.mean(axis=0) * _ANNUALIZATION           # annualized expected returns
+    Sigma = np.cov(R.T, ddof=1) * _ANNUALIZATION   # annualized covariance
+    if Sigma.ndim == 0:
+        Sigma = np.array([[float(Sigma)]])
+    Sigma += np.eye(n) * 1e-8
+
+    # Bounds for min- and max-return portfolios
+    mu_min = float(mu.min())
+    mu_max = float(mu.max())
+    if mu_min >= mu_max:
+        return []
+
+    target_returns = np.linspace(mu_min, mu_max, n_points)
+    frontier: list[dict] = []
+
+    w0 = np.ones(n) / n
+    bounds = [(0.0, _CAP_DEFAULT)] * n
+
+    for target_mu in target_returns:
+        constraints = [
+            {"type": "eq", "fun": lambda w: w.sum() - 1.0},
+            {"type": "eq", "fun": lambda w, t=target_mu: float(w @ mu) - t},
+        ]
+        result = minimize(
+            lambda w: float(w @ Sigma @ w),
+            w0,
+            method="SLSQP",
+            bounds=bounds,
+            constraints=constraints,
+            options={"ftol": 1e-9, "maxiter": 500},
+        )
+        if result.success:
+            w = result.x
+            port_vol = float(np.sqrt(w @ Sigma @ w))
+            port_ret = float(w @ mu)
+            frontier.append({
+                "vol": round(port_vol, 6),
+                "return": round(port_ret, 6),
+                "weights": {sym: round(float(wi), 4) for sym, wi in zip(symbols, w)},
+            })
+
+    return frontier
+
+
+# ─── Objectives ──────────────────────────────────────────────────────
+
+
 def _gmv(Sigma: np.ndarray, n: int, cap: float) -> np.ndarray | None:
     """Global Minimum Variance: min w'Σw  s.t. 1'w=1, 0 ≤ w ≤ cap."""
     w0 = np.ones(n) / n

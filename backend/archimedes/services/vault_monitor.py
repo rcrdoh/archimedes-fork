@@ -9,12 +9,92 @@ Provides:
 from __future__ import annotations
 
 import logging
+import math as _math
 from datetime import datetime, timezone
 
 from archimedes.chain.executor import chain_executor
 from archimedes.services.redis_state import AgentStateStore
 
 logger = logging.getLogger(__name__)
+
+_MIN_SNAPSHOTS_FOR_SHARPE = 5
+_ANNUALIZATION_FACTOR = 252  # trading days per year
+_MCLEAN_PONTIFF_DECAY = 0.42  # expected Sharpe retention post-publication
+
+
+def compute_sharpe_drift(
+    aum_snapshots: list[dict],
+    backtest_sharpe: float,
+    snapshot_interval_minutes: float = 5.0,
+) -> dict:
+    """Compare rolling live Sharpe against backtested baseline.
+
+    Uses AUM history to compute live returns and Sharpe, then checks for
+    significant divergence from the backtest baseline.
+
+    Returns a dict with keys: live_sharpe, backtest_sharpe, decay_floor,
+    drift_sigma, status ("NORMAL"|"WARNING"|"CRITICAL"|"INSUFFICIENT_DATA").
+    """
+    # Need at least a few snapshots to compute returns
+    if len(aum_snapshots) < _MIN_SNAPSHOTS_FOR_SHARPE:
+        return {
+            "live_sharpe": None,
+            "backtest_sharpe": backtest_sharpe,
+            "decay_floor": round(backtest_sharpe * _MCLEAN_PONTIFF_DECAY, 4),
+            "drift_sigma": None,
+            "status": "INSUFFICIENT_DATA",
+        }
+
+    # Compute period returns from AUM history (most-recent first in snapshots)
+    navs = [s.get("aum_usdc", 0) or s.get("share_price", 0) for s in reversed(aum_snapshots)]
+    returns = [
+        (navs[i] - navs[i - 1]) / navs[i - 1]
+        for i in range(1, len(navs))
+        if navs[i - 1] > 0
+    ]
+
+    if len(returns) < _MIN_SNAPSHOTS_FOR_SHARPE - 1:
+        return {
+            "live_sharpe": None,
+            "backtest_sharpe": backtest_sharpe,
+            "decay_floor": round(backtest_sharpe * _MCLEAN_PONTIFF_DECAY, 4),
+            "drift_sigma": None,
+            "status": "INSUFFICIENT_DATA",
+        }
+
+    mean_r = sum(returns) / len(returns)
+    var_r = sum((r - mean_r) ** 2 for r in returns) / max(len(returns) - 1, 1)
+    std_r = _math.sqrt(var_r) if var_r > 0 else 0.0
+
+    # Annualize: snapshots are every snapshot_interval_minutes, scale to year
+    daily_factor = 24 * 60 / snapshot_interval_minutes  # periods per day
+    live_sharpe = (mean_r * daily_factor * _ANNUALIZATION_FACTOR) / (
+        std_r * _math.sqrt(daily_factor * _ANNUALIZATION_FACTOR)
+    ) if std_r > 0 else 0.0
+
+    decay_floor = backtest_sharpe * _MCLEAN_PONTIFF_DECAY
+
+    # Drift in units of backtest SE (Lo 2002 approximation)
+    se_backtest = _math.sqrt(
+        (1 + 0.5 * (backtest_sharpe / _math.sqrt(_ANNUALIZATION_FACTOR)) ** 2)
+        * _ANNUALIZATION_FACTOR / max(len(returns) * daily_factor, 1)
+    )
+    drift_sigma = (live_sharpe - backtest_sharpe) / se_backtest if se_backtest > 0 else 0.0
+
+    if live_sharpe >= decay_floor:
+        status = "NORMAL"
+    elif live_sharpe >= decay_floor * 0.5:
+        status = "WARNING"
+    else:
+        status = "CRITICAL"
+
+    return {
+        "live_sharpe": round(live_sharpe, 4),
+        "backtest_sharpe": round(backtest_sharpe, 4),
+        "decay_floor": round(decay_floor, 4),
+        "drift_sigma": round(drift_sigma, 4),
+        "status": status,
+    }
 
 
 class VaultMonitor:
@@ -82,6 +162,10 @@ class VaultMonitor:
             except Exception:
                 pass
 
+        # Sharpe drift — compare live AUM trajectory to backtest baseline
+        # TODO: wire backtest_sharpe from vault's active strategy via StrategyProvider
+        sharpe_drift = compute_sharpe_drift(snapshots, backtest_sharpe=0.7)
+
         return {
             "vault_address": vault_address,
             "agent_alive": agent_alive,
@@ -91,6 +175,7 @@ class VaultMonitor:
             "aum_trend_pct": round(aum_trend, 4),
             "snapshot_count": len(snapshots),
             "latest_snapshot": snapshots[0] if snapshots else None,
+            "sharpe_drift": sharpe_drift,
             "recent_events": [
                 e for e in events
                 if e.get("data", {}).get("address", "").lower() == vault_address.lower()

@@ -40,9 +40,57 @@ function _knownTokenSymbol(addr) {
   return `${addr.slice(0, 6)}...`
 }
 
+function SharpeDriftBadge({ drift }) {
+  if (!drift) return null
+  const statusColors = {
+    NORMAL: { bg: 'rgba(16,185,129,0.12)', color: 'var(--positive)', border: 'rgba(16,185,129,0.3)', label: 'NORMAL' },
+    WARNING: { bg: 'rgba(245,158,11,0.12)', color: '#F59E0B', border: 'rgba(245,158,11,0.3)', label: 'WARNING' },
+    CRITICAL: { bg: 'rgba(239,68,68,0.12)', color: 'var(--negative)', border: 'rgba(239,68,68,0.3)', label: 'CRITICAL' },
+    INSUFFICIENT_DATA: { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-3)', border: 'var(--glass-border)', label: 'INSUFFICIENT DATA' },
+  }
+  const s = statusColors[drift.status] || statusColors.INSUFFICIENT_DATA
+  return (
+    <div style={{ padding: '12px 16px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--glass-border)', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Performance Tracker
+        </span>
+        <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+          {s.label}
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+        <div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', marginBottom: 2 }}>Live Sharpe</div>
+          <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-1)' }}>
+            {drift.live_sharpe != null ? drift.live_sharpe.toFixed(3) : '—'}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', marginBottom: 2 }}>Backtest</div>
+          <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-1)' }}>
+            {drift.backtest_sharpe != null ? drift.backtest_sharpe.toFixed(3) : '—'}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', marginBottom: 2 }}>Decay Floor</div>
+          <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-2)' }}>
+            {drift.decay_floor != null ? drift.decay_floor.toFixed(3) : '—'}
+          </div>
+        </div>
+      </div>
+      <div style={{ marginTop: 6, fontSize: '0.68rem', color: 'var(--text-4)' }}>
+        McLean-Pontiff 42% post-publication retention floor
+        {drift.drift_sigma != null && ` · drift ${drift.drift_sigma > 0 ? '+' : ''}${drift.drift_sigma.toFixed(2)}σ`}
+      </div>
+    </div>
+  )
+}
+
 export default function VaultDetail({ address, onBack }) {
   const [detail, setDetail] = useState(null)
   const [onChainData, setOnChainData] = useState(null)
+  const [health, setHealth] = useState(null)
   const [depositAmt, setDepositAmt] = useState('')
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
@@ -63,6 +111,10 @@ export default function VaultDetail({ address, onBack }) {
           setDetail(prev => prev ? { ...prev, ...meta } : prev)
         }
       })
+      .catch(() => {})
+    // Fetch vault health (includes Sharpe drift)
+    apiGet(`/api/vaults/${address}/health`)
+      .then(h => { if (!cancelled) setHealth(h) })
       .catch(() => {})
     return () => { cancelled = true }
   }, [address])
@@ -167,6 +219,13 @@ export default function VaultDetail({ address, onBack }) {
           <div className="vault-stat-value"><code>{shortAddr(onChainData?.creator || detail?.creator)}</code></div>
         </div>
       </div>
+
+      {/* Performance Tracker / Sharpe Drift */}
+      {health?.sharpe_drift && (
+        <div className="vault-section">
+          <SharpeDriftBadge drift={health.sharpe_drift} />
+        </div>
+      )}
 
       {/* Holdings */}
       {detail?.holdings && detail.holdings.length > 0 && (
