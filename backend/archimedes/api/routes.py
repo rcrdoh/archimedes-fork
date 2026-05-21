@@ -561,6 +561,144 @@ async def get_strategy_correlation():
     }
 
 
+@strategies_router.get("/advisor")
+async def get_portfolio_advisor(
+    risk_profile: str = Query("moderate", pattern="^(fixed_income|conservative|moderate|aggressive|hyper_risky)$"),
+):
+    """Portfolio allocation recommendation based on Kelly + risk-parity math.
+
+    Returns target weights, Kelly fractions, and expected metrics for
+    the active strategy library under the given risk profile and current regime.
+    Does not require an active vault — this is a pre-deployment advisor.
+    """
+    import math
+    from archimedes.models.portfolio import RiskProfile, RISK_PROFILE_PARAMS
+    from archimedes.models.regime import Regime
+    from archimedes.services.redis_state import AgentStateStore
+
+    # Load current regime from Redis (fall back to transition if unavailable)
+    state = AgentStateStore()
+    try:
+        regime_data = await state.load_regime()
+    finally:
+        await state.close()
+
+    regime_value = regime_data.get("regime", "transition") if regime_data else "transition"
+    regime_confidence = regime_data.get("confidence", 0.5) if regime_data else 0.5
+    try:
+        regime_enum = Regime(regime_value)
+    except ValueError:
+        regime_enum = Regime.TRANSITION
+
+    # USDC floor multipliers (mirrors KellyRiskParityConstructor)
+    _DELEVERAGE: dict[Regime, float] = {
+        Regime.RISK_ON: 0.5,
+        Regime.TRANSITION: 1.0,
+        Regime.RISK_OFF: 2.5,
+        Regime.CRISIS: 5.0,
+    }
+
+    rp_map = {
+        "fixed_income": RiskProfile.FIXED_INCOME,
+        "conservative": RiskProfile.CONSERVATIVE,
+        "moderate": RiskProfile.MODERATE,
+        "aggressive": RiskProfile.AGGRESSIVE,
+        "hyper_risky": RiskProfile.HYPER_RISKY,
+    }
+    rp = rp_map.get(risk_profile, RiskProfile.MODERATE)
+    params = RISK_PROFILE_PARAMS[rp]
+
+    usdc_floor_base = params["usyc_floor"]
+    deleverage = _DELEVERAGE.get(regime_enum, 1.0)
+    usdc_floor = min(usdc_floor_base * deleverage, 0.95)
+    synth_budget = max(0.0, 1.0 - usdc_floor)
+
+    # Get active strategies with real backtest data
+    strategies = [s for s in _strategy_provider.list_strategies() if s.real_sharpe is not None]
+
+    # Score strategies via Kelly + risk-parity
+    scored = []
+    for s in strategies:
+        sr = s.real_sharpe or 0.5
+        if sr < 0.3:
+            continue
+        # Estimate daily vol from SR and CAGR
+        mu_d = (s.real_cagr or 0.08) / 252
+        sigma_d = abs(mu_d / (sr / math.sqrt(252))) if sr != 0 else 0.01
+        vol_ann = sigma_d * math.sqrt(252)
+        # Kelly fraction (half-Kelly cap at 0.5)
+        kelly = min((sr ** 2) / max(vol_ann ** 2, 0.001), 0.5)
+        scored.append({
+            "id": s.id,
+            "title": s.paper_title,
+            "symbol": (s.asset_universe[0] if s.asset_universe else "sSPY"),
+            "sharpe": round(sr, 4),
+            "cagr": round(s.real_cagr or 0.0, 4),
+            "max_drawdown": round(s.real_max_dd or 0.0, 4),
+            "vol_ann": round(vol_ann, 4),
+            "kelly_fraction": round(kelly, 4),
+            "passes_rigor_gate": s.passes_rigor_gate,
+            "dsr_p_value": s.dsr_p_value,
+            "pbo_score": s.pbo_score,
+        })
+
+    if not scored:
+        return {"error": "No strategies with real backtest data available", "allocations": []}
+
+    # Kelly weights (proportional to Kelly fractions)
+    total_kelly = sum(sc["kelly_fraction"] for sc in scored)
+    # Risk-parity weights (inverse vol)
+    inv_vols = [1.0 / max(sc["vol_ann"], 0.001) for sc in scored]
+    total_inv_vol = sum(inv_vols)
+    # Blend 60% Kelly + 40% risk-parity
+    allocations = []
+    for i, sc in enumerate(scored):
+        kelly_w = (sc["kelly_fraction"] / max(total_kelly, 1e-9)) if total_kelly > 0 else 1 / len(scored)
+        rp_w = inv_vols[i] / max(total_inv_vol, 1e-9)
+        blended = 0.6 * kelly_w + 0.4 * rp_w
+        # Cap at 0.35
+        capped = min(blended * synth_budget, 0.35)
+        allocations.append({**sc, "weight": round(capped, 4)})
+
+    # Normalize synth weights
+    total_synth = sum(a["weight"] for a in allocations)
+    if total_synth > 0:
+        for a in allocations:
+            a["weight"] = round(a["weight"] / total_synth * synth_budget, 4)
+
+    # Sort by weight desc
+    allocations.sort(key=lambda x: -x["weight"])
+
+    # Compute expected portfolio metrics (weighted average)
+    total_w = sum(a["weight"] for a in allocations)
+    exp_sharpe = sum(a["sharpe"] * a["weight"] for a in allocations) / max(total_w, 1e-9)
+    exp_cagr = sum(a["cagr"] * a["weight"] for a in allocations) / max(total_w, 1e-9)
+    exp_max_dd = sum(a["max_drawdown"] * a["weight"] for a in allocations) / max(total_w, 1e-9)
+
+    # Regime narrative
+    regime_narratives = {
+        "risk_on": "Markets are calm (low VIX, price above MA). Full synth exposure recommended.",
+        "transition": "Markets are transitioning. Moderate caution; holding base USDC floor.",
+        "risk_off": "Markets are stressed. USDC floor increased 2.5×; reduced synth exposure.",
+        "crisis": "Crisis conditions. Maximum USDC floor (5× multiplier); minimal synth exposure.",
+    }
+
+    return {
+        "regime": regime_value,
+        "regime_confidence": round(regime_confidence, 4),
+        "regime_narrative": regime_narratives.get(regime_value, ""),
+        "risk_profile": risk_profile,
+        "usdc_weight": round(usdc_floor, 4),
+        "synth_weight": round(synth_budget, 4),
+        "allocations": allocations,
+        "expected_portfolio": {
+            "sharpe": round(exp_sharpe, 4),
+            "cagr": round(exp_cagr, 4),
+            "max_drawdown": round(exp_max_dd, 4),
+        },
+    }
+
+
 @strategies_router.get("/{strategy_id}", response_model=StrategyResponse)
 async def get_strategy(strategy_id: str):
     """Get a single strategy by ID. Backed by LocalStrategyProvider."""
@@ -1224,7 +1362,7 @@ async def get_current_regime():
 
     The agent runner persists regime state to Redis on each tick. This endpoint
     returns the latest classification with confidence, transition probabilities,
-    and regime history summary.
+    regime history, and strategy recommendations for the current regime.
     """
     from archimedes.services.redis_state import AgentStateStore
 
@@ -1236,9 +1374,39 @@ async def get_current_regime():
 
     from archimedes.api.schemas import RegimeSignalsResponse
 
+    # Default transition priors (Dirichlet-inspired)
+    default_transitions = {
+        "risk_on": {"risk_on": 0.85, "transition": 0.10, "risk_off": 0.04, "crisis": 0.01},
+        "transition": {"risk_on": 0.20, "transition": 0.50, "risk_off": 0.25, "crisis": 0.05},
+        "risk_off": {"risk_on": 0.05, "transition": 0.15, "risk_off": 0.70, "crisis": 0.10},
+        "crisis": {"risk_on": 0.02, "transition": 0.08, "risk_off": 0.30, "crisis": 0.60},
+    }
+
     if data:
+        regime_value = data.get("regime", "unknown")
+        transitions = data.get("transition_probabilities") or default_transitions
+        history = data.get("regime_history_summary") or {"total": 0}
+
+        # Regime → strategy recommendation logic
+        regime_to_keywords = {
+            "risk_on":    ["momentum", "tsmom", "52w_high", "52-week"],
+            "transition": ["volatility", "managed", "tsmom"],
+            "risk_off":   ["volatility", "managed", "tbill"],
+            "crisis":     ["tbill", "preservation", "capital"],
+        }
+        all_strats = _strategy_provider.list_strategies()
+        regime_keywords = regime_to_keywords.get(regime_value, [])
+        recommended_ids: list[str] = []
+        for keyword in regime_keywords:
+            for s in all_strats:
+                title_lower = s.paper_title.lower()
+                if keyword in title_lower or keyword.replace("_", " ") in title_lower:
+                    if s.id not in recommended_ids:
+                        recommended_ids.append(s.id)
+                        break
+
         return RegimeResponse(
-            regime=data.get("regime", "unknown"),
+            regime=regime_value,
             confidence=data.get("confidence", 0.0),
             timestamp=data.get("timestamp", ""),
             regime_changed=data.get("regime_changed", False),
@@ -1246,7 +1414,17 @@ async def get_current_regime():
                 vix_level=data.get("vix_level", 0.0),
                 sp500_above_ma50=data.get("sp500_above_ma50", True),
                 sp500_above_ma200=data.get("sp500_above_ma200", True),
+                vix_rate_of_change=data.get("vix_rate_of_change"),
+                vix_score=data.get("vix_score"),
+                ma_score=data.get("ma_score"),
+                composite_score=data.get("composite_score"),
+                credit_spread_ig=data.get("credit_spread_ig"),
+                credit_spread_hy=data.get("credit_spread_hy"),
+                btc_dominance=data.get("btc_dominance"),
             ),
+            transition_probabilities=transitions,
+            regime_history=history,
+            recommended_strategies=recommended_ids[:2],
         )
 
     return RegimeResponse(
@@ -1259,6 +1437,9 @@ async def get_current_regime():
             sp500_above_ma50=True,
             sp500_above_ma200=True,
         ),
+        transition_probabilities=default_transitions,
+        regime_history={"total": 0},
+        recommended_strategies=[],
     )
 
 

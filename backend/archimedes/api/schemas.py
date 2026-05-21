@@ -310,13 +310,21 @@ class RegimeResponse(BaseModel):
     previous_regime: str | None = None
     regime_changed: bool = False
     signals: RegimeSignalsResponse
+    transition_probabilities: dict | None = None  # From get_transition_probabilities()
+    regime_history: dict | None = None            # From get_regime_history_summary()
+    recommended_strategies: list[str] | None = None  # Strategy IDs best for this regime
 
 
 class RegimeSignalsResponse(BaseModel):
     vix_level: float
     sp500_above_ma50: bool
     sp500_above_ma200: bool
+    vix_rate_of_change: float | None = None     # VIX momentum
+    vix_score: float | None = None              # 0-1 danger score from VIX level
+    ma_score: float | None = None               # 0-1 from MA positioning
+    composite_score: float | None = None        # Final 0-1 composite
     credit_spread_ig: float | None = None
+    credit_spread_hy: float | None = None
     btc_dominance: float | None = None
 
 

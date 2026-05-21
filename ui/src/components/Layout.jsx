@@ -24,6 +24,7 @@ const NAV = [
     { id: 'risk',             label: 'Risk Analysis' },
     { id: 'corpus',           label: 'Corpus Explorer' },
     { id: 'rigor-explainer', label: 'Rigor Gate' },
+    { id: 'advisor',         label: 'Portfolio Advisor' },
   ]},
 ]
 
@@ -43,6 +44,7 @@ export const PAGE_LABELS = {
   risk: 'Risk Analysis',
   corpus: 'Corpus Explorer',
   'rigor-explainer': 'Rigor Gate',
+  advisor: 'Portfolio Advisor',
   about: 'About',
   imprint: 'Imprint',
 }
