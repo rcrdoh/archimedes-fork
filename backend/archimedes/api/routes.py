@@ -134,9 +134,11 @@ def _to_strategy_response(s: Strategy) -> StrategyResponse:
         correlation_to_spy=s.real_corr_spy if has_real else (bt.correlation_to_spy if bt else s.stub_corr_spy),
         total_trades=s.real_total_trades if has_real else (bt.total_trades if bt else None),
         deflated_sharpe_ratio=s.deflated_sharpe_ratio if has_real else (bt.deflated_sharpe_ratio if bt else None),
+        dsr_p_value=s.dsr_p_value if has_real else (bt.dsr_p_value if bt else None),
         pbo_score=s.pbo_score if has_real else (bt.pbo_score if bt else None),
         out_of_sample_sharpe=s.out_of_sample_sharpe if has_real else (bt.out_of_sample_sharpe if bt else None),
         kelly_fraction=s.kelly_fraction,
+        passes_rigor_gate=s.passes_rigor_gate,
         is_backtest_placeholder=not has_real,
     )
 

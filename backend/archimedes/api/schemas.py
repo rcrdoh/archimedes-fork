@@ -185,9 +185,11 @@ class StrategyResponse(BaseModel):
     calmar_ratio: float | None = None
     correlation_to_spy: float | None = None
     deflated_sharpe_ratio: float | None = None
+    dsr_p_value: float | None = None
     pbo_score: float | None = None
     out_of_sample_sharpe: float | None = None
     kelly_fraction: float | None = None
+    passes_rigor_gate: bool = False
     paper_claimed_sharpe: float | None = None
     is_backtest_placeholder: bool = False
 
