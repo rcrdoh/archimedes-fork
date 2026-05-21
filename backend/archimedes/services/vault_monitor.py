@@ -66,18 +66,18 @@ def compute_sharpe_drift(
     var_r = sum((r - mean_r) ** 2 for r in returns) / max(len(returns) - 1, 1)
     std_r = _math.sqrt(var_r) if var_r > 0 else 0.0
 
-    # Annualize: snapshots are every snapshot_interval_minutes, scale to year
-    daily_factor = 24 * 60 / snapshot_interval_minutes  # periods per day
-    live_sharpe = (mean_r * daily_factor * _ANNUALIZATION_FACTOR) / (
-        std_r * _math.sqrt(daily_factor * _ANNUALIZATION_FACTOR)
-    ) if std_r > 0 else 0.0
+    # Annualize from snapshot-period returns using periods per year
+    periods_per_year = (24 * 60 / snapshot_interval_minutes) * _ANNUALIZATION_FACTOR
+    live_sharpe = (mean_r / std_r) * _math.sqrt(periods_per_year) if std_r > 0 else 0.0
 
     decay_floor = backtest_sharpe * _MCLEAN_PONTIFF_DECAY
 
-    # Drift in units of backtest SE (Lo 2002 approximation)
+    # Drift in units of backtest SE (Lo 2002 approximation), using
+    # snapshot-period units consistently with the observed returns series.
+    sr_period = backtest_sharpe / _math.sqrt(periods_per_year)
+    n_obs_period = len(returns)
     se_backtest = _math.sqrt(
-        (1 + 0.5 * (backtest_sharpe / _math.sqrt(_ANNUALIZATION_FACTOR)) ** 2)
-        * _ANNUALIZATION_FACTOR / max(len(returns) * daily_factor, 1)
+        (1 + 0.5 * sr_period**2) * periods_per_year / max(n_obs_period, 1)
     )
     drift_sigma = (live_sharpe - backtest_sharpe) / se_backtest if se_backtest > 0 else 0.0
 
