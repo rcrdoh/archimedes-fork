@@ -40,7 +40,7 @@ export default function EfficientFrontier() {
     )
   }
 
-  if (error || !data || data.frontier.length === 0) {
+  if (error || !data || !Array.isArray(data?.frontier) || data.frontier.length === 0) {
     return (
       <div className="card-flat" style={{ padding: 20 }}>
         <div className="label mb-2">Efficient Frontier</div>
