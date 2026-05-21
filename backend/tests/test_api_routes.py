@@ -255,19 +255,39 @@ class TestAssetRoutes:
 
 class TestRegimeRoutes:
     def test_current_regime(self, client):
+        """Regime endpoint must not 500 when Redis is unavailable."""
         resp = client.get("/api/regime/current")
         assert resp.status_code == 200
         data = resp.json()
         assert "regime" in data
         assert "confidence" in data
 
+    def test_current_regime_redis_down_fallback(self, client):
+        """With Redis down the endpoint returns a valid fallback response."""
+        resp = client.get("/api/regime/current")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Without Redis, regime defaults to "unknown" with zero confidence
+        assert data["regime"] in ("unknown", "transition", "risk_on", "risk_off", "crisis")
+        assert isinstance(data["confidence"], float)
+        assert "transition_probabilities" in data
+
 
 class TestAgentRoutes:
     def test_agent_status(self, client):
+        """Agent status must not 500 when Redis is unavailable."""
         resp = client.get("/api/agent/status")
         assert resp.status_code == 200
         data = resp.json()
         assert "alive" in data
+
+    def test_agent_status_redis_down_defaults(self, client):
+        """With Redis down alive=False and heartbeat fields are null/default."""
+        resp = client.get("/api/agent/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["alive"] is False
+        assert data.get("last_heartbeat") is None
 
 
 class TestAdvisorRoutes:

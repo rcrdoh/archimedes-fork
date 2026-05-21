@@ -1371,6 +1371,8 @@ async def get_current_regime():
     state = AgentStateStore()
     try:
         data = await state.load_regime()
+    except Exception:
+        data = None
     finally:
         await state.close()
 
@@ -1459,6 +1461,9 @@ async def get_regime_transitions():
         data = await state.load_regime()
         transitions = data.get("transition_probabilities") if data else None
         history = data.get("regime_history_summary") if data else None
+    except Exception:
+        transitions = None
+        history = None
     finally:
         await state.close()
 
@@ -1636,40 +1641,44 @@ async def get_agent_status():
         heartbeat = await state.get_heartbeat()
         regime_data = await state.load_regime()
         events = await state.get_events(count=10)
+    except Exception:
+        heartbeat = None
+        regime_data = None
+        events = []
+    finally:
+        await state.close()
 
-        alive = False
-        if heartbeat:
-            try:
-                hb_time = datetime.fromisoformat(heartbeat)
-                age = (datetime.now(timezone.utc) - hb_time).total_seconds()
-                alive = age < 600
-            except Exception:
-                pass
-
-        regime = regime_data.get("regime") if regime_data else None
-        confidence = regime_data.get("confidence") if regime_data else None
-        source = regime_data.get("source") if regime_data else None
-        strat_count = regime_data.get("strategy_count", 0) if regime_data else 0
-
-        vault_count = 0
+    alive = False
+    if heartbeat:
         try:
-            vaults = await chain_executor.get_all_vaults()
-            vault_count = len(vaults) if vaults else 0
+            hb_time = datetime.fromisoformat(heartbeat)
+            age = (datetime.now(timezone.utc) - hb_time).total_seconds()
+            alive = age < 600
         except Exception:
             pass
 
-        return AgentStatusResponse(
-            alive=alive,
-            last_heartbeat=heartbeat,
-            regime=regime,
-            regime_confidence=confidence,
-            regime_source=source,
-            strategy_count=strat_count,
-            managed_vaults=vault_count,
-            recent_events=events,
-        )
-    finally:
-        await state.close()
+    regime = regime_data.get("regime") if regime_data else None
+    confidence = regime_data.get("confidence") if regime_data else None
+    source = regime_data.get("source") if regime_data else None
+    strat_count = regime_data.get("strategy_count", 0) if regime_data else 0
+
+    vault_count = 0
+    try:
+        vaults = await chain_executor.get_all_vaults()
+        vault_count = len(vaults) if vaults else 0
+    except Exception:
+        pass
+
+    return AgentStatusResponse(
+        alive=alive,
+        last_heartbeat=heartbeat,
+        regime=regime,
+        regime_confidence=confidence,
+        regime_source=source,
+        strategy_count=strat_count,
+        managed_vaults=vault_count,
+        recent_events=events,
+    )
 
 
 @agent_router.get("/circle-status")
