@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import EfficientFrontier from './EfficientFrontier'
 import CorrelationMatrix from './CorrelationMatrix'
+import RegimePanel from './RegimePanel'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -617,6 +618,9 @@ export default function Strategies() {
 
   return (
     <div>
+      {/* ── Regime Panel ─────────────────────────────────── */}
+      <RegimePanel />
+
       {/* ── Explorer ──────────────────────────────────────── */}
       <div className="fade-up fade-up-1" style={{ maxWidth: 640, marginBottom: 28 }}>
         <h2 className="serif" style={{ fontSize: '2rem', marginBottom: 10 }}>Paper-Grounded Strategies</h2>
