@@ -482,8 +482,16 @@ async def get_efficient_frontier(
     labels = []
 
     for s in active[:5]:  # cap at 5 for performance
-        sr = s.real_sharpe or s.stub_sharpe or 0.5
-        cagr = s.real_cagr or s.stub_cagr or 0.08
+        sr = (
+            s.real_sharpe
+            if s.real_sharpe is not None
+            else s.stub_sharpe if s.stub_sharpe is not None else 0.5
+        )
+        cagr = (
+            s.real_cagr
+            if s.real_cagr is not None
+            else s.stub_cagr if s.stub_cagr is not None else 0.08
+        )
         mu_d = cagr / 252
         sigma_d = abs(mu_d / (sr / (252 ** 0.5))) if sr != 0 else 0.01
         rets = np.random.normal(mu_d, sigma_d, N_DAYS).tolist()
