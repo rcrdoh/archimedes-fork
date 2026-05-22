@@ -77,7 +77,7 @@ The compelling part: the textbook tools to prevent this — Deflated Sharpe Rati
 ```
 Archimedes is "Linus for quantitative finance" — a research-grounded strategy-generation instrument for capable non-experts who want their idle USDC to compound thoughtfully. The user describes what they want; Archimedes fuses that intent with live market regime data and a 10,000-paper quantitative-finance research library into a candidate strategy. The strategy passes through a four-control selection-bias rigor gate (Deflated Sharpe Ratio, Probability of Backtest Overfitting, walk-forward out-of-sample testing, look-ahead static audit) before admission to the Tier-1 library. 2 strategies currently pass the full gate against 22 years of real SPY data. Execution is into non-custodial ERC-4626 vaults on Arc testnet with USDC settlement; every reasoning trace is keccak256-hashed and anchored on a deployed ReasoningTraceRegistry contract.
 
-The stack: Python 3.12 / FastAPI / SQLAlchemy backend in a 6-container docker-compose stack (backend + postgres + redis + nginx + oracle feeder + autonomous agent runner); React 19 + Vite 8 + viem frontend; 10 Solidity contracts deployed via Foundry on Arc testnet; Circle Developer-Controlled Wallets for autonomous on-chain execution (no raw private keys in production); LLM-provider-agnostic backend supporting GLM / Anthropic / OpenAI / Ollama. The newest addition is an LLM-driven agentic portfolio advisor running a 12-iteration tool-use loop that picks individual instruments (not just ETF baskets) and anchors each pick to a paper-grounded strategy passport. Live at http://18.171.230.205.
+The stack: Python 3.12 / FastAPI / SQLAlchemy backend in a 6-container docker-compose stack (backend + postgres + redis + nginx + oracle feeder + autonomous agent runner); React 19 + Vite 8 + viem frontend; 10 Solidity contracts deployed via Foundry on Arc testnet; Circle Developer-Controlled Wallets for autonomous on-chain execution (no raw private keys in production); LLM-provider-agnostic backend supporting GLM / Anthropic / OpenAI / Ollama. The newest addition is an LLM-driven agentic portfolio advisor running a 12-iteration tool-use loop that picks individual instruments (not just ETF baskets) and anchors each pick to a paper-grounded strategy passport. Live at http://13.40.112.220.
 ```
 
 ## 11. Traction*
@@ -87,7 +87,7 @@ The stack: Python 3.12 / FastAPI / SQLAlchemy backend in a 6-container docker-co
 **Draft answer — TEAM TO FILL ACTUAL NUMBERS:**
 
 ```
-Live testnet deploy at http://18.171.230.205 has been up since the Day-3+ EC2 deploy and accepting traffic throughout the build. We're in active outreach phase as of Day-10 — coordinated launch via Discord (Canteen + Arc Builder), Twitter, and r/algotrading is happening in the final 3-day window before submission.
+Live testnet deploy at http://13.40.112.220 has been up since the Day-3+ EC2 deploy and accepting traffic throughout the build. We're in active outreach phase as of Day-10 — coordinated launch via Discord (Canteen + Arc Builder), Twitter, and r/algotrading is happening in the final 3-day window before submission.
 
 Internal team validation: 5 builders across 5 timezones (US/UK/EU/Brazil/Turkey) actively using the platform daily for our own scope-validation; 2 of those are working portfolio professionals (one with CTO experience at a quant trading platform, one ASA-credentialed actuarial trainee) treating the rigor surface as a serious work tool.
 
@@ -112,7 +112,7 @@ https://github.com/hackagora/archimedes-arcadia
 ## 13. Project Live (optional)
 
 ```
-http://18.171.230.205
+http://13.40.112.220
 ```
 
 ## 14. Project Video Demo*
@@ -161,7 +161,7 @@ Archimedes exposes seven forkable primitives that other Arc builders can adopt a
 
 Each primitive has a dedicated spec or walkthrough doc — a forker can implement against the spec without reading the full source. We're under the Unlicense (no attribution required, more permissive than MIT). The existing Arc reference repos (arc-commerce, arc-p2p-payments, etc.) cover transaction-flow plumbing; Archimedes adds the AI-decision-provenance layer on top. They compose; they don't overlap.
 
-302 backend tests + 16 analytics-engine tests green; 10 contracts deployed on Arc testnet; live at http://18.171.230.205. Full positioning + per-primitive how-to-fork docs in ARC-OSS-SHOWCASE.md in the repo root.
+302 backend tests + 16 analytics-engine tests green; 10 contracts deployed on Arc testnet; live at http://13.40.112.220. Full positioning + per-primitive how-to-fork docs in ARC-OSS-SHOWCASE.md in the repo root.
 ```
 
 ## 17. Circle / Arc Feedback*

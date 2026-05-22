@@ -35,7 +35,7 @@ Then open <http://localhost>. Full walkthrough: [`SETUP.md`](SETUP.md).
 
 **Built today:**
 
-- Live testnet deploy: <http://18.171.230.205> · 10 Solidity contracts on Arc
+- Live testnet deploy: <http://13.40.112.220> · 10 Solidity contracts on Arc
 - 3-input fusion engine: user brief × live market regime × 10,000-paper q-fin corpus → grounded strategy spec
 - LLM-driven agentic portfolio advisor (`portfolio_agent.py`, 850 lines) — picks individual instruments and anchors each to a strategy passport
 - Four-control selection-bias rigor gate (DSR + PBO + walk-forward OOS + look-ahead audit) — **2 Tier-1 strategies pass today** against 22 years of real SPY data

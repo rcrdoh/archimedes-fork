@@ -13,7 +13,7 @@ GitHub (main branch)
 GitHub Actions (deploy.yml)
     │  SSH
     ▼
-EC2 (t3.small, eu-west-2)
+EC2 (t3.medium, eu-west-2)
     │
     ├── docker compose (6 services)
     │   ├── backend   (FastAPI :8000) — health-checked
@@ -35,18 +35,18 @@ EC2 (t3.small, eu-west-2)
 | Field         | Value                                                 |
 | ------------- | ----------------------------------------------------- |
 | Instance ID   | `i-0987f70a131ed3ab1`                                 |
-| Type          | `t3.small` (2 vCPU, 2 GB RAM)                        |
+| Type          | `t3.medium` (2 vCPU, 4 GB RAM)                        |
 | Region        | `eu-west-2` (London)                                  |
 | AMI           | Ubuntu 24.04 LTS (x86_64)                            |
-| Public IP     | `18.171.230.205`                                       |
-| Public DNS    | `ec2-18-171-230-205.eu-west-2.compute.amazonaws.com`   |
+| Public IP     | `13.40.112.220`                                       |
+| Public DNS    | `ec2-13-40-112-220.eu-west-2.compute.amazonaws.com`   |
 | Volume        | 20 GB gp3                                             |
 | Cost          | ~$17/month                                            |
 
 ### SSH Access
 
 ```bash
-ssh -i infra/archimedes-deploy-key.pem ubuntu@18.171.230.205
+ssh -i infra/archimedes-deploy-key.pem ubuntu@13.40.112.220
 ```
 
 The private key is in `infra/archimedes-deploy-key.pem` (gitignored). Ask in
@@ -82,7 +82,7 @@ The private key is in `infra/archimedes-deploy-key.pem` (gitignored). Ask in
 ### Manual deploy (if needed)
 
 ```bash
-ssh -i infra/archimedes-deploy-key.pem ubuntu@18.171.230.205
+ssh -i infra/archimedes-deploy-key.pem ubuntu@13.40.112.220
 cd /opt/archimedes
 git fetch origin main
 git reset --hard origin/main
@@ -93,9 +93,9 @@ docker compose up --build -d
 
 ### Backend API
 
-- **URL:** http://18.171.230.205:8000
-- **Docs:** http://18.171.230.205:8000/docs (Swagger UI)
-- **Health:** http://18.171.230.205:8000/health
+- **URL:** http://13.40.112.220:8000
+- **Docs:** http://13.40.112.220:8000/docs (Swagger UI)
+- **Health:** http://13.40.112.220:8000/health
 
 ### Environment Variables
 
@@ -103,7 +103,7 @@ The `.env` file on the EC2 instance contains database credentials and service
 URLs. To update:
 
 ```bash
-ssh -i infra/archimedes-deploy-key.pem ubuntu@18.171.230.205
+ssh -i infra/archimedes-deploy-key.pem ubuntu@13.40.112.220
 nano /opt/archimedes/.env
 docker compose restart
 ```
@@ -128,7 +128,7 @@ need a copy.
 
 ```bash
 # Check service status
-ssh -i infra/archimedes-deploy-key.pem ubuntu@18.171.230.205
+ssh -i infra/archimedes-deploy-key.pem ubuntu@13.40.112.220
 cd /opt/archimedes
 docker compose ps
 docker compose logs backend    # Backend logs

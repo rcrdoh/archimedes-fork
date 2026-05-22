@@ -7,7 +7,7 @@
 > the context it needs without you re-explaining the project.
 > **Status:** Day-9 revision (2026-05-20). Significant cleanup against Day-4 content
 > that had drifted out of sync with shipped reality. Current snapshot the prompts
-> reflect: live React/Vite UI at [`http://18.171.230.205/`](http://18.171.230.205/);
+> reflect: live React/Vite UI at [`http://13.40.112.220/`](http://13.40.112.220/);
 > 10 Arc-testnet contracts; engine v2 (`POST /api/strategies/generate` with 3-input
 > fusion); the full rigor wedge live (DSR/PBO/Kelly/MVO, 2 Tier-1 strategies — Faber
 > 2007 + Moreira-Muir 2017 — with real 22-year SPY backtest numbers); a DB-backed
@@ -105,7 +105,7 @@ Pro), modern sans body (Inter or Geist Sans), monospace for hashes and addresses
 
 In the linked repo: the live frontend is `ui/` (React 19 + Vite 8 + viem 2.48).
 Ignore `ui-mockups/` — that's a retired set of static-HTML prototypes from Day 1–2,
-kept only for archival reference. Live testnet deploy: http://18.171.230.205/.
+kept only for archival reference. Live testnet deploy: http://13.40.112.220/.
 Architecture diagram: `docs/architecture-diagram.html`. Curated per-asset design
 prompts: `docs/claude-design-prompts.md`. Pitch + demo context:
 `docs/demo-script-pitch-deck-outline.md`.
@@ -266,7 +266,7 @@ RIGHT — Rigor + on-chain
 
 SLIDE 5 — DEMO
 Full-bleed slide: the word "DEMO" in large serif type, brand accent, with the live
-URL below in monospace: "http://18.171.230.205" (or the locked domain once announced).
+URL below in monospace: "http://13.40.112.220" (or the locked domain once announced).
 This slide is the demo timer — minimum 90 seconds of live click-through, ending on
 a strategy passport showing the DSR p-value + PBO + OOS Sharpe + the source-paper
 citations.
@@ -359,7 +359,7 @@ preserve the layout — those visual structures are load-bearing for the pitch.
 
 **Setup notes:** Use Claude Design's **Prototype** mode with **High fidelity** selected.
 This is a refinement prompt against the live UI at
-[`http://18.171.230.205/`](http://18.171.230.205/), targeting the proposed
+[`http://13.40.112.220/`](http://13.40.112.220/), targeting the proposed
 simplification in [`docs/ui-simplification-proposal.md`](ui-simplification-proposal.md).
 **The Day-4 risk-tier-cards onboarding flow is retired** — the product is now
 generator-first: users describe what they want, fusion produces a candidate strategy,
@@ -369,7 +369,7 @@ the rigor gate admits or rejects, and the user inspects + deposits. Risk toleran
 ```
 Project: Archimedes — frontend visual refinement toward a simplified page tree.
 
-Live reference URL (please fetch + study before generating): http://18.171.230.205/
+Live reference URL (please fetch + study before generating): http://13.40.112.220/
 This is the shipped UI — React 19 + Vite 8 + viem 2.48 + plain CSS (no Tailwind,
 no Next.js). Wallet connect (MetaMask / Coinbase / generic), Marketplace, Trade,
 Vaults, Intelligence (Corpus Explorer + Risk Analysis) all live.
@@ -999,7 +999,7 @@ showing "we know our own UX, here's how we'd polish it post-hackathon."
 3. **Run Prompt 2** (slide deck) — generate, iterate, export. Make sure the bullets
    match what the team has actually shipped per the Day-4 revision above.
 4. **Run Prompts 3, 4, 5** (UI screens) — give Claude Design the live URL
-   (`http://18.171.230.205/`) as starting reference. These prompts are now **refinement**
+   (`http://13.40.112.220/`) as starting reference. These prompts are now **refinement**
    prompts against the shipped React UI, not greenfield.
 5. **Run Prompts 6–12** (explainer set) when you want explanatory visualizations for
    the deck, README, Discord pin, or social-share assets. They're independent of each
