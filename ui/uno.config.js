@@ -100,6 +100,11 @@ export default defineConfig({
     'i-lucide-library',
     'i-lucide-panel-left-close',
     'i-lucide-panel-left-open',
+    'i-lucide-arrow-left',
+    'i-lucide-chevron-right',
+    'i-lucide-check-circle-2',
+    'i-lucide-sparkles',
+    'i-lucide-graduation-cap',
     // Crypto asset logos
     'i-cryptocurrency-color-btc',
     'i-cryptocurrency-color-usdc',

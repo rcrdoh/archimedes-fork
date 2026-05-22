@@ -6,26 +6,26 @@
 export default function Learnings() {
   return (
     <div>
-      <div className="fade-up fade-up-1" style={{ maxWidth: 720, marginBottom: 28 }}>
-        <h2 className="serif" style={{ fontSize: '2rem', marginBottom: 10 }}>Learnings</h2>
-        <p className="body" style={{ marginBottom: 10 }}>
+      <div className="fade-up fade-up-1 max-w-[720px] mb-7">
+        <h2 className="serif text-[2rem] mb-2.5">Learnings</h2>
+        <p className="body mb-2.5">
           Strategies you've deployed — winners and losers, both first-class — with the
           agent's reasoning available for each rebalance. The whole point: develop your
           own intuition rather than treat the system as a black box.
         </p>
-        <p className="body" style={{ color: 'var(--text-3)' }}>
+        <p className="body text-[var(--text-3)]">
           Losing trades are not hidden. Silently rotating away from losses is the failure
           mode of every "AI fund" — we explicitly don't.
         </p>
       </div>
 
-      <div className="card" style={{ padding: 24 }}>
+      <div className="card p-6">
         <div className="label mb-2">Nothing to show yet</div>
-        <p className="body" style={{ marginBottom: 12 }}>
+        <p className="body mb-3">
           This page populates as you deploy strategies into vaults and time accumulates
           performance + reasoning data. To get started:
         </p>
-        <ol style={{ paddingLeft: 20, lineHeight: 1.7 }}>
+        <ol className="pl-5 leading-loose">
           <li><strong>Generate</strong> a strategy from the <a href="/generate" style={{ color: 'var(--accent)' }}>Generate</a> page.</li>
           <li>Connect your wallet and <strong>deploy it into a vault</strong> before the
             strategy expires — generated strategies are <strong>time-bound</strong> to the
@@ -33,14 +33,14 @@ export default function Learnings() {
           <li>Come back here over time to see how each strategy is doing, and click through
             to the agent's reasoning at each decision point.</li>
         </ol>
-        <p className="caption" style={{ marginTop: 16, color: 'var(--text-4)' }}>
+        <p className="caption mt-4 text-[var(--text-4)]">
           On time-bound strategies: each Generate result captures the live regime + signals
           as its frame of reference. Deploy windows enforce that a strategy keyed to
           Tuesday's market context can't be executed on Friday — if you miss the window,
           regenerate. Server-side enforcement of expiry is on the roadmap
           (<code>docs/specs/strategy-expiry-spec.md</code>, to be drafted).
         </p>
-        <p className="caption" style={{ marginTop: 8, color: 'var(--text-4)' }}>
+        <p className="caption mt-2 text-[var(--text-4)]">
           Roadmap layout: two columns — currently-profitable strategies on the left,
           currently-underperforming on the right; plus an "expired un-deployed" section
           so generated-but-not-acted-on strategies stay visible with their original

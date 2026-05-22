@@ -44,7 +44,7 @@ export default function WalletConnect({ address, onConnect, onDisconnect }) {
             <p className="caption">Select a wallet to interact with Arc Testnet contracts.</p>
 
             {available.length === 0 ? (
-              <div className="info-box warning" style={{ marginTop: 12 }}>
+              <div className="info-box warning mt-3">
                 No wallets detected. Install <a href="https://metamask.io" target="_blank" rel="noreferrer">MetaMask</a> or{' '}
                 <a href="https://www.coinbase.com/wallet" target="_blank" rel="noreferrer">Coinbase Wallet</a>.
               </div>
@@ -52,16 +52,16 @@ export default function WalletConnect({ address, onConnect, onDisconnect }) {
               <div className="wallet-options">
                 {available.map(p => (
                   <button key={p.id} className="wallet-option" onClick={() => handleConnect(p.id)} disabled={busy}>
-                    <span className={`wallet-icon ${p.icon}`} style={{width:20,height:20}} />
+                    <span className={`wallet-icon ${p.icon} w-5 h-5`} />
                     <span>{p.name}</span>
                   </button>
                 ))}
               </div>
             )}
 
-            {error && <div className="status" style={{ marginTop: 12 }}>{error}</div>}
+            {error && <div className="status mt-3">{error}</div>}
 
-            <button className="btn btn-outline" style={{ marginTop: 12, width: '100%' }} onClick={() => setShowModal(false)}>Cancel</button>
+            <button className="btn btn-outline mt-3 w-full" onClick={() => setShowModal(false)}>Cancel</button>
           </div>
         </div>,
         document.body

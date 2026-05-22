@@ -181,18 +181,14 @@ export default function RegimePanel({ regime: regimeProp = null }) {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: '0.7rem', color: signals.sp500_above_ma200 ? 'var(--positive)' : 'var(--negative)' }}>
-                {signals.sp500_above_ma200 ? '✓' : '✗'}
-              </span>
-              <span className="caption" style={{ fontSize: '0.72rem' }}>above MA200</span>
+          <div className="flex gap-2.5 flex-wrap mt-2.5">
+            <div className="flex items-center gap-1">
+              <span className={`w-3 h-3 flex-shrink-0 ${signals.sp500_above_ma200 ? 'i-lucide-check text-[var(--positive)]' : 'i-lucide-x text-[var(--negative)]'}`} />
+              <span className="caption text-[0.72rem]">above MA200</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: '0.7rem', color: signals.sp500_above_ma50 ? 'var(--positive)' : 'var(--negative)' }}>
-                {signals.sp500_above_ma50 ? '✓' : '✗'}
-              </span>
-              <span className="caption" style={{ fontSize: '0.72rem' }}>above MA50</span>
+            <div className="flex items-center gap-1">
+              <span className={`w-3 h-3 flex-shrink-0 ${signals.sp500_above_ma50 ? 'i-lucide-check text-[var(--positive)]' : 'i-lucide-x text-[var(--negative)]'}`} />
+              <span className="caption text-[0.72rem]">above MA50</span>
             </div>
           </div>
         </div>

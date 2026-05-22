@@ -204,9 +204,7 @@ export default function VaultDetail({ address, onBack }) {
   return (
     <div className="vault-detail-page">
       {/* Back button */}
-      <button className="back-btn" onClick={onBack}>
-        ← Back to Vaults
-      </button>
+      <button className="back-btn flex items-center gap-1.5" onClick={onBack}><span className="i-lucide-arrow-left w-4 h-4" /> Back to Vaults</button>
 
       {/* Vault Header */}
       <div className="vault-detail-header">

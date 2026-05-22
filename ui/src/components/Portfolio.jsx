@@ -93,8 +93,8 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
 
   return (
     <div>
-      <div className="fade-up fade-up-1" style={{ maxWidth: 720, marginBottom: 24 }}>
-        <h2 className="serif" style={{ fontSize: '2rem', marginBottom: 10 }}>Portfolio</h2>
+      <div className="fade-up fade-up-1 max-w-[720px] mb-6">
+        <h2 className="serif text-[2rem] mb-2.5">Portfolio</h2>
         <p className="body">
           What you own, how the agent is managing it, and what it's been doing recently.
           Every rebalance has a reasoning trace anchored on Arc — click into any decision
@@ -103,43 +103,44 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
       </div>
 
       {!walletAddr && (
-        <div className="info-box warning" style={{ marginBottom: 24 }}>
+        <div className="info-box warning mb-6">
           Connect your wallet (top right) to load your vault positions. Agent activity
           and the live regime classification are visible without a wallet.
         </div>
       )}
 
       {/* Status strip — agent + regime are real (Redis-backed) regardless of wallet */}
-      <div className="grid g-4" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
-        <div className="card-flat" style={{ padding: 16 }}>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="card-flat p-4">
           <div className="label mb-2">Your Vaults</div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 700 }}>{walletAddr ? userVaults.length : '—'}</div>
-          <div className="caption" style={{ marginTop: 6 }}>
+          <div className="text-[1.8rem] font-bold">{walletAddr ? userVaults.length : '—'}</div>
+          <div className="caption mt-1.5">
             {walletAddr ? `${userVaults.filter(v => v.tier === 1).length} Tier 1 · ${userVaults.filter(v => v.tier === 2).length} Tier 2` : 'connect wallet'}
           </div>
         </div>
-        <div className="card-flat" style={{ padding: 16 }}>
+        <div className="card-flat p-4">
           <div className="label mb-2">Total AUM</div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 700 }}>
+          <div className="text-[1.8rem] font-bold">
             {walletAddr ? `$${totalAum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
           </div>
-          <div className="caption positive" style={{ marginTop: 6 }}>Arc Testnet</div>
+          <div className="caption positive mt-1.5">Arc Testnet</div>
         </div>
-        <div className="card-flat" style={{ padding: 16 }}>
+        <div className="card-flat p-4">
           <div className="label mb-2">Agent</div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 700 }}>
-            {agentStatus?.alive ? '🟢 Alive' : '🔴 Offline'}
+          <div className="flex items-center gap-2 font-bold text-[1.8rem]">
+            <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${agentStatus?.alive ? 'bg-[var(--positive)] shadow-[0_0_6px_var(--positive)]' : 'bg-[var(--negative)]'}`} />
+            {agentStatus?.alive ? 'Alive' : 'Offline'}
           </div>
-          <div className="caption" style={{ marginTop: 6 }}>
+          <div className="caption mt-1.5">
             Last heartbeat: {agentStatus?.last_heartbeat ? timeAgo(agentStatus.last_heartbeat) : '—'}
           </div>
         </div>
-        <div className="card-flat" style={{ padding: 16 }}>
+        <div className="card-flat p-4">
           <div className="label mb-2">Market Regime</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700, textTransform: 'capitalize' }}>
+          <div className="text-[1.4rem] font-bold capitalize">
             {regime?.regime?.replace('_', ' ') || '—'}
           </div>
-          <div className="caption" style={{ marginTop: 6 }}>
+          <div className="caption mt-1.5">
             {regime?.confidence != null ? `${(regime.confidence * 100).toFixed(0)}% confidence` : 'no data'}
           </div>
         </div>
@@ -147,12 +148,12 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
 
       {/* User vaults */}
       {walletAddr && (
-        <div style={{ marginBottom: 28 }}>
+        <div className="mb-7">
           <div className="label mb-3">Your Vault Positions</div>
           {vaultsLoading && <div className="caption">Loading vaults…</div>}
           {!vaultsLoading && userVaults.length === 0 && (
             <div className="card" style={{ padding: 18 }}>
-              <p className="body" style={{ marginBottom: 8 }}>You don't own any vaults yet.</p>
+              <p className="body mb-2">You don't own any vaults yet.</p>
               <p className="caption">
                 Go to <a href="/generate" style={{ color: 'var(--accent)' }}>Generate</a> to design a
                 strategy, then deploy it into a non-custodial vault from the result card.
@@ -160,15 +161,15 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
             </div>
           )}
           {userVaults.length > 0 && (
-            <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
               {userVaults.map(v => (
                 <div key={v.address} className="card vault-card-clickable" onClick={() => onSelectVault?.(v.address)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div className="flex justify-between mb-2">
                     <code style={{ fontSize: '0.8rem' }}>{shortAddr(v.address)}</code>
                     <span className={`tag ${v.tier === 1 ? 'tag-accent' : 'tag-muted'}`}>T{v.tier}</span>
                   </div>
                   {v.name && <div className="caption" style={{ marginBottom: 4 }}>{v.name}</div>}
-                  <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>${v.aum.toFixed(2)}</div>
+                  <div className="text-[1.2rem] font-bold">${v.aum.toFixed(2)}</div>
                   <div className="caption">AUM</div>
                 </div>
               ))}
@@ -191,7 +192,7 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
           </div>
         )}
         {recentTraces.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {recentTraces.map(t => (
               <div
                 key={t.id}
@@ -199,22 +200,25 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
                 onClick={() => onSelectTrace?.(t.id)}
                 style={{ cursor: 'pointer' }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div className="flex justify-between items-center gap-3 flex-wrap">
                   <div>
-                    <span className="tag tag-muted" style={{ marginRight: 8, textTransform: 'capitalize' }}>{t.decision_type}</span>
+                    <span className="tag tag-muted mr-2 capitalize">{t.decision_type}</span>
                     <strong style={{ fontSize: '0.9rem' }}>{t.trigger}</strong>
                   </div>
                   <span className="caption">{t.timestamp ? timeAgo(t.timestamp) : ''}</span>
                 </div>
                 {t.reasoning && (
-                  <div className="caption" style={{ marginTop: 6, lineHeight: 1.45 }}>
+                  <div className="caption mt-1.5 leading-relaxed">
                     {t.reasoning.slice(0, 180)}{t.reasoning.length > 180 ? '…' : ''}
                   </div>
                 )}
-                <div className="caption" style={{ marginTop: 6, display: 'flex', gap: 12, color: 'var(--text-3)' }}>
+                <div className="caption mt-1.5 flex gap-3 text-[var(--text-3)]">
                   {t.vault_address && <span>vault {shortAddr(t.vault_address)}</span>}
                   {t.trace_hash && <span className="mono">{t.trace_hash.slice(0, 10)}…</span>}
-                  {t.is_verified ? <span className="positive">✓ anchored</span> : <span>off-chain only</span>}
+                  {t.is_verified
+                    ? <span className="flex items-center gap-1 text-[var(--positive)]"><span className="i-lucide-check-circle w-3.5 h-3.5" /> anchored</span>
+                    : <span>off-chain only</span>
+                  }
                 </div>
               </div>
             ))}

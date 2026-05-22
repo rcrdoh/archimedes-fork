@@ -29,21 +29,21 @@ export default function Generate() {
 
   return (
     <div>
-      <div className="fade-up fade-up-1" style={{ maxWidth: 720, marginBottom: 28 }}>
-        <h2 className="serif" style={{ fontSize: '2rem', marginBottom: 10 }}>Generate a Strategy</h2>
-        <p className="body" style={{ marginBottom: 8 }}>
+      <div className="fade-up fade-up-1 max-w-[720px] mb-7">
+        <h2 className="serif text-[2rem] mb-2.5">Generate a Strategy</h2>
+        <p className="body mb-2">
           Describe what you want in plain English. The agent picks and weights
           paper-grounded strategies under hard risk constraints, computes a blended
           expected profile from real backtests, and anchors a verifiable reasoning trace.
         </p>
-        <p className="body" style={{ color: 'var(--text-3)' }}>
+        <p className="body text-[var(--text-3)]">
           No wallet required to generate. Wallet is only needed to deposit into a vault.
         </p>
       </div>
 
       {loading && <div className="caption">Loading strategy library…</div>}
       {error && (
-        <div className="info-box warning" style={{ marginBottom: 16 }}>
+        <div className="info-box warning mb-4">
           Couldn't load library: {error}. The architect needs the library to pick from.
         </div>
       )}
