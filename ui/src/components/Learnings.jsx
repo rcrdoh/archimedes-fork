@@ -3,7 +3,11 @@
 // the system's) have performed well, which haven't, and the agent's reasoning
 // for each. Honest empty state until strategies accumulate runtime data.
 
-export default function Learnings() {
+export default function Learnings({ onNavigate }) {
+  const goGenerate = (e) => {
+    e.preventDefault()
+    onNavigate?.('generate')
+  }
   return (
     <div>
       <div className="fade-up fade-up-1 max-w-[720px] mb-7">
@@ -26,7 +30,7 @@ export default function Learnings() {
           performance + reasoning data. To get started:
         </p>
         <ol className="pl-5 leading-loose">
-          <li><strong>Generate</strong> a strategy from the <a href="/generate" style={{ color: 'var(--accent)' }}>Generate</a> page.</li>
+          <li><strong>Generate</strong> a strategy from the <a href="/generate" onClick={goGenerate} className="text-[var(--accent)]">Generate</a> page.</li>
           <li>Connect your wallet and <strong>deploy it into a vault</strong> before the
             strategy expires — generated strategies are <strong>time-bound</strong> to the
             market context captured at generation time, so they go stale.</li>

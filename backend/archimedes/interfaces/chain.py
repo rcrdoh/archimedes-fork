@@ -1,8 +1,11 @@
-"""On-chain backend interfaces — Marten implements these.
+"""On-chain backend interfaces.
 
 These wrap all interactions with Arc contracts and Circle SDK.
-The agent orchestrator calls these; Marten implements the actual
-web3 calls, Circle API calls, and transaction management.
+The agent orchestrator calls these.
+
+Reviewer: Chuan (on-chain integration layer — `chain/` subpackage).
+Coverage: Marten — per CLAUDE.md § "Lead + coverage", lanes are guidance
+for review, not gates for who may author.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from archimedes.models.trace import ReasoningTrace
 class IOracleUpdater(Protocol):
     """Fetches real-world prices and pushes them to the on-chain PriceOracle.
 
-    Owner: Marten
+    Reviewer: Chuan (on-chain integration); coverage: Marten.
     Runs on a polling loop (every ~60 seconds for hackathon).
 
     Design reference: ecosystem-design-spec.md § 3.6
@@ -55,7 +58,7 @@ class IOracleUpdater(Protocol):
           - BTC dominance
           - USYC yield
 
-        This is the input to Önder's regime detector.
+        This is the input to IRegimeDetector.
         """
         ...
 
@@ -63,7 +66,7 @@ class IOracleUpdater(Protocol):
 class IChainExecutor(Protocol):
     """Executes on-chain transactions for the agent.
 
-    Owner: Marten
+    Reviewer: Chuan (on-chain integration); coverage: Marten.
     Handles Circle SDK wallet management, transaction signing,
     and confirmation tracking.
 
@@ -122,7 +125,7 @@ class IChainExecutor(Protocol):
 class ITracePublisher(Protocol):
     """Publishes reasoning trace hashes to the on-chain ReasoningTraceRegistry.
 
-    Owner: Marten
+    Reviewer: Chuan (on-chain integration); coverage: Marten.
     Called by the agent orchestrator after every decision.
 
     Design reference: design.md § 4.4, ecosystem-design-spec.md § 3.4

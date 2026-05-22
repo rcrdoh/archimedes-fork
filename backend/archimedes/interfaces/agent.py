@@ -1,9 +1,12 @@
-"""Agent orchestrator interface — Chuan implements this.
+"""Agent orchestrator interface.
 
 This is the brain of the system. It polls on a schedule, reads market state,
-runs Önder's math, decides whether to act, and dispatches to Marten's executor.
+runs the math primitives, decides whether to act, and dispatches to the chain
+executor. All other interfaces plug into this one.
 
-All other interfaces plug into this one.
+Reviewer: Chuan (architecture + on-chain).
+Coverage: full team — per CLAUDE.md § "Lead + coverage", lanes are guidance
+for review, not gates for who may author.
 """
 
 from __future__ import annotations
@@ -18,14 +21,14 @@ from archimedes.models.trace import ReasoningTrace
 class IAgentOrchestrator(Protocol):
     """The autonomous portfolio agent — the main polling loop.
 
-    Owner: Chuan
+    Reviewer: Chuan.
     Dependencies:
-      - IRegimeDetector (Önder)
-      - IPortfolioConstructor (Önder)
-      - IStrategyProvider (Dan)
-      - IOracleUpdater (Marten)
-      - IChainExecutor (Marten)
-      - ITracePublisher (Marten)
+      - IRegimeDetector
+      - IPortfolioConstructor
+      - IStrategyProvider
+      - IOracleUpdater
+      - IChainExecutor
+      - ITracePublisher
 
     Design reference: design.md § 4.3
     """
@@ -35,25 +38,25 @@ class IAgentOrchestrator(Protocol):
 
         The full pipeline per tick:
 
-          1. Marten's IOracleUpdater.fetch_market_snapshot()
-          2. Marten's IOracleUpdater.push_prices_on_chain()
-          3. Önder's IRegimeDetector.classify(snapshot)
+          1. IOracleUpdater.fetch_market_snapshot()
+          2. IOracleUpdater.push_prices_on_chain()
+          3. IRegimeDetector.classify(snapshot)
           4. For each managed vault:
-             a. Marten's IChainExecutor.read_portfolio(vault)
+             a. IChainExecutor.read_portfolio(vault)
              b. Check rebalance triggers:
                 - Drift > 5% from target
                 - Regime changed
                 - Strategy rolling 30d Sharpe < 0.5 for 7 days
                 - Calendar (weekly)
              c. If triggered:
-                - Dan's IStrategyProvider.list_strategies()
-                - Önder's IPortfolioConstructor.construct(...)
+                - IStrategyProvider.list_strategies()
+                - IPortfolioConstructor.construct(...)
                 - Compute trades = diff(current, target)
                 - Cost-benefit: only rebalance if benefit > 2 * cost
              d. If rebalancing:
-                - Marten's IChainExecutor.execute_trades(vault, trades)
+                - IChainExecutor.execute_trades(vault, trades)
                 - Generate ReasoningTrace
-                - Marten's ITracePublisher.publish(trace)
+                - ITracePublisher.publish(trace)
              e. If skipping:
                 - Generate skip trace (DecisionType.SKIP)
                 - Optionally publish skip trace

@@ -1,9 +1,13 @@
-"""Strategy provider interface — Dan implements this.
+"""Strategy provider interface.
 
-Dan curates the v1 strategy library (5-10 hand-curated strategies)
-and builds the arxiv extraction pipeline as a demo feature.
+Curates the v1 strategy library (5-10 hand-curated strategies)
+and the arxiv extraction pipeline as a demo feature.
 This interface abstracts both: the backend doesn't care whether a
 strategy was hand-curated or LLM-extracted.
+
+Reviewer: Dan (strategy engine + corpus curation); coverage: Önder.
+Per CLAUDE.md § "Lead + coverage", lanes are guidance for review, not gates
+for who may author.
 """
 
 from __future__ import annotations
@@ -16,8 +20,8 @@ from archimedes.models.strategy import Strategy, StrategyStatus
 class IStrategyProvider(Protocol):
     """Provides strategies to the portfolio agent.
 
-    Owner: Dan
-    Consumers: Chuan (agent orchestrator), Önder (backtest evaluator)
+    Reviewer: Dan; coverage: Önder.
+    Consumers: agent orchestrator, backtest evaluator.
 
     Design reference: design.md § 4.1
     """

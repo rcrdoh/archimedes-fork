@@ -32,31 +32,35 @@ const PATH_TO_PAGE = Object.fromEntries(
 )
 
 function resolveRoute(pathname = '/', search = '') {
+  const params = new URLSearchParams(search)
+  const highlight = params.get('highlight')
+
   if (PATH_TO_PAGE[pathname]) {
-    return { page: PATH_TO_PAGE[pathname], vaultAddress: null, traceId: null, matched: true }
+    return { page: PATH_TO_PAGE[pathname], vaultAddress: null, traceId: null, highlight, matched: true }
   }
 
   if (pathname.startsWith('/portfolio/vaults/')) {
     const rawAddress = pathname.replace('/portfolio/vaults/', '')
-    if (rawAddress) return { page: 'vault-detail', vaultAddress: rawAddress, traceId: null, matched: true }
+    if (rawAddress) return { page: 'vault-detail', vaultAddress: rawAddress, traceId: null, highlight, matched: true }
   }
 
   if (pathname.startsWith('/reasoning/')) {
     const id = pathname.replace('/reasoning/', '')
-    if (id) return { page: 'reasoning', vaultAddress: null, traceId: id, matched: true }
+    if (id) return { page: 'reasoning', vaultAddress: null, traceId: id, highlight, matched: true }
   }
 
   // Legacy paths still in the wild — funnel them to the spine.
-  const params = new URLSearchParams(search)
   const vaultAddress = params.get('vault')
-  if (vaultAddress) return { page: 'vault-detail', vaultAddress, traceId: null, matched: true }
+  if (vaultAddress) return { page: 'vault-detail', vaultAddress, traceId: null, highlight, matched: true }
 
-  return { page: 'landing', vaultAddress: null, traceId: null, matched: false }
+  return { page: 'landing', vaultAddress: null, traceId: null, highlight: null, matched: false }
 }
 
-function pageToPath(page, selectedVault = null) {
+function pageToPath(page, selectedVault = null, highlight = null) {
   if (page === 'vault-detail' && selectedVault) return `/portfolio/vaults/${selectedVault}`
-  return PAGE_TO_PATH[page] ?? '/'
+  const base = PAGE_TO_PATH[page] ?? '/'
+  if (highlight && page === 'library') return `${base}?highlight=${encodeURIComponent(highlight)}`
+  return base
 }
 
 // ─── Main App ────────────────────────────────────────────────
@@ -68,6 +72,7 @@ export default function App() {
   const [walletAddr, setWalletAddr] = useState(null)
   const [selectedVault, setSelectedVault] = useState(initialRoute.vaultAddress)
   const [tourOpen, setTourOpen] = useState(() => !hasCompletedOnboarding())
+  const [highlightStrategyId, setHighlightStrategyId] = useState(initialRoute.highlight)
 
   // Reconnect a previously connected wallet on mount (silent — uses eth_accounts,
   // no popup). The wallet-changed event keeps state in sync if the user changes
@@ -89,7 +94,10 @@ export default function App() {
 
   const navigateToPage = useCallback((nextPage, opts = {}) => {
     const nextVault = opts.vaultAddress ?? selectedVault
-    const nextPath = pageToPath(nextPage, nextVault)
+    const nextHighlight = Object.prototype.hasOwnProperty.call(opts, 'highlight')
+      ? opts.highlight
+      : (nextPage === 'library' ? highlightStrategyId : null)
+    const nextPath = pageToPath(nextPage, nextVault, nextHighlight)
     const method = opts.replace ? 'replaceState' : 'pushState'
 
     if (window.location.pathname + window.location.search !== nextPath) {
@@ -102,7 +110,8 @@ export default function App() {
     } else if (nextPage !== 'vault-detail') {
       setSelectedVault(null)
     }
-  }, [selectedVault])
+    setHighlightStrategyId(nextPage === 'library' ? nextHighlight : null)
+  }, [selectedVault, highlightStrategyId])
 
   const selectVault = (addr) => navigateToPage('vault-detail', { vaultAddress: addr })
   const backToPortfolio = () => navigateToPage('portfolio', { vaultAddress: null })
@@ -116,6 +125,7 @@ export default function App() {
       const route = resolveRoute(window.location.pathname, window.location.search)
       setPage(route.page)
       setSelectedVault(route.vaultAddress)
+      setHighlightStrategyId(route.highlight)
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
@@ -125,11 +135,11 @@ export default function App() {
     switch (page) {
       case 'landing':      return <Landing onNavigate={navigateToPage} onConnect={() => {/* topbar handles modal */}} walletAddr={walletAddr} />
       case 'generate':     return <Generate />
-      case 'library':      return <Strategies />
+      case 'library':      return <Strategies highlightStrategyId={highlightStrategyId} />
       case 'corpus':       return <CorpusExplorer />
       case 'portfolio':    return <Portfolio walletAddr={walletAddr} onSelectVault={selectVault} onSelectTrace={selectTrace} />
-      case 'reasoning':    return <Reasoning />
-      case 'learnings':    return <Learnings />
+      case 'reasoning':    return <Reasoning onNavigate={navigateToPage} />
+      case 'learnings':    return <Learnings onNavigate={navigateToPage} />
       case 'vault-detail': return <VaultDetail address={selectedVault} onBack={backToPortfolio} />
       default:             return <Landing onNavigate={navigateToPage} onConnect={() => {}} walletAddr={walletAddr} />
     }

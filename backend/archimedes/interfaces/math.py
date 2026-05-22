@@ -1,8 +1,12 @@
-"""Math interfaces — Önder implements these.
+"""Math interfaces.
 
 These are pure computation modules with NO web framework, NO database,
 and NO on-chain dependencies. They take typed inputs and return typed outputs.
-Chuan's backend orchestrator calls them.
+The backend orchestrator calls them.
+
+Reviewer: Önder (portfolio math + risk pricing); coverage: Dan.
+Per CLAUDE.md § "Lead + coverage", lanes are guidance for review, not gates
+for who may author.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from archimedes.models.strategy import Strategy
 class IRegimeDetector(Protocol):
     """Classifies the current market regime from a snapshot.
 
-    Owner: Önder
+    Reviewer: Önder; coverage: Dan.
     Input: MarketSnapshot (prices + VIX + MA + credit spreads)
     Output: RegimeClassification (regime + confidence + signals)
 
@@ -51,7 +55,7 @@ class IRegimeDetector(Protocol):
 class IPortfolioConstructor(Protocol):
     """Constructs a target portfolio from strategies + regime + risk profile.
 
-    Owner: Önder
+    Reviewer: Önder; coverage: Dan.
     Input: risk profile, available strategies with backtest results, current regime
     Output: list of TargetAllocation (symbol + weight)
 
@@ -99,7 +103,7 @@ class IPortfolioConstructor(Protocol):
 class IBacktestEvaluator(Protocol):
     """Evaluates a strategy against historical data.
 
-    Owner: Önder
+    Reviewer: Önder; coverage: Dan.
     Input: Strategy definition + historical price data
     Output: BacktestResult with all standard metrics
 

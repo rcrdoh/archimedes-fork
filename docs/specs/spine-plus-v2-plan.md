@@ -254,7 +254,14 @@ session.
 
 # Phase 1 — Junk extermination + UX fixes
 
-**Status:** READY TO EXECUTE
+**Status:** LANDED — `4e28761` (cherry-pick) + follow-up commit landing
+deferred items (#2 Reasoning restructure + Library export move + `?highlight=`
+deep-link, #3 Learnings onNavigate, #4 ownership reframe). **#1 MetaMask
+filter:** resolved in the earlier wallet-bug fix (`ensureArcChain` requests
+Arc only, never `wallet_requestPermissions`); awaiting one manual MetaMask
+popup verification on the deploy. Reopen only if the popup still surfaces
+multiple chains.
+
 **Dependencies:** None (parallelizable with Phase 0)
 **PR shape:** small, focused, no behavior changes beyond mock-data removal + wallet network filter
 
