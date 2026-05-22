@@ -245,6 +245,11 @@ class AgentStateStore:
         window = traces[offset : offset + limit]
         return window, total
 
+    async def get_last_trace(self, vault_address: str) -> dict | None:
+        """Get the most recent trace for a specific vault."""
+        traces, _ = await self.list_traces(vault_address=vault_address, limit=1)
+        return traces[0] if traces else None
+
     async def get_trace_count(self) -> int:
         """Total number of stored off-chain traces."""
         r = await self._get_redis()

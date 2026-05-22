@@ -110,6 +110,20 @@ class VaultService:
             # Compute returns from oracle price snapshots
             returns = await self._compute_returns(address, target_allocations)
 
+            # Get strategy provenance from last agent trace
+            strategy_ids = []
+            current_regime = None
+            try:
+                from archimedes.services.redis_state import AgentStateStore
+                state = AgentStateStore()
+                last_trace = await state.get_last_trace(address)
+                if last_trace:
+                    strategy_ids = last_trace.get("strategies_referenced", [])
+                    market_ctx = last_trace.get("market_context", {})
+                    current_regime = market_ctx.get("regime")
+            except Exception:
+                pass
+
             return VaultDetailResponse(
                 address=address,
                 name=name,
@@ -129,6 +143,8 @@ class VaultService:
                 return_30d=returns["return_30d"],
                 return_inception=returns["return_inception"],
                 recent_traces=recent_traces,
+                strategy_ids=strategy_ids,
+                current_regime=current_regime,
             )
         except Exception:
             import logging; logging.getLogger(__name__).exception(f"Failed to get vault detail for {address}")

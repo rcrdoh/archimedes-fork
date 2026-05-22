@@ -165,6 +165,11 @@ export default function Landing({ onNavigate, onConnect, walletAddr }) {
             </ul>
           </div>
         </div>
+        <div style={{ marginTop: 16, textAlign: 'center' }}>
+          <button className="btn-secondary" onClick={() => onNavigate('library')}>
+            Browse {stats?.strategyCount || 6} Strategies →
+          </button>
+        </div>
       </section>
 
       {/* ─── Tech Stack ─── */}

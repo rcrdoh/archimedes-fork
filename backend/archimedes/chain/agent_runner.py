@@ -146,7 +146,7 @@ class StrategyRunner:
             await self.state.save_regime_from_values(regime, flat_pct, all_signals)
 
             # 4. Build target allocations
-            targets = self._weights_to_targets(target_weights)
+            targets = self._weights_to_targets(target_weights, all_signals)
 
             # 5. Get managed vaults
             vaults = await self._get_managed_vaults()
@@ -358,8 +358,15 @@ class StrategyRunner:
 
     # ─── Signal → target allocation ───────────────────────────────
 
-    def _weights_to_targets(self, weights: dict[str, float]) -> list[TargetAllocation]:
+    def _weights_to_targets(self, weights: dict[str, float], all_signals: list[StrategySignals] | None = None) -> list[TargetAllocation]:
         """Convert weight dict → TargetAllocation list."""
+        # Build symbol → strategy_ids map from signals
+        symbol_strategies: dict[str, list[str]] = {}
+        if all_signals:
+            for ss in all_signals:
+                for sig in ss.signals:
+                    symbol_strategies.setdefault(sig.asset, []).append(ss.strategy_id)
+
         targets: list[TargetAllocation] = []
         for symbol, weight in weights.items():
             if symbol == "USDC":
@@ -371,7 +378,7 @@ class StrategyRunner:
                 symbol=symbol,
                 token_address=token_address,
                 weight=weight,
-                strategy_ids=[],  # Filled from signals
+                strategy_ids=symbol_strategies.get(symbol, []),
             ))
         return targets
 
