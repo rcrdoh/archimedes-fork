@@ -1,29 +1,35 @@
 # Chuan's Architecture Survey — `backend/archimedes/`
 
-> **Audience:** Marten, Dan, the team. Recon document — describes the surface, names
-> the gaps, **does not act on them**. Per-file follow-ups happen on subsequent
-> prompts.
-> **Scope:** the entire `backend/archimedes/` FastAPI package. Chuan-via-`t2o2`
-> (his agentic system) holds **52 of the 91 commits** under this tree —
-> more than every other contributor combined. The narrow `chain/` subdir is
-> Chuan-the-person's literal lane per `CLAUDE.md`; the rest is Chuan-as-architect
-> via the bot pipeline.
-> **Method:** for every `*.py` file, I extracted line count, first-commit author,
+> **Audience:** team-internal recon document. Describes the surface, names the gaps,
+> **does not act on them**. Per-file follow-ups happen on subsequent prompts.
+> **Scope:** the entire `backend/archimedes/` FastAPI package. The agentic
+> system (`t2o2`) holds **54 of the 97 commits** under this tree — more than
+> every other contributor combined. The `chain/` subdir is the narrow
+> personal-lane focus; the rest is via the bot pipeline.
+> **Method:** for every `*.py` file, extracted line count, first-commit author,
 > module docstring, public symbols, and `TODO|FIXME|NotImplementedError` markers.
-> Raw data: `/tmp/backend_survey_raw.txt` (regenerable). Per-file commit history
-> via `git log --author='t2o2' --author='chuan@gyld.fi' -- backend/archimedes/`.
-> **Status:** as of `main` HEAD on 2026-05-21 (post-#117). The strip-to-spine PR
-> (`#118`, open) doesn't structurally change `backend/archimedes/` — same survey
-> applies before/after the strip merges.
+> Raw extraction regenerable via the per-file `git log` + `grep` recipe at the
+> end of this doc. Per-file commit history via
+> `git log --author='t2o2' --author='chuan@gyld.fi' -- backend/archimedes/`.
+> **Status:** **Day-10 revision (2026-05-22).** Refreshes the Day-9 survey
+> (PR #122) against six commits that landed since: `[strategy] Wire strategy
+> engine to marketplace + vault provenance` · `[infra] Wire LLM credentials
+> into EC2 deploy` · `[contracts] Multi-asset NAV vault` · `[quant]
+> Citadel-grade advisor` · `[quant] Make the portfolio advisor agentic` · two
+> CI/CD redeploys. **3 new files** added (`services/portfolio_agent.py`,
+> `services/stress_engine.py`, `scripts/deploy_contracts.py`),
+> `services/marketplace_service.py` shed **607 lines** (1005 → ~400; gap
+> cluster #8 partly resolved), and the portfolio constructor count went from
+> 3 to **4** (new cluster #5 nuance below).
 
 ## Quick stats
 
-- **Files surveyed:** 75 `*.py` under `backend/archimedes/`
-- **Top files by Chuan/`t2o2` commit count:** `api/routes.py` (19), `main.py` (16),
-  `api/schemas.py` (6), `services/vault_service.py` (5), `services/strategy_fusion.py` (5),
-  `services/strategy_architect.py` (5)
-- **Author distribution under this tree:** `t2o2` 52 · Önder 20 · Daniel Browne (me) 14 ·
-  Dan Browne 2 · Chuan (personal) 2 · danielscoffee 1
+- **Files surveyed:** 78 `*.py` under `backend/archimedes/` (was 75 at Day-9)
+- **Top files by `t2o2` commit count:** `api/routes.py` (19), `main.py` (16),
+  `services/vault_service.py` (6), `api/schemas.py` (6), `services/strategy_fusion.py` (5),
+  `services/strategy_architect.py` (5), `chain/agent_runner.py` (5)
+- **Author distribution under this tree:** `t2o2` 54 · Önder 23 · Daniel B. 14 ·
+  Chuan (personal) 3 · Dan 2 · Daniel R. 1
 
 ## File tree
 
@@ -33,11 +39,11 @@ backend/archimedes/
 ├── main.py                 ← app entrypoint + startup hooks
 ├── db.py                   ← SQLAlchemy async session factory
 ├── api/                    ← FastAPI routes + Pydantic schemas (11 files)
-├── chain/                  ← Chuan's personal lane: web3 + Circle + on-chain (8 files)
+├── chain/                  ← personal lane: web3 + Circle + on-chain (8 files)
 ├── interfaces/             ← frozen Protocol contracts (4 files)
 ├── models/                 ← SQLAlchemy ORM + dataclass models (11 files)
-├── scripts/                ← operational scripts (4 files + __init__)
-└── services/               ← business logic (25 files + __init__)
+├── scripts/                ← operational scripts (5 files + __init__)  ⟵ +deploy_contracts.py
+└── services/               ← business logic (27 files + __init__)      ⟵ +portfolio_agent.py +stress_engine.py
 ```
 
 ---
@@ -59,7 +65,7 @@ backend/archimedes/
 - **`marketplace_schemas.py`** (253 lines, `t2o2`) — Pydantic models for marketplace responses. **Gap:** none structural; tied to `marketplace_service.py`'s seed-data model.
 - **`risk_routes.py`** (231 lines, `t2o2`) — risk analysis aggregator (`/api/risk/portfolio`, `/api/risk/profiles`). **Gap:** none obvious; Önder's `RiskAnalysis.jsx` was the consumer (now deleted by strip — front-end consumer needs to relocate to `/portfolio` per the strip).
 - **`risk_schemas.py`** (80 lines, `t2o2`) — risk band response models. **Gap:** none.
-- **`routes.py`** (**2199 lines**, `t2o2`) — *the* main API surface. Asset / vault / strategy / efficient-frontier / correlation endpoints. **Gap (a):** line 172 has `# TODO: Implement with stored price history` (asset price history is stubbed). **Gap (b):** at 2200 lines it's a monolithic file — splitting by resource (assets / vaults / strategies / frontier) would improve discoverability.
+- **`routes.py`** (~2315 lines now, `t2o2`) — *the* main API surface. Asset / vault / strategy / efficient-frontier / correlation / advisor / stress / agent endpoints. Day-10 added 837 / removed 721 (net +116) — new endpoints for the agentic advisor, stress engine, and updated strategy-passport surfaces. **Gap (a):** line ~172 still has `# TODO: Implement with stored price history` (asset price history stub). **Gap (b):** at 2300+ lines it's a monolithic file — splitting by resource (assets / vaults / strategies / frontier / advisor / stress) would improve discoverability. The dedicated routers (`chat_routes`, `marketplace_routes`, `risk_routes`, `selection_bias_routes`) already prove the pattern.
 - **`schemas.py`** (489 lines, `t2o2`) — the frontend contract. Asset / vault / strategy / trace response shapes. **Gap:** none structural; touching it triggers the announce-before-changing policy.
 - **`selection_bias_routes.py`** (296 lines, `t2o2`) — rigor gate endpoints (per-strategy + bulk + PBO). **Gap:** `_synthetic_returns_from_stub()` and `_load_strategy_code()` are private helpers — the PBO endpoint synthesizes returns from stub metrics when no real returns are stored, which is an honest fallback but worth verifying it's still in use given Önder's `rigor_evaluator.py` work.
 - **`vault_schemas.py`** (60 lines, `t2o2`) — vault create / metadata / allocation request-response models. **Gap:** no module docstring.
@@ -112,9 +118,10 @@ These were defined early as the contract surface for the 5-person concurrent bui
 ## `scripts/` — operational scripts
 
 - **`__init__.py`** (0 lines, `t2o2`). **No gap.**
-- **`bootstrap_vaults.py`** (556 lines, `t2o2`) — bootstraps the demo ecosystem (sets oracle prices, mints synthetics, creates vaults, funds + allocates, adds AMM liquidity, verifies). Hardcoded `TARGET_PRICES` + `VAULT_PROFILES` + `MINT_BUDGET`. **Gap:** operational, works, but tightly coupled to specific demo state — re-running is non-trivial.
+- **`bootstrap_vaults.py`** (~580 lines now, `t2o2`) — bootstraps the demo ecosystem (sets oracle prices, mints synthetics, creates vaults, funds + allocates, adds AMM liquidity, verifies). Hardcoded `TARGET_PRICES` + `VAULT_PROFILES` + `MINT_BUDGET`. Day-10 added 23 lines (likely to support the new multi-asset NAV vault contracts). **Gap:** operational, works, but tightly coupled to specific demo state — re-running is non-trivial.
+- **`deploy_contracts.py`** *(NEW Day-10, 370 lines, `t2o2`)* — deploys updated contracts to Arc testnet via Circle wallet. Tied to the multi-asset NAV vault update (`Vault.sol` now prices all holdings via oracles in `totalAssets()`). Auto-updates `.env` with new addresses + prints addresses for `ui/src/config.js`. **Gap:** the addresses live in two places (`.env` + `config.js`) — script does both but the sync isn't enforced anywhere; drift risk.
 - **`hydrate_corpus.py`** (151 lines, `t2o2`) — deploy-time corpus PDF/text hydration. Polite (3s delay), idempotent (sha256 cache). **Gap:** not auto-invoked anywhere — operator-triggered only.
-- **`run_backtests.py`** (180 lines, **danielscoffee**) — invokes the analytics-engine and persists results. **Gap:** Daniel R. authored; runs the analytics suite as a separate process.
+- **`run_backtests.py`** (180 lines, **Daniel R.**) — invokes the analytics-engine and persists results. **Gap:** runs the analytics suite as a separate process.
 - **`seed_backtests_from_artifacts.py`** (119 lines, `t2o2`) — loads pre-existing artifact JSON into `backtest_results` table without re-running. **Gap:** deployment-time loader; operator-triggered.
 
 ---
@@ -133,7 +140,7 @@ These were defined early as the contract surface for the 5-person concurrent bui
 - **`strategy_architect.py`** (411 lines, **Daniel B. / me** primary) — interactive Claude-driven architect that selects + weights pre-curated strategies. **Gap:** owns its own `LLMBackend` Protocol + `ClaudeBackend` impl — duplicates the abstraction in `llm_backend.py`. Worth unifying.
 - **`strategy_fusion.py`** (650 lines, **Dan Browne** primary) — multi-paper novelty-seeking synthesis. Loads corpus DB-first with file fallback. **Gap:** uses **keyword selection** over corpus (not embeddings — that's `#96`); duplicates `LLMBackend`/`ClaudeBackend`/`CannedBackend` pattern from `strategy_architect.py`. Has a feature flag `fusion_enabled()`.
 - **`strategy_guardrail.py`** (169 lines, **Daniel B. / me** primary) — deterministic weight normalizer + USYC-floor reserver + max-weight cap. Step-2 of the architect path. **Gap:** none structural.
-- **`strategy_signal_evaluator.py`** (444 lines, `t2o2`) — extracts live allocation signals from `analytics-engine/strategies/*.py` (without backtrader). Hardcoded per-strategy signal evaluators (`_faber_sma200_signal`, `_vol_managed_signal`, `_tsmom_signal`, `_buy_hold_signal`). **Gap:** adding a new paper-grounded strategy requires editing this file (`_get_evaluator` dispatch); not data-driven.
+- **`strategy_signal_evaluator.py`** (~529 lines now, `t2o2`) — extracts live allocation signals from `analytics-engine/strategies/*.py` (without backtrader). Hardcoded per-strategy signal evaluators (`_faber_sma200_signal`, `_vol_managed_signal`, `_tsmom_signal`, `_buy_hold_signal`). Day-10 grew net +85 lines (likely supporting the new agent's global market scan). **Gap:** adding a new paper-grounded strategy requires editing this file (`_get_evaluator` dispatch); not data-driven.
 
 ### Domain: regime detection
 
@@ -143,9 +150,11 @@ These were defined early as the contract surface for the 5-person concurrent bui
 ### Domain: portfolio construction + rigor
 
 - **`portfolio_constructor.py`** (285 lines, `t2o2`) — `PortfolioConstructor` — given regime + strategies + risk profile, produces target allocations. Falls back to equal-weight; calls MVO when `price_histories` supplied. **Gap:** hardcoded `_DEFAULT_SYNTHS` list; `_DRIFT_THRESHOLD` differs from `agent_runner.py`'s value.
-- **`portfolio_optimizer.py`** (282 lines, **Önder Akkaya**) — pure MVO: GMV / Max Sharpe / Max Expected Return per risk profile. **Gap:** none structural.
-- **`kelly_portfolio.py`** (505 lines, `t2o2`) — `KellyRiskParityConstructor` — Kelly sizing + inverse-vol risk parity + USDC floor + regime-aware deleveraging. **Gap:** at 505 lines this is the largest constructor — relationship to `portfolio_constructor.py` and `portfolio_optimizer.py` deserves diagramming. Three constructors is a lot.
-- **`rigor_evaluator.py`** (348 lines, **Önder Akkaya**) — DSR / PBO / OOS Sharpe / Kelly fraction / Sharpe CI computation. **Gap:** **duplicates** `selection_bias.py` (DSR + PBO are computed in both). Önder's version is newer (recent #114). Worth deciding which is canonical.
+- **`portfolio_optimizer.py`** (~235 lines now, **Önder**) — pure MVO: GMV / Max Sharpe / Max Expected Return per risk profile + efficient-frontier compute. Heavily rewritten Day-10 (~225 added / ~275 removed — net -50 lines, structural refactor). **Gap:** none structural.
+- **`kelly_portfolio.py`** (505 lines, `t2o2`) — `KellyRiskParityConstructor` — Kelly sizing + inverse-vol risk parity + USDC floor + regime-aware deleveraging. Day-10's "Kelly fix" commit (`a8e447f`) touched this. **Gap:** at 505 lines this is one of the largest constructors — relationship to `portfolio_constructor.py`, `portfolio_optimizer.py`, and (NEW) `portfolio_agent.py` deserves diagramming. Four constructors now.
+- **`portfolio_agent.py`** *(NEW Day-10, 850 lines, `t2o2`)* — **LLM-driven agentic portfolio advisor.** Takes signals from `strategy_signal_evaluator.py` + a global market scan and asks an LLM to construct the final portfolio, picking individual stocks/bonds (not just ETFs) and anchoring each pick to a paper-grounded strategy passport. Uses tool-calling with `MAX_AGENT_ITERATIONS = 12` and a 5-minute cache. Largest single addition since the survey. **Gap:** introduces a *fourth* constructor with materially different semantics (LLM-picked vs deterministic MVO/Kelly/equal-weight) — relationship to the other three is now strictly: (1) `portfolio_optimizer.py` computes weights; (2) `kelly_portfolio.py` applies Kelly sizing on top; (3) `portfolio_constructor.py` orchestrates between regime + strategies + budget; (4) `portfolio_agent.py` replaces the deterministic chain with an LLM agent loop. Worth a one-page "which constructor when?" decision tree.
+- **`stress_engine.py`** *(NEW Day-10, 380 lines, `t2o2`)* — portfolio stress-test engine. Six canonical historical/scenario shocks, per-asset-class shock vectors; computes scenario P&L = Σᵢ wᵢ · shock_class(i, scenario). Resolves picks → asset class via `GLOBAL_ASSETS`. Exposes `stress_one()`, `stress_all()`, `list_scenarios()`, `StressResult`. **Gap:** standalone and clean — but no UI integration yet (the strip-to-spine `Portfolio.jsx` would be the obvious surface to render the scenario table).
+- **`rigor_evaluator.py`** (348 lines, **Önder**) — DSR / PBO / OOS Sharpe / Kelly fraction / Sharpe CI computation. **Gap:** **duplicates** `selection_bias.py` (DSR + PBO are computed in both). The newer version. Worth deciding which is canonical.
 - **`selection_bias.py`** (534 lines, `t2o2`) — older `RigorGateResult` + `run_rigor_gate()` + look-ahead audit. **Gap:** see above — overlaps `rigor_evaluator.py`.
 
 ### Domain: vault + chain glue (consumed by the API layer)
@@ -167,27 +176,49 @@ These were defined early as the contract surface for the 5-person concurrent bui
 - **`construction_trace.py`** (102 lines, **Daniel B. / me**) — builds `ReasoningTrace` for architect output + computes integrity hash. *"This module STOPS at the hash. It never touches the chain."* Hard seam. **Gap:** none; clean.
 - **`job_queue.py`** (107 lines, `t2o2`) — Redis-backed async job queue for strategy generation. **Gap:** the strip commit notes that fusion traces now flow to `/api/traces` automatically; verify the job-queue + trace persistence are coherent.
 - **`llm_backend.py`** (307 lines, `t2o2`) — provider-agnostic LLM backend factory (`LLM_PROVIDER` ∈ {anthropic, anthropic_compatible, openai, ollama}); falls back to `CannedBackend`. **Gap:** `strategy_architect.py` + `strategy_fusion.py` each define their *own* `LLMBackend` Protocol + `ClaudeBackend` + `CannedBackend` instead of using this one. Three parallel abstractions.
-- **`marketplace_service.py`** (**1005 lines**, `t2o2`) — community strategy seed data. **Gap:** docstring: *"Eventually this will connect to a database for user-created strategies."* Currently 1000+ lines of hardcoded seed data — large for what it is, and entirely fake.
+- **`marketplace_service.py`** (~398 lines now, `t2o2`) — community strategy seed data. **Day-10 pruned 607 lines** (was 1005); the `[strategy] Wire strategy engine to marketplace + vault provenance` commit replaced the worst of the seed-data weight with real wiring to the strategy engine + vault provenance. **Gap:** still partly seed-data backed — see Gap Cluster #8 (now partially resolved).
 - **`redis_state.py`** (258 lines, `t2o2`) — `AgentStateStore` over Redis. Persists regime, heartbeat, last-rebalance per vault, traces + trace index. **Gap:** none structural; this is now the trace-index backing for `/api/traces`.
 
 ---
 
-## Aggregate gap clusters (where to look first)
+## Aggregate gap clusters (where to look first) — Day-10 update
 
-Roughly in priority order for "where to fill gaps next" given the launch window:
+Roughly in priority order for "where to fill gaps next" given the launch window. **Bold-italic** notes reflect Day-10 deltas vs the Day-9 ranking.
 
-1. **Redundancy: rigor implementation** — `selection_bias.py` (534 lines, `t2o2`, older) overlaps `rigor_evaluator.py` (348 lines, Önder, newer). Pick one as canonical and delete or wrap the other. Active risk: any future rigor bug fix may land in the wrong file.
-2. **Redundancy: regime detection** — `regime_detector.py` (v1 heuristic) vs `statistical_regime.py` (v2). Unclear which is wired to the live agent loop and the new `RegimePanel` (#115). Decide which is canonical.
-3. **Redundancy: LLM backends** — three parallel `LLMBackend` Protocols + `ClaudeBackend` + `CannedBackend` impls (in `llm_backend.py`, `strategy_architect.py`, `strategy_fusion.py`). Unify on `llm_backend.py`.
-4. **Redundancy: arxiv intake paths** — `arxiv_corpus.py` (Dan, Stream A), `corpus_service.py` (DB-backed), `scripts/bulk_ingest_arxiv.py` (#97 expansion). Cross-cutting; `corpus_service.py` is the canonical going forward but the other two still exist.
-5. **Redundancy: portfolio constructors** — `portfolio_constructor.py` (orchestrator), `portfolio_optimizer.py` (Önder's MVO), `kelly_portfolio.py` (Kelly + risk parity). Three constructors with overlapping responsibilities; a diagram of who calls whom under what regime would help.
-6. **Monolith: `api/routes.py`** — 2199 lines is hard to navigate. Splitting by resource (assets / vaults / strategies / frontier) would improve discoverability; the existing dedicated routers (`chat_routes.py`, `marketplace_routes.py`, `risk_routes.py`, `selection_bias_routes.py`) prove the pattern works.
-7. **Stale interface ownership comments** — `interfaces/agent.py`, `chain.py`, `math.py` say "Chuan implements" / "Marten implements" / "Önder implements" but everything was written by `t2o2`. Cosmetic but misleading for new contributors.
-8. **`marketplace_service.py` seed-data weight** — 1005 lines of fake community strategies. If the marketplace surface lives post-launch, this becomes the longest "real data" gap.
-9. **Scheduled intake / artifact build** — `corpus_service.intake_from_arxiv()` exists but no periodic task; `archimedes-corpus-artifact` volume mounted but empty. Both flagged in `docs/corpus-architecture.md`; both blockers for the "dynamic, continuously fresh" claim.
-10. **Operational scripts as scripts, not as commands** — `bootstrap_vaults.py` (556 lines), `hydrate_corpus.py`, `seed_backtests_from_artifacts.py`, `run_backtests.py` are all operator-triggered. A `Makefile` target per script (per `#106`'s `make corpus` follow-on) would make them discoverable and CI-able.
-11. **TODO marker** — `routes.py:172` `# TODO: Implement with stored price history` (asset price history is stubbed). Small but visible to anyone reading the API.
-12. **`circle_service.py` is judge-oriented** — explicit in the docstring. Not a bug, but worth being aware that this is rubric-surface, not product-surface.
+1. **Redundancy: rigor implementation** — `selection_bias.py` (534 lines, `t2o2`, older) overlaps `rigor_evaluator.py` (348 lines, Önder, newer). Pick one as canonical and delete or wrap the other. Active risk: any future rigor bug fix may land in the wrong file. *Unchanged Day-10.*
+2. **Redundancy: regime detection** — `regime_detector.py` (v1 heuristic) vs `statistical_regime.py` (v2). Unclear which is wired to the live agent loop and the `RegimePanel`. Decide which is canonical. *Unchanged Day-10.*
+3. **Redundancy: LLM backends** — three parallel `LLMBackend` Protocols + `ClaudeBackend` + `CannedBackend` impls (in `llm_backend.py`, `strategy_architect.py`, `strategy_fusion.py`). Unify on `llm_backend.py`. ***Day-10 nuance:*** the new `portfolio_agent.py` also instantiates the LLM path — it appears to use `llm_backend.py` (the right abstraction); verify and use that as the unification template.
+4. **Redundancy: arxiv intake paths** — `arxiv_corpus.py` (older scraper), `corpus_service.py` (DB-backed), `scripts/bulk_ingest_arxiv.py` (10k expansion). Cross-cutting; `corpus_service.py` is the canonical going forward but the other two still exist. *Unchanged Day-10.*
+5. **Multiplicity: portfolio constructors — now FOUR.** *Day-10 added `portfolio_agent.py` (850 lines, LLM-driven agentic) on top of:* `portfolio_constructor.py` (orchestrator), `portfolio_optimizer.py` (Önder's MVO, refactored Day-10), and `kelly_portfolio.py` (Kelly + risk parity, Day-10 Kelly fix). **A one-page decision tree — "which constructor when?" — is now load-bearing.** Best guess from the code: (a) `portfolio_agent.py` is the headline LLM-agentic path; (b) `kelly_portfolio.py` does Kelly sizing; (c) `portfolio_optimizer.py` does MVO; (d) `portfolio_constructor.py` orchestrates (a)/(b)/(c) by regime. Verify before publishing the decision tree.
+6. **Monolith: `api/routes.py`** — now ~2315 lines (was 2199 at Day-9). Splitting by resource would improve discoverability; the dedicated routers (`chat_routes.py`, `marketplace_routes.py`, `risk_routes.py`, `selection_bias_routes.py`) prove the pattern works. ***Day-10:*** worsened — new agent/stress/advisor endpoints all landed in the monolith rather than as new dedicated routers.
+7. **Stale interface ownership comments** — `interfaces/agent.py`, `chain.py`, `math.py` reference owners that don't reflect the current bot-driven authoring reality. Cosmetic but misleading. *Unchanged Day-10.*
+8. **`marketplace_service.py` seed-data weight — partly resolved.** *Day-10 pruned 607 lines (1005 → ~398) via `[strategy] Wire strategy engine to marketplace + vault provenance`.* Still partly seed-data backed; remaining work is to fully wire the marketplace surface to the strategy engine + on-chain vault provenance.
+9. **Scheduled intake / artifact build** — `corpus_service.intake_from_arxiv()` exists but no periodic task; `archimedes-corpus-artifact` volume mounted but empty. Both flagged in `docs/corpus-architecture.md`; both blockers for the "dynamic, continuously fresh" claim. *Unchanged Day-10.*
+10. **Operational scripts as scripts, not as commands** — `bootstrap_vaults.py` (~580 lines), `hydrate_corpus.py`, `seed_backtests_from_artifacts.py`, `run_backtests.py`, and now `deploy_contracts.py` are all operator-triggered. A `Makefile` target per script would make them discoverable and CI-able. ***Day-10:*** new `deploy_contracts.py` adds a 5th script in this pattern; also it edits `.env` + needs to mirror to `ui/src/config.js` — that two-place address sync is a drift risk.
+11. **TODO marker** — `routes.py:172` `# TODO: Implement with stored price history`. Small but visible. *Unchanged Day-10.*
+12. **`circle_service.py` is judge-oriented** — explicit in the docstring. Not a bug, but worth being aware that this is rubric-surface, not product-surface. *Unchanged Day-10.*
+13. **NEW Day-10: `stress_engine.py` is built but not wired to the UI.** 380 lines, six canonical scenarios, clean API (`stress_one`, `stress_all`, `list_scenarios`). The strip-to-spine `Portfolio.jsx` would be the obvious surface to render the scenario table; backend is ready, frontend is not.
+14. **NEW Day-10: agentic advisor introduces tool-use semantics not present elsewhere.** `portfolio_agent.py` uses `MAX_AGENT_ITERATIONS = 12` and tool-calling — this is the only place in the codebase where the LLM holds a multi-turn agent loop. The cache TTL is 5 minutes; if a regime changes mid-cache the advisor will give stale recommendations. Worth understanding the failure modes before the demo.
+
+---
+
+## Reproducibility
+
+To regenerate the raw extraction this survey is built from:
+
+```bash
+for f in $(find backend/archimedes -type f -name "*.py" | grep -v __pycache__ | sort); do
+  echo "====FILE: $f"
+  echo "----lines: $(wc -l < "$f")"
+  echo "----firstauth: $(git log --reverse --format='%an' -- "$f" | head -1)"
+  echo "----dockstr:"
+  awk 'NR==1 && /^"""/ {flag=1; sub(/^"""/, ""); print; next} flag && /"""/ {sub(/""".*/, ""); print; flag=0; exit} flag {print}' "$f" | head -8
+  echo "----publicsymbols:"
+  grep -nE '^(class |def |async def |[A-Z_]+ = )' "$f" | head -15
+  echo "----todos:"
+  grep -nE 'TODO|FIXME|XXX|NotImplementedError' "$f" | head -5
+done
+```
 
 ---
 
