@@ -11,7 +11,7 @@
 
 ## Pre-demo checklist (90 seconds)
 
-- [ ] Open `http://18.171.230.205/intelligence/advisor` in a fresh tab
+- [ ] Open `http://13.40.112.220/intelligence/advisor` in a fresh tab
 - [ ] Already-warmed cache: hit the page once 5 min before so yfinance is in cache
 - [ ] Risk profile selector starts on **Moderate**
 - [ ] Devtools closed; screen at 1.25× zoom for stage readability
