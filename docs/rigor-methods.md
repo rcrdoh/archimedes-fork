@@ -1,5 +1,7 @@
 # Rigor Methods — How Archimedes Stress-Tests Every Strategy
 
+> **Status:** Shipped — all four gates (DSR, PBO, walk-forward OOS, look-ahead audit) are live in [`services/rigor_evaluator.py`](../backend/archimedes/services/rigor_evaluator.py) (canonical) and gate every Tier-1 strategy. 2 Tier-1 strategies (Faber 2007, Moreira-Muir 2017) pass all four today.
+>
 > **Audience:** Judges, team members, and anyone reading a strategy passport who is not a quant.
 > **Author:** Önder Akkaya (Lead Quant)
 > **Date:** 2026-05-19

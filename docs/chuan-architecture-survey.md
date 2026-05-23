@@ -3,7 +3,7 @@
 > **Audience:** team-internal recon document. Describes the surface, names the gaps,
 > **does not act on them**. Per-file follow-ups happen on subsequent prompts.
 > **Scope:** the entire `backend/archimedes/` FastAPI package. The agentic
-> system (`t2o2`) holds **54 of the 97 commits** under this tree — more than
+> system (`t2o2`) holds **the majority** of commits under this tree — more than
 > every other contributor combined. The `chain/` subdir is the narrow
 > personal-lane focus; the rest is via the bot pipeline.
 > **Method:** for every `*.py` file, extracted line count, first-commit author,
@@ -11,39 +11,35 @@
 > Raw extraction regenerable via the per-file `git log` + `grep` recipe at the
 > end of this doc. Per-file commit history via
 > `git log --author='t2o2' --author='chuan@gyld.fi' -- backend/archimedes/`.
-> **Status:** **Day-10 revision (2026-05-22).** Refreshes the Day-9 survey
-> (PR #122) against six commits that landed since: `[strategy] Wire strategy
-> engine to marketplace + vault provenance` · `[infra] Wire LLM credentials
-> into EC2 deploy` · `[contracts] Multi-asset NAV vault` · `[quant]
-> Citadel-grade advisor` · `[quant] Make the portfolio advisor agentic` · two
-> CI/CD redeploys. **3 new files** added (`services/portfolio_agent.py`,
-> `services/stress_engine.py`, `scripts/deploy_contracts.py`),
-> `services/marketplace_service.py` shed **607 lines** (1005 → ~400; gap
-> cluster #8 partly resolved), and the portfolio constructor count went from
-> 3 to **4** (new cluster #5 nuance below).
+> **Status:** **Day-11 revision (2026-05-23).** Refreshes the Day-10 survey
+> against the work that landed since:
+>   - **Chuan / t2o2 — `bd6935b` (Strategy DSL + interpreter + fusion evaluator pipeline).** **3 new files** (`services/strategy_dsl.py`, `services/dsl_to_backtrader.py`, `services/fusion_evaluator.py`) + 37 new tests + 7-line additive change to `strategy_fusion.py`. Closes the long-standing fusion-to-backtest gap at the implementation level; the wiring into `_run_fusion_job` is open in [#133](https://github.com/hackagora/archimedes-arcadia/issues/133).
+>   - **Daniel R. — UnoCSS pass (PR #124).** Frontend-only; no `backend/archimedes/` impact.
+>   - **Spine-plus-v2 (Dan / Claude, branch `dbrowneup/spine-plus-v2`).** **8 new files** under `backend/archimedes/`: `api/generate_routes.py`, `api/generate_schemas.py`, `api/explore_routes.py`, `api/explore_schemas.py`, `api/corpus_routes.py`, `services/generation_pipeline.py`, `services/asset_market_service.py`, `services/corpus_categories.py`, `services/kb_runner.py`, `models/kg.py`, `scripts/run_kb_pipeline.py` (11 files including models + scripts). Streaming Generate, Explore page, corpus polish, KB pipeline skeleton.
+>   - **Phase 7 follow-ups filed as t2o2 issues 2026-05-23:** [#129](https://github.com/hackagora/archimedes-arcadia/issues/129) (rigor consolidation), [#130](https://github.com/hackagora/archimedes-arcadia/issues/130) (LLM backend unification), [#131](https://github.com/hackagora/archimedes-arcadia/issues/131) (portfolio constructor retirement), [#132](https://github.com/hackagora/archimedes-arcadia/issues/132) (routes.py monolith split), [#133](https://github.com/hackagora/archimedes-arcadia/issues/133) (fusion-evaluator wiring). Five of the gap clusters below are now live work.
 
 ## Quick stats
 
-- **Files surveyed:** 78 `*.py` under `backend/archimedes/` (was 75 at Day-9)
-- **Top files by `t2o2` commit count:** `api/routes.py` (19), `main.py` (16),
-  `services/vault_service.py` (6), `api/schemas.py` (6), `services/strategy_fusion.py` (5),
-  `services/strategy_architect.py` (5), `chain/agent_runner.py` (5)
-- **Author distribution under this tree:** `t2o2` 54 · Önder 23 · Daniel B. 14 ·
+- **Files surveyed:** ~89 `*.py` under `backend/archimedes/` at Day-11 (78 at Day-10, 75 at Day-9)
+- **Top files by `t2o2` commit count (Day-10 reading; not re-run for Day-11):** `api/routes.py`, `main.py`,
+  `services/vault_service.py`, `api/schemas.py`, `services/strategy_fusion.py`,
+  `services/strategy_architect.py`, `chain/agent_runner.py`
+- **Author distribution under this tree (Day-10 reading):** `t2o2` 54 · Önder 23 · Daniel B. 14 ·
   Chuan (personal) 3 · Dan 2 · Daniel R. 1
 
-## File tree
+## File tree (Day-11)
 
 ```
 backend/archimedes/
 ├── __init__.py
 ├── main.py                 ← app entrypoint + startup hooks
 ├── db.py                   ← SQLAlchemy async session factory
-├── api/                    ← FastAPI routes + Pydantic schemas (11 files)
+├── api/                    ← FastAPI routes + Pydantic schemas (14 files)  ⟵ +generate_routes/_schemas +explore_routes/_schemas +corpus_routes
 ├── chain/                  ← personal lane: web3 + Circle + on-chain (8 files)
 ├── interfaces/             ← frozen Protocol contracts (4 files)
-├── models/                 ← SQLAlchemy ORM + dataclass models (11 files)
-├── scripts/                ← operational scripts (5 files + __init__)  ⟵ +deploy_contracts.py
-└── services/               ← business logic (27 files + __init__)      ⟵ +portfolio_agent.py +stress_engine.py
+├── models/                 ← SQLAlchemy ORM + dataclass models (12 files)   ⟵ +kg.py
+├── scripts/                ← operational scripts (6 files + __init__)        ⟵ +run_kb_pipeline.py
+└── services/               ← business logic (33 files + __init__)            ⟵ +generation_pipeline +asset_market_service +corpus_categories +kb_runner +strategy_dsl +dsl_to_backtrader +fusion_evaluator
 ```
 
 ---
@@ -69,6 +65,14 @@ backend/archimedes/
 - **`schemas.py`** (489 lines, `t2o2`) — the frontend contract. Asset / vault / strategy / trace response shapes. **Gap:** none structural; touching it triggers the announce-before-changing policy.
 - **`selection_bias_routes.py`** (296 lines, `t2o2`) — rigor gate endpoints (per-strategy + bulk + PBO). **Gap:** `_synthetic_returns_from_stub()` and `_load_strategy_code()` are private helpers — the PBO endpoint synthesizes returns from stub metrics when no real returns are stored, which is an honest fallback but worth verifying it's still in use given Önder's `rigor_evaluator.py` work.
 - **`vault_schemas.py`** (60 lines, `t2o2`) — vault create / metadata / allocation request-response models. **Gap:** no module docstring.
+
+### Day-11 additions (spine-plus-v2)
+
+- **`generate_routes.py`** *(NEW Day-11, Dan / Claude)* — streaming Generate endpoints (`/api/generate/start`, `/api/generate/stream/{id}`, `/api/generate/jobs`, `/api/generate/jobs/{id}/candidates`). SSE-based stream with hard-cancellation via asyncio task registry; Redis-backed event log for `Last-Event-ID` replay. **Gap:** none structural.
+- **`generate_schemas.py`** *(NEW Day-11)* — request/response shapes for the streaming generation surface. **Gap:** none.
+- **`explore_routes.py`** *(NEW Day-11)* — Explore page backend (`/api/explore/assets`, `/api/explore/assets/{symbol}/history`). Reads from yfinance via `asset_market_service.py`, not the on-chain oracle (oracle has no history). **Gap:** none.
+- **`explore_schemas.py`** *(NEW Day-11)* — Explore response shapes. **Gap:** none.
+- **`corpus_routes.py`** *(NEW Day-11)* — corpus graph + KG endpoints (`/api/papers/corpus/graph`, `/api/papers/corpus/kg`), moved out of `routes.py` per the cross-cutting "dedicated router" discipline. **Gap:** none.
 
 ---
 
@@ -113,6 +117,10 @@ These were defined early as the contract surface for the 5-person concurrent bui
 - **`trace.py`** (99 lines, `t2o2`) — `ReasoningTrace` dataclass + `DecisionType` enum. **Gap:** imports `web3` at module level (`from web3 import Web3`) which is a heavy dep for a model file — the hash computation could live in a helper instead.
 - **`vault.py`** (66 lines, `t2o2`) — `VaultInfo`, `VaultMetrics`, `VaultTier`. **No gap.**
 
+### Day-11 additions (spine-plus-v2)
+
+- **`kg.py`** *(NEW Day-11, Dan / Claude)* — knowledge-graph ORM tables (nodes, edges, embedding refs) backing the KB pipeline skeleton. Imports `Base` from `models/chat.py` (per the existing import structure). **Gap:** schema present; the pipeline that populates it is gated behind `KB_PIPELINE_ENABLED` and waits on Dan's Linus-side iteration stabilizing.
+
 ---
 
 ## `scripts/` — operational scripts
@@ -123,6 +131,10 @@ These were defined early as the contract surface for the 5-person concurrent bui
 - **`hydrate_corpus.py`** (151 lines, `t2o2`) — deploy-time corpus PDF/text hydration. Polite (3s delay), idempotent (sha256 cache). **Gap:** not auto-invoked anywhere — operator-triggered only.
 - **`run_backtests.py`** (180 lines, **Daniel R.**) — invokes the analytics-engine and persists results. **Gap:** runs the analytics suite as a separate process.
 - **`seed_backtests_from_artifacts.py`** (119 lines, `t2o2`) — loads pre-existing artifact JSON into `backtest_results` table without re-running. **Gap:** deployment-time loader; operator-triggered.
+
+### Day-11 additions (spine-plus-v2)
+
+- **`run_kb_pipeline.py`** *(NEW Day-11)* — entry point for the KB-pipeline batch (PyMuPDF extract → embedding → cluster → KG build), gated behind `KB_PIPELINE_ENABLED`. Skeleton only at Day-11; production body waits on Dan's Linus-side iteration stabilizing. **Gap:** runs nothing meaningful until the KB substrate is finalized.
 
 ---
 
@@ -166,6 +178,19 @@ These were defined early as the contract surface for the 5-person concurrent bui
 - **`circle_service.py`** (121 lines, `t2o2`) — Circle SDK breadth showcase. **Gap:** the docstring is explicit: *"demonstrates breadth of Circle tool usage…for the rubric's 20% Circle Tool Usage category."* This is judge-oriented, not load-bearing.
 - **`config_service.py`** (49 lines, `t2o2`) — serves deployed contract addresses to the frontend. **Gap:** thin.
 
+### Domain: fusion-to-backtest pipeline (Day-11)
+
+- **`strategy_dsl.py`** *(NEW Day-11, `t2o2` / Chuan, 250 lines)* — closed-enum JSON schema + validator for fusion-generated strategies. No `eval`/`exec`/`importlib`; static look-ahead audit. **Gap:** spec doc (`docs/specs/strategy-dsl-spec.md`) is the open item on [#133](https://github.com/hackagora/archimedes-arcadia/issues/133).
+- **`dsl_to_backtrader.py`** *(NEW Day-11, `t2o2`, 197 lines)* — interpreter producing `backtrader.Strategy` subclasses at runtime from a validated `StrategySpec`. **Gap:** none structural.
+- **`fusion_evaluator.py`** *(NEW Day-11, `t2o2`, 339 lines)* — orchestrator: `validate → interpret → backtest → rigor gate`. Uses canonical `services/rigor_evaluator.py` for DSR/OOS-Sharpe (PBO defaulted to 0.0 with a comment, since PBO is a library-level metric). 37 new tests, all passing. **Gap:** **not yet wired into `_run_fusion_job`** — fusion endpoint still emits text-only output in production. Tracked at [#133](https://github.com/hackagora/archimedes-arcadia/issues/133).
+
+### Domain: streaming generation (Day-11, spine-plus-v2)
+
+- **`generation_pipeline.py`** *(NEW Day-11, Dan / Claude)* — the agent-path streaming pipeline. Computes per-candidate buy-and-hold return series, calls `rigor_evaluator.compute_dsr` / `compute_oos_sharpe` for each, applies library-level PBO across the candidate set, validates the user brief as a JSON-mode LLM step. Wired into `generate_routes.py::POST /api/generate/start`. **Gap:** in-flight thread-bound LLM calls can't be hard-cancelled (only the surrounding `asyncio.Task` is cancellable) — documented limitation, not a bug.
+- **`asset_market_service.py`** *(NEW Day-11)* — yfinance reader for the Explore page asset histories. Caches per-symbol pulls. **Gap:** none.
+- **`corpus_categories.py`** *(NEW Day-11)* — labels + counts for corpus filtering in Explore. **Gap:** none.
+- **`kb_runner.py`** *(NEW Day-11)* — KB-pipeline runner skeleton (called by `scripts/run_kb_pipeline.py`). Gated behind `KB_PIPELINE_ENABLED`. **Gap:** production body deferred — see scripts/ note.
+
 ### Domain: cross-cutting
 
 - **`__init__.py`** (6 lines, **Daniel B. / me**) — package docstring naming ownership. **Gap:** ownership comment is stale (much was rewritten by `t2o2`).
@@ -181,24 +206,27 @@ These were defined early as the contract surface for the 5-person concurrent bui
 
 ---
 
-## Aggregate gap clusters (where to look first) — Day-10 update
+## Aggregate gap clusters (where to look first) — Day-11 update
 
-Roughly in priority order for "where to fill gaps next" given the launch window. **Bold-italic** notes reflect Day-10 deltas vs the Day-9 ranking.
+Five of the gap clusters below are now **live work** with t2o2 issues filed. Status column added so the table doubles as a one-glance "what's queued."
 
-1. **Redundancy: rigor implementation** — `selection_bias.py` (534 lines, `t2o2`, older) overlaps `rigor_evaluator.py` (348 lines, Önder, newer). Pick one as canonical and delete or wrap the other. Active risk: any future rigor bug fix may land in the wrong file. *Unchanged Day-10.*
-2. **Redundancy: regime detection** — `regime_detector.py` (v1 heuristic) vs `statistical_regime.py` (v2). Unclear which is wired to the live agent loop and the `RegimePanel`. Decide which is canonical. *Unchanged Day-10.*
-3. **Redundancy: LLM backends** — three parallel `LLMBackend` Protocols + `ClaudeBackend` + `CannedBackend` impls (in `llm_backend.py`, `strategy_architect.py`, `strategy_fusion.py`). Unify on `llm_backend.py`. ***Day-10 nuance:*** the new `portfolio_agent.py` also instantiates the LLM path — it appears to use `llm_backend.py` (the right abstraction); verify and use that as the unification template.
-4. **Redundancy: arxiv intake paths** — `arxiv_corpus.py` (older scraper), `corpus_service.py` (DB-backed), `scripts/bulk_ingest_arxiv.py` (10k expansion). Cross-cutting; `corpus_service.py` is the canonical going forward but the other two still exist. *Unchanged Day-10.*
-5. **Multiplicity: portfolio constructors — now FOUR.** *Day-10 added `portfolio_agent.py` (850 lines, LLM-driven agentic) on top of:* `portfolio_constructor.py` (orchestrator), `portfolio_optimizer.py` (Önder's MVO, refactored Day-10), and `kelly_portfolio.py` (Kelly + risk parity, Day-10 Kelly fix). **A one-page decision tree — "which constructor when?" — is now load-bearing.** Best guess from the code: (a) `portfolio_agent.py` is the headline LLM-agentic path; (b) `kelly_portfolio.py` does Kelly sizing; (c) `portfolio_optimizer.py` does MVO; (d) `portfolio_constructor.py` orchestrates (a)/(b)/(c) by regime. Verify before publishing the decision tree.
-6. **Monolith: `api/routes.py`** — now ~2315 lines (was 2199 at Day-9). Splitting by resource would improve discoverability; the dedicated routers (`chat_routes.py`, `marketplace_routes.py`, `risk_routes.py`, `selection_bias_routes.py`) prove the pattern works. ***Day-10:*** worsened — new agent/stress/advisor endpoints all landed in the monolith rather than as new dedicated routers.
-7. **Stale interface ownership comments** — `interfaces/agent.py`, `chain.py`, `math.py` reference owners that don't reflect the current bot-driven authoring reality. Cosmetic but misleading. *Unchanged Day-10.*
-8. **`marketplace_service.py` seed-data weight — partly resolved.** *Day-10 pruned 607 lines (1005 → ~398) via `[strategy] Wire strategy engine to marketplace + vault provenance`.* Still partly seed-data backed; remaining work is to fully wire the marketplace surface to the strategy engine + on-chain vault provenance.
-9. **Scheduled intake / artifact build** — `corpus_service.intake_from_arxiv()` exists but no periodic task; `archimedes-corpus-artifact` volume mounted but empty. Both flagged in `docs/corpus-architecture.md`; both blockers for the "dynamic, continuously fresh" claim. *Unchanged Day-10.*
-10. **Operational scripts as scripts, not as commands** — `bootstrap_vaults.py` (~580 lines), `hydrate_corpus.py`, `seed_backtests_from_artifacts.py`, `run_backtests.py`, and now `deploy_contracts.py` are all operator-triggered. A `Makefile` target per script would make them discoverable and CI-able. ***Day-10:*** new `deploy_contracts.py` adds a 5th script in this pattern; also it edits `.env` + needs to mirror to `ui/src/config.js` — that two-place address sync is a drift risk.
-11. **TODO marker** — `routes.py:172` `# TODO: Implement with stored price history`. Small but visible. *Unchanged Day-10.*
-12. **`circle_service.py` is judge-oriented** — explicit in the docstring. Not a bug, but worth being aware that this is rubric-surface, not product-surface. *Unchanged Day-10.*
-13. **NEW Day-10: `stress_engine.py` is built but not wired to the UI.** 380 lines, six canonical scenarios, clean API (`stress_one`, `stress_all`, `list_scenarios`). The strip-to-spine `Portfolio.jsx` would be the obvious surface to render the scenario table; backend is ready, frontend is not.
-14. **NEW Day-10: agentic advisor introduces tool-use semantics not present elsewhere.** `portfolio_agent.py` uses `MAX_AGENT_ITERATIONS = 12` and tool-calling — this is the only place in the codebase where the LLM holds a multi-turn agent loop. The cache TTL is 5 minutes; if a regime changes mid-cache the advisor will give stale recommendations. Worth understanding the failure modes before the demo.
+| # | Cluster | Day-11 status | Tracked at |
+|---|---|---|---|
+| 1 | **Redundancy: rigor implementation** (`selection_bias.py` ↔ `rigor_evaluator.py`) | **filed** | [#129](https://github.com/hackagora/archimedes-arcadia/issues/129) — open, t2o2 |
+| 2 | **Redundancy: regime detection** (`regime_detector.py` ↔ `statistical_regime.py`) | **deferred** — needs Önder's read on which is wired to `RegimePanel` before specing | open question for next standup |
+| 3 | **Redundancy: LLM backends** (3 parallel `LLMBackend` Protocols) | **filed** | [#130](https://github.com/hackagora/archimedes-arcadia/issues/130) — open, t2o2 |
+| 4 | **Redundancy: arxiv intake paths** (`arxiv_corpus.py`, `corpus_service.py`, `bulk_ingest_arxiv.py`) | **deferred** — adjacent to Dan's Linus-side KB iteration | will fold into Phase 3c completion |
+| 5 | **Multiplicity: portfolio constructors** | partially answered: decision-tree spec at [`docs/specs/portfolio-constructor-decision-tree.md`](specs/portfolio-constructor-decision-tree.md) names `portfolio_agent.py` (top-level) + `portfolio_optimizer.py` (math leaf) as canonical. Retirement of `portfolio_constructor.py` + `kelly_portfolio.py` **filed** | [#131](https://github.com/hackagora/archimedes-arcadia/issues/131) — open, t2o2 |
+| 6 | **Monolith: `api/routes.py` (~2315 lines)** | **filed** — 9-file per-resource split spec'd | [#132](https://github.com/hackagora/archimedes-arcadia/issues/132) — open, t2o2 |
+| 7 | **Stale interface ownership comments** (`interfaces/agent.py` / `chain.py` / `math.py`) | **resolved** in Phase 1 deferred resolution (commit `07276d3`) — reframed to Reviewer/Coverage per CLAUDE.md's lane-softening | landed |
+| 8 | **`marketplace_service.py` seed-data weight** | still partial; will file follow-on once [#132](https://github.com/hackagora/archimedes-arcadia/issues/132) settles (the routes split surfaces remaining wiring) | tracked here |
+| 9 | **Scheduled intake / artifact build** | **deferred** — folds into Phase 3c completion (Dan's lane) | tracked here |
+| 10 | **Operational scripts not Make-able** | **resolved** — Makefile extended with `up`/`down`/`logs`/`pytest`/`lint`/`format`/`ui-dev`/`routes`/`clean` (commit `1e372f5`); README pointer added | landed |
+| 11 | **TODO marker at `routes.py:172`** | **resolved** in Phase 1 cherry-pick (commit `6b5baec`) — replaced with `501 Not Implemented` + a fixed-list `available_sources` body so callers see a real schema | landed |
+| 12 | **`circle_service.py` is judge-oriented** | by design — no action needed | n/a |
+| 13 | **`stress_engine.py` built but not wired to the UI** | **deferred** — Phase 4 candidate; Marten's lane. Design-prompts doc calls for a horizontal "Stress-scenario strip" on the Portfolio page; backend ready, frontend strip not yet wired | tracked here |
+| 14 | **Agentic advisor tool-use semantics** | unchanged — `MAX_AGENT_ITERATIONS=12`, 5-min cache. Failure modes worth understanding before the demo | tracked here |
+| 15 | **NEW Day-11: fusion-to-backtest wiring** | **filed** — building blocks shipped in `bd6935b` (DSL + interpreter + evaluator + 37 tests); LLM prompt extension + `_run_fusion_job` rewire + DSL spec doc remain | [#133](https://github.com/hackagora/archimedes-arcadia/issues/133) — open, t2o2 |
 
 ---
 

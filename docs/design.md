@@ -2,6 +2,8 @@
 
 **Fund-of-Funds Portfolio Agent Powered by Academic Research**
 
+> **Status:** Architecture lineage doc — **superseded for product framing** by [`user-stories.md`](user-stories.md); the architecture for everything below the product layer remains authoritative. Component-level shipped state in [`chuan-architecture-survey.md`](chuan-architecture-survey.md). Retained so reviewers can trace the design history.
+>
 > ⚠️ **Superseded for product framing.** This is the original single-vault design
 > document, retained for architecture lineage. The **canonical product spine** — and
 > the retirement of the "connect wallet → pick a risk profile" flow — is

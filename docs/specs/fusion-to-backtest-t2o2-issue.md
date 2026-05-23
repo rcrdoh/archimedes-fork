@@ -1,5 +1,7 @@
 # Issue spec for t2o2 — Fusion-output → Backtestable Strategy DSL
 
+> **Status:** ✓ filed + closed as [#128](https://github.com/hackagora/archimedes-arcadia/issues/128) on 2026-05-23. Foundation shipped in `bd6935b` (DSL + interpreter + evaluator + 37 passing tests, using canonical `services/rigor_evaluator.py`). The three remaining wiring items (prompt extension, `_run_fusion_job` rewire, DSL reference doc) are split out into follow-on [#133](https://github.com/hackagora/archimedes-arcadia/issues/133) — open, assigned to t2o2.
+>
 > **This is a ready-to-file issue body, written to the standard in CLAUDE.md's
 > "agentic issue pipeline" section.** Copy/paste into a GitHub issue,
 > `gh issue edit <n> --add-assignee t2o2`, and the t2o2 agent will pick it up.

@@ -1,5 +1,7 @@
 # Competitor Landscape — Portfolio Management Agents
 
+> **Status:** Canonical competitive framing for pitch + strategy. Crypto moves in weeks — figures below were sourced in dated research briefs; re-verify before pitch day.
+>
 > **Date:** 2026-05-12 (Day 2); **overhauled 2026-05-19** with the on-chain
 > curation-infrastructure tier (Gauntlet/Morpho/Upshift/Accountable), the Arc
 > hackathon peer set, and the testnet-only reality.

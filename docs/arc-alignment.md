@@ -1,5 +1,7 @@
 # Arc Alignment — Strategy & Build Posture
 
+> **Status:** Canonical reference for Arc/Circle alignment. Written 2026-05-19 (Day 8); build-posture decisions below remain current as of 2026-05-23 (Day 11). Re-validate before the pitch.
+>
 > **Date:** 2026-05-19. **Canonical strategy doc for "how Archimedes aligns to,
 > and builds in, the Arc/Circle world."** Read with
 > [`user-stories.md`](user-stories.md) (the spine), [`competitor-landscape.md`](competitor-landscape.md)

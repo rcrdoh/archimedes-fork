@@ -1,5 +1,7 @@
 # Issue spec for t2o2 — Split `routes.py` monolith by resource
 
+> **Status:** filed as [#132](https://github.com/hackagora/archimedes-arcadia/issues/132) on 2026-05-23 · assigned to t2o2 · **open**. Implementation tracked on the GitHub issue. This file is the spec source-of-truth; PR + comments live on the issue.
+>
 > **Ready-to-file issue body.** Per CLAUDE.md's agentic issue pipeline.
 >
 > **Why this exists:** `backend/archimedes/api/routes.py` is **~2315 lines**

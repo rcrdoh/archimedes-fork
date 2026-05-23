@@ -5,28 +5,49 @@
 > **Purpose:** Concrete, paste-ready prompts for slides, UI prototypes, logos, and
 > explanatory visualizations. Each prompt is self-contained so the design session has
 > the context it needs without you re-explaining the project.
-> **Status:** **Day-10 revision (2026-05-22).** Refreshes the Day-9 baseline against
-> the six commits that landed since (multi-asset NAV vault contract update,
-> LLM credentials wired into EC2 deploy, Citadel-grade agentic portfolio advisor,
-> stress engine, marketplace pruning, two CI/CD redeploys). Current snapshot the
-> prompts reflect: live React/Vite UI at
-> [`http://13.40.112.220/`](http://13.40.112.220/) on t3.medium EC2;
-> 10 Arc-testnet contracts (Vault.sol now multi-asset NAV — prices all holdings via
-> oracles in `totalAssets()`); engine v2 (`POST /api/strategies/generate` with
-> 3-input fusion); **agentic portfolio advisor** (`portfolio_agent.py` — LLM agent
-> loop with tool calls, picks individual stocks/bonds and anchors each to a
-> paper-grounded passport); **stress engine** (`stress_engine.py` — six canonical
-> historical/scenario shocks, backend-ready, UI-wiring open); the full rigor wedge
-> live (DSR/PBO/Kelly/MVO, 2 Tier-1 strategies — Faber 2007 + Moreira-Muir 2017 —
-> with real 22-year SPY backtest numbers); a DB-backed 10,000-paper q-fin corpus
-> with the Corpus Explorer UI shipped; "Linus for quantitative finance" as the
-> locked product framing per [`docs/user-stories.md`](user-stories.md); 302 backend
-> tests + 16 analytics-engine tests green; 3 days to submission. UI prompts work as
-> **refinement** prompts against the live UI, not greenfield.
+> **Status:** **Day-11 revision (2026-05-23).** Refreshes the Day-10 baseline
+> against spine-plus-v2 (8 commits ahead of `origin/main`: Phases 0–3 + follow-ups
+> + Makefile + the Day-11 docs cleanup) and Chuan's `bd6935b` (Strategy DSL +
+> interpreter + fusion evaluator pipeline). Current snapshot the prompts reflect:
+> live React/Vite UI at [`http://13.40.112.220/`](http://13.40.112.220/) on
+> t3.medium EC2; 10 Arc-testnet contracts (Vault.sol multi-asset NAV via oracle
+> in `totalAssets()`); **streaming Generate** (`POST /api/generate/start` →
+> SSE stream from the LLM agent loop, with hard-cancellation + Redis-backed
+> `Last-Event-ID` replay); **Explore page** (top-level nav; asset + history
+> read from yfinance via `asset_market_service.py`, not the on-chain oracle —
+> oracle has no history); **Reasoning page restructured** (the Library now
+> carries the strategy detail view + deep-link via `?highlight=`); **onboarding
+> tour** (Phase 6, separate branch `dbrowneup/phase6-onboarding`) — 6-card
+> MetaMask-style modal with in-repo SVG illustrations + "?" topbar reopen;
+> **agentic portfolio advisor** (`portfolio_agent.py` LLM tool-loop, picks
+> individual stocks/bonds anchored to paper-grounded passports); **stress
+> engine** (`stress_engine.py` six historical shocks, backend ready, UI strip
+> still on Phase 4 candidate list); the full rigor wedge live (DSR/PBO/Kelly/
+> MVO via canonical `services/rigor_evaluator.py`; 2 Tier-1 strategies — Faber
+> 2007 + Moreira-Muir 2017 — pass all four gates on 22-year SPY); DB-backed
+> 10,000-paper q-fin corpus with the Corpus Explorer UI shipped; "Linus for
+> quantitative finance" framing locked per [`docs/user-stories.md`](user-stories.md);
+> **343 backend tests** + 16 analytics-engine tests green; **2 days to submission**.
+> UI prompts work as **refinement** prompts against the live UI, not greenfield.
 >
 > **Aligned with [`docs/chuan-architecture-survey.md`](chuan-architecture-survey.md)
-> (Day-10 PR #125):** the shipped-state language below reflects the same Day-10
-> commit set the survey enumerates. When the survey moves, this file moves with it.
+> (Day-11):** the shipped-state language reflects the same commit set the survey
+> enumerates. When the survey moves, this file moves with it.
+>
+> **Day-11 delta callouts for prompts below** — items the existing prompts may
+> still describe in Day-10 terms; refine when running them:
+>   - **SLIDE 4 inventory** should now name *fusion-to-backtest pipeline (DSL +
+>     interpreter + rigor gate, `services/fusion_evaluator.py`)* alongside the
+>     agentic advisor + stress engine. The wiring into `_run_fusion_job` is
+>     in-flight as [#133](https://github.com/hackagora/archimedes-arcadia/issues/133)
+>     so word it carefully if the demo doesn't cover that surface.
+>   - **Page map / Prompt 3** should reflect: Explore is a top-level nav page;
+>     Reasoning lost its Strategies tab (details moved to Library); Generate is
+>     streaming with a mode toggle (Streaming agent vs Architect fast preview);
+>     onboarding tour appears on first visit + via the "?" icon in the topbar.
+>   - **Test counts**: 302 → 343 backend tests; 5 t2o2 issues open in the
+>     queue ([#129](https://github.com/hackagora/archimedes-arcadia/issues/129)–
+>     [#133](https://github.com/hackagora/archimedes-arcadia/issues/133)).
 
 ## Quick notes on using Claude Design
 
