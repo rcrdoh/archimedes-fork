@@ -1905,6 +1905,11 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   to { opacity: 1; }
 }
 
+@keyframes fusion-progress {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
 .strategy-modal {
   background: var(--surface-1);
   border: 1px solid var(--glass-border);
