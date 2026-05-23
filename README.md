@@ -29,6 +29,25 @@ Then open <http://localhost>. Full walkthrough: [`SETUP.md`](SETUP.md).
 > reachable; without the stack you'll see connection errors, not test failures. Full
 > testing notes in [`SETUP.md` § Running the test suite](SETUP.md#running-the-test-suite).
 
+### Common dev commands (`make help`)
+
+The repo ships a [`Makefile`](Makefile) with shortcuts for the daily workflow.
+Run `make` (or `make help`) for the full list. Most useful:
+
+```
+make up         # docker compose up -d --build (starts the stack)
+make down       # stop the stack
+make logs       # tail backend logs
+make pytest     # run the backend test suite (stack must be up)
+make lint       # ruff check
+make format     # ruff format
+make ui-dev     # Vite dev server (ui/)
+make routes     # dump FastAPI route inventory
+make clean      # nuke __pycache__/.pytest_cache/.ruff_cache
+```
+
+Foundry, Circle wallet, and oracle targets (`compile`, `test`, `wallet`, `feed`, …) are also there — see `make help`.
+
 ## Status (2026-05-22)
 
 **Live on the Arc public testnet** (chain ID `5042002`): grab faucet USDC at <https://faucet.circle.com/> (20 USDC / 2h — on Arc, USDC *is* gas) and try the full flow with test funds. **No real money at risk, by design.** Arc has no mainnet yet (Circle's docs list mainnet as "upcoming"); mainnet launch, real-funds custody, and the regulatory architecture (off-chain redemptions, preset-strategy / RIA posture) are the **business-plan roadmap**, not hackathon scope — see [`docs/competitor-landscape.md`](docs/competitor-landscape.md).

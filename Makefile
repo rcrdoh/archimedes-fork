@@ -1,4 +1,40 @@
-.PHONY: setup wallet fund compile test deploy feed balance
+.PHONY: help setup wallet fund compile test deploy feed balance \
+        up down logs pytest lint format ui-dev clean routes
+
+# ─── Help (default) ──────────────────────────────────
+
+help:
+	@echo "Archimedes — common dev targets (run 'make <target>'):"
+	@echo ""
+	@echo "  Stack lifecycle:"
+	@echo "    up           Build + start the docker stack (postgres/redis/backend/oracle/nginx)"
+	@echo "    down         Stop the docker stack"
+	@echo "    logs         Tail backend logs (Ctrl-C to detach)"
+	@echo ""
+	@echo "  Python:"
+	@echo "    pytest       Run the backend test suite (stack must be up first)"
+	@echo "    lint         ruff check"
+	@echo "    format       ruff format"
+	@echo "    routes       Dump FastAPI route inventory"
+	@echo ""
+	@echo "  Frontend:"
+	@echo "    ui-dev       Run the Vite dev server (ui/)"
+	@echo ""
+	@echo "  Contracts (Foundry):"
+	@echo "    compile      forge build"
+	@echo "    test         forge test -vv"
+	@echo ""
+	@echo "  Circle wallet + oracle (wallet-setup/):"
+	@echo "    setup        npm install in wallet-setup/"
+	@echo "    register     Register Circle entity secret"
+	@echo "    wallet       Create Circle dev wallet"
+	@echo "    fund         Open Circle wallet console (request testnet USDC)"
+	@echo "    deploy       Run deploy.mjs"
+	@echo "    feed         Push current prices into the on-chain oracle"
+	@echo "    balance      Query wallet token balance"
+	@echo ""
+	@echo "  Maintenance:"
+	@echo "    clean        Remove __pycache__/.pytest_cache/.ruff_cache"
 
 # ─── Setup ───────────────────────────────────────────
 
@@ -38,8 +74,45 @@ setvault:
 
 # ─── UI ─────────────────────────────────────────────
 
-ui:
+ui-dev:
 	cd ui && npm run dev
+
+ui: ui-dev  # back-compat alias
+
+# ─── Stack lifecycle ─────────────────────────────────
+
+up:
+	docker compose up -d --build
+
+down:
+	docker compose down
+
+logs:
+	docker compose logs -f backend
+
+# ─── Python ──────────────────────────────────────────
+
+pytest:
+	pytest -q --deselect backend/tests/test_api_routes.py::TestAgentRoutes::test_agent_status_redis_down_defaults \
+	          --deselect backend/tests/test_api_routes.py::TestAdvisorRoutes::test_advisor_redis_unavailable
+
+lint:
+	ruff check backend/
+
+format:
+	ruff format backend/
+
+routes:
+	python -c "from archimedes.main import app; \
+	    print('\n'.join(sorted(f'{sorted(r.methods or [])[0] if r.methods else \"-\":6} {r.path}' for r in app.routes)))"
+
+# ─── Maintenance ─────────────────────────────────────
+
+clean:
+	find . -type d -name __pycache__ -not -path "./submodules/*" -not -path "./.claude/*" -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name .pytest_cache -not -path "./submodules/*" -not -path "./.claude/*" -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name .ruff_cache -not -path "./submodules/*" -not -path "./.claude/*" -exec rm -rf {} + 2>/dev/null || true
+	@echo "cleaned __pycache__, .pytest_cache, .ruff_cache"
 
 # ─── Queries ─────────────────────────────────────────
 
