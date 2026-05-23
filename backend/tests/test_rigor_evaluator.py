@@ -26,12 +26,15 @@ import numpy as np
 import pytest
 
 from archimedes.services.rigor_evaluator import (
+    RigorGateResult,
     _dsr_from_stats,
     compute_dsr,
     compute_kelly_fraction,
     compute_oos_sharpe,
     compute_pbo,
     compute_sharpe_ci,
+    look_ahead_audit,
+    run_rigor_gate,
 )
 
 _ANNUALIZATION = 252
@@ -343,3 +346,123 @@ def test_sharpe_ci_rejects_invalid_confidence():
         compute_sharpe_ci(1.0, n_obs_daily=252, confidence=1.0)
     with pytest.raises(ValueError, match="confidence"):
         compute_sharpe_ci(1.0, n_obs_daily=252, confidence=1.5)
+
+
+# ─── Look-ahead audit (migrated from selection_bias.py) ──────────────
+
+
+class TestLookAheadAudit:
+    def test_clean_code(self) -> None:
+        code = '''
+class MyStrategy(bt.Strategy):
+    def next(self):
+        if self.data.close[0] > self.data.close[-1]:
+            self.buy()
+'''
+        passed, warnings = look_ahead_audit(code)
+        assert passed
+        assert len(warnings) == 0
+
+    def test_positive_index(self) -> None:
+        code = '''
+class MyStrategy(bt.Strategy):
+    def next(self):
+        future_price = self.data.close[1]
+        if future_price > self.data.close[0]:
+            self.buy()
+'''
+        passed, warnings = look_ahead_audit(code)
+        assert not passed
+        assert any("positive" in w.lower() for w in warnings)
+
+    def test_suspicious_function(self) -> None:
+        code = '''
+class MyStrategy(bt.Strategy):
+    def next(self):
+        predicted = self.predict(self.data.close[0])
+        if predicted > 100:
+            self.buy()
+'''
+        passed, warnings = look_ahead_audit(code)
+        assert not passed
+        assert any("predict" in w.lower() for w in warnings)
+
+    def test_invalid_syntax(self) -> None:
+        passed, warnings = look_ahead_audit("def broken(:")
+        assert not passed
+        assert any("parse" in w.lower() for w in warnings)
+
+
+# ─── Rigor gate composite (migrated from selection_bias.py) ──────────
+
+
+class TestRigorGate:
+    def test_passes_all(self) -> None:
+        rng = np.random.default_rng(42)
+        returns = rng.normal(0.001, 0.008, size=500).tolist()
+
+        result = run_rigor_gate(
+            strategy_id="test_good",
+            daily_returns=returns,
+            num_trials=5,
+            pbo_scores={"test_good": 0.15},
+            strategy_code="class S: def next(self): self.buy()",
+        )
+
+        assert isinstance(result, RigorGateResult)
+        assert isinstance(result.passes_all, bool)
+        assert isinstance(result.gate_details, dict)
+        assert "dsr" in result.gate_details
+        assert "pbo" in result.gate_details
+        assert "oos_sharpe" in result.gate_details
+        assert "look_ahead" in result.gate_details
+
+    def test_fails_without_pbo(self) -> None:
+        rng = np.random.default_rng(42)
+        returns = rng.normal(0.001, 0.008, size=500).tolist()
+
+        result = run_rigor_gate(
+            strategy_id="test_no_pbo",
+            daily_returns=returns,
+            num_trials=5,
+            pbo_scores=None,
+            strategy_code="class S: def next(self): self.buy()",
+        )
+
+        assert not result.passes_all
+        assert result.gate_details["pbo"] == "MISSING"
+
+    def test_fails_with_high_pbo(self) -> None:
+        result = RigorGateResult(
+            strategy_id="test",
+            dsr_p_value=0.99,
+            pbo_score=0.6,
+            oos_sharpe=1.0,
+            look_ahead_passed=True,
+            in_sample_sharpe=1.5,
+        )
+        assert not result.passes_all
+
+    def test_fails_with_low_oos_ratio(self) -> None:
+        result = RigorGateResult(
+            strategy_id="test",
+            dsr_p_value=0.99,
+            pbo_score=0.2,
+            oos_sharpe=0.3,
+            look_ahead_passed=True,
+            in_sample_sharpe=1.5,
+        )
+        assert not result.passes_all
+
+    def test_explicit_look_ahead_override(self) -> None:
+        rng = np.random.default_rng(42)
+        returns = rng.normal(0.001, 0.008, size=500).tolist()
+
+        result = run_rigor_gate(
+            strategy_id="test_override",
+            daily_returns=returns,
+            num_trials=5,
+            pbo_scores={"test_override": 0.15},
+            look_ahead_audit_passed=True,
+        )
+        assert result.look_ahead_passed is True

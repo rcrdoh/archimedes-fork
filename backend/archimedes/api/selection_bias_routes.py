@@ -13,7 +13,7 @@ from fastapi import APIRouter, Query
 
 from archimedes.api.schemas import StrategyListResponse, StrategyResponse
 from archimedes.models.strategy import StrategyStatus
-from archimedes.services.selection_bias import (
+from archimedes.services.rigor_evaluator import (
     RigorGateResult,
     compute_pbo,
     run_rigor_gate,

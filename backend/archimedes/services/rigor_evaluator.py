@@ -1,4 +1,4 @@
-"""Selection-bias corrections: DSR, PBO, and walk-forward OOS Sharpe.
+"""Selection-bias corrections: DSR, PBO, walk-forward OOS Sharpe, look-ahead audit.
 
 Implements the four-primitive admission gate that separates Tier-1 (Archimedes
 Verified) strategies from curve-fit noise:
@@ -6,7 +6,7 @@ Verified) strategies from curve-fit noise:
   1. Deflated Sharpe Ratio — Bailey & López de Prado (2014)
   2. Probability of Backtest Overfitting via CSCV — Bailey et al. (2014)
   3. Walk-forward out-of-sample Sharpe
-  4. Look-ahead audit (wired upstream in the backtest engine)
+  4. Look-ahead static audit (AST-based)
 
 All functions are pure computation: no I/O, no web framework, no on-chain
 dependencies. They consume daily return arrays and produce the fields that
@@ -18,12 +18,16 @@ Spec:  docs/specs/selection-bias-corrections-spec.md
 
 from __future__ import annotations
 
+import ast
+import logging
 import math
 from itertools import combinations
 
 import numpy as np
 from scipy.stats import kurtosis as sp_kurtosis
 from scipy.stats import norm, skew as sp_skew
+
+logger = logging.getLogger(__name__)
 
 _EULER_MASCHERONI = 0.5772156649
 _ANNUALIZATION = 252
@@ -346,3 +350,214 @@ def _ascending_ranks(values: np.ndarray) -> np.ndarray:
     ranks = np.empty(n, dtype=float)
     ranks[order] = np.arange(1, n + 1, dtype=float)
     return ranks
+
+
+# ─── 5. Look-ahead static audit (AST-based) ──────────────────────────
+
+_LOOK_AHEAD_FUNCTIONS = {
+    "future",
+    "forecast",
+    "predict",
+    "peek",
+    "lookahead",
+    "look_ahead",
+}
+
+
+def look_ahead_audit(strategy_code: str) -> tuple[bool, list[str]]:
+    """Static-analysis check for look-ahead bias in strategy code.
+
+    Parses the strategy source with AST and checks for:
+    1. Forward data access patterns (e.g., self.data.close[+N])
+    2. Calls to functions with look-ahead-suggestive names
+    3. Direct indexing into data feeds beyond current bar
+
+    Args:
+        strategy_code: Python source code of the strategy.
+
+    Returns:
+        (passed, warnings) — passed=True if no look-ahead detected.
+    """
+    warnings: list[str] = []
+
+    try:
+        tree = ast.parse(strategy_code)
+    except SyntaxError as e:
+        return False, [f"Cannot parse strategy code: {e}"]
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func_name = _get_func_name(node.func)
+            if func_name and func_name.lower() in _LOOK_AHEAD_FUNCTIONS:
+                warnings.append(
+                    f"Line {node.lineno}: call to '{func_name}' may indicate look-ahead bias"
+                )
+
+        if isinstance(node, ast.Subscript):
+            slice_val = node.slice
+            if isinstance(slice_val, ast.UnaryOp) and isinstance(slice_val.op, ast.USub):
+                pass
+            elif isinstance(slice_val, ast.Constant) and isinstance(slice_val.value, int):
+                if slice_val.value > 0:
+                    warnings.append(
+                        f"Line {node.lineno}: positive data index [{slice_val.value}] may "
+                        f"reference future bars"
+                    )
+
+    return len(warnings) == 0, warnings
+
+
+def _get_func_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+# ─── 6. Rigor Gate — composite check ─────────────────────────────────
+
+
+class RigorGateResult:
+    """Result of running all four selection-bias checks on a strategy."""
+
+    def __init__(
+        self,
+        strategy_id: str,
+        deflated_sharpe: float | None = None,
+        dsr_p_value: float | None = None,
+        num_trials: int = 1,
+        pbo_score: float | None = None,
+        oos_sharpe: float | None = None,
+        look_ahead_passed: bool = False,
+        in_sample_sharpe: float | None = None,
+        paper_claimed_sharpe: float | None = None,
+    ) -> None:
+        self.strategy_id = strategy_id
+        self.deflated_sharpe = deflated_sharpe
+        self.dsr_p_value = dsr_p_value
+        self.num_trials = num_trials
+        self.pbo_score = pbo_score
+        self.oos_sharpe = oos_sharpe
+        self.look_ahead_passed = look_ahead_passed
+        self.in_sample_sharpe = in_sample_sharpe
+        self.paper_claimed_sharpe = paper_claimed_sharpe
+
+    @property
+    def passes_all(self) -> bool:
+        if self.dsr_p_value is None:
+            return False
+        if self.dsr_p_value < 0.95:
+            return False
+        if self.pbo_score is None:
+            return False
+        if self.pbo_score >= 0.5:
+            return False
+        if self.oos_sharpe is None:
+            return False
+        if self.in_sample_sharpe and self.in_sample_sharpe > 0:
+            if self.oos_sharpe / self.in_sample_sharpe < 0.5:
+                return False
+        if not self.look_ahead_passed:
+            return False
+        return True
+
+    @property
+    def gate_details(self) -> dict[str, str]:
+        details: dict[str, str] = {}
+
+        if self.dsr_p_value is not None and self.dsr_p_value >= 0.95:
+            details["dsr"] = f"PASS (p={self.dsr_p_value:.4f})"
+        elif self.dsr_p_value is not None:
+            details["dsr"] = f"FAIL (p={self.dsr_p_value:.4f}, need ≥ 0.95)"
+        else:
+            details["dsr"] = "MISSING"
+
+        if self.pbo_score is not None and self.pbo_score < 0.5:
+            details["pbo"] = f"PASS (PBO={self.pbo_score:.4f})"
+        elif self.pbo_score is not None:
+            details["pbo"] = f"FAIL (PBO={self.pbo_score:.4f}, need < 0.5)"
+        else:
+            details["pbo"] = "MISSING"
+
+        if self.oos_sharpe is not None and self.in_sample_sharpe and self.in_sample_sharpe > 0:
+            ratio = self.oos_sharpe / self.in_sample_sharpe
+            if ratio >= 0.5:
+                details["oos_sharpe"] = f"PASS (OOS/IS={ratio:.2f})"
+            else:
+                details["oos_sharpe"] = f"FAIL (OOS/IS={ratio:.2f}, need ≥ 0.50)"
+        elif self.oos_sharpe is not None:
+            details["oos_sharpe"] = f"SET (OOS={self.oos_sharpe:.4f}, no IS reference)"
+        else:
+            details["oos_sharpe"] = "MISSING"
+
+        details["look_ahead"] = "PASS" if self.look_ahead_passed else "FAIL"
+
+        return details
+
+
+def run_rigor_gate(
+    strategy_id: str,
+    daily_returns: list[float],
+    num_trials: int = 1,
+    pbo_scores: dict[str, float] | None = None,
+    strategy_code: str | None = None,
+    in_sample_sharpe: float | None = None,
+    paper_claimed_sharpe: float | None = None,
+    look_ahead_audit_passed: bool | None = None,
+) -> RigorGateResult:
+    """Run all four selection-bias checks on a strategy.
+
+    Main entry point called by the orchestrator and API routes.
+    """
+    # 1. DSR (using canonical Pearson kurtosis implementation)
+    deflated_sharpe, dsr_p_value = compute_dsr(daily_returns, num_trials)
+
+    # 2. PBO — use pre-computed library-level score
+    pbo_score = pbo_scores.get(strategy_id) if pbo_scores else None
+
+    # 3. Walk-forward OOS Sharpe
+    oos_sharpe = compute_oos_sharpe(daily_returns)
+
+    # 4. Look-ahead audit
+    if strategy_code is not None:
+        la_passed, la_warnings = look_ahead_audit(strategy_code)
+        if la_warnings:
+            for w in la_warnings:
+                logger.info("Look-ahead audit [%s]: %s", strategy_id, w)
+    else:
+        la_passed = False
+
+    if look_ahead_audit_passed is not None:
+        la_passed = look_ahead_audit_passed
+
+    # Derive in-sample Sharpe if not provided
+    if in_sample_sharpe is None and len(daily_returns) >= 2:
+        arr = np.asarray(daily_returns, dtype=float)
+        sigma = float(arr.std(ddof=1))
+        if sigma > 0:
+            in_sample_sharpe = (float(arr.mean()) / sigma) * math.sqrt(_ANNUALIZATION)
+
+    result = RigorGateResult(
+        strategy_id=strategy_id,
+        deflated_sharpe=deflated_sharpe,
+        dsr_p_value=dsr_p_value,
+        num_trials=num_trials,
+        pbo_score=pbo_score,
+        oos_sharpe=oos_sharpe,
+        look_ahead_passed=la_passed,
+        in_sample_sharpe=in_sample_sharpe,
+        paper_claimed_sharpe=paper_claimed_sharpe,
+    )
+
+    logger.info(
+        "Rigor gate [%s]: %s (DSR p=%s, PBO=%s, OOS=%s, LA=%s)",
+        strategy_id,
+        "PASS" if result.passes_all else "FAIL",
+        dsr_p_value,
+        pbo_score,
+        oos_sharpe,
+        la_passed,
+    )
+
+    return result
