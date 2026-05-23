@@ -22,7 +22,7 @@ from archimedes.models.portfolio import (
 )
 from archimedes.models.regime import Regime, RegimeClassification, RegimeSignals
 from archimedes.models.strategy import Strategy, StrategyStatus
-from archimedes.services.kelly_portfolio import KellyRiskParityConstructor
+from archimedes.services._deprecated.kelly_portfolio import KellyRiskParityConstructor
 
 # Test addresses (no chain_client mocking needed)
 _USDC_ADDR = "0xusdc"
