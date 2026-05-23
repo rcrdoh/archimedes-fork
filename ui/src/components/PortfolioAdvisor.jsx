@@ -318,11 +318,9 @@ export default function PortfolioAdvisor() {
                         {Number.isFinite(pnl) ? `${(pnl * 100).toFixed(1)}%` : '—'}
                       </div>
                       {lowCoverage && (
-                        <div style={{
-                          fontSize: '0.65rem', fontWeight: 600, color: '#f59e0b',
-                          marginTop: 2,
-                        }}>
-                          ⚠ only {(coverage * 100).toFixed(0)}% of book modeled
+                        <div className="inline-flex items-center gap-1 mt-0.5 text-[0.65rem] font-semibold text-[#f59e0b]">
+                          <span className="i-lucide-alert-triangle w-3 h-3" />
+                          only {(coverage * 100).toFixed(0)}% of book modeled
                         </div>
                       )}
                       <div className="caption" style={{ color: 'var(--text-4)', fontSize: '0.68rem', lineHeight: 1.3, marginTop: 4 }}>
