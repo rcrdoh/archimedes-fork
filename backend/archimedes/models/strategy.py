@@ -21,6 +21,7 @@ class StrategyStatus(str, Enum):
     VALIDATED = "validated"  # Passed backtesting validation gate
     LIVE = "live"  # Active in at least one portfolio
     RETIRED = "retired"  # Removed from active use
+    REJECTED = "rejected"  # Failed the rigor gate — visible failure, not silently dropped
 
 
 class PositionSizing(str, Enum):

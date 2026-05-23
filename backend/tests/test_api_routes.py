@@ -438,100 +438,223 @@ class TestAdvisorRoutes:
 
 
 class TestFusionEvaluatorIntegration:
-    """Tests for fusion_evaluator wiring in _run_fusion_job."""
+    """Tests for fusion_evaluator wiring in _run_fusion_job.
 
-    def test_fusion_with_spec_attaches_backtest_and_rigor(self, client):
-        """Fusion job with strategy_spec returns backtest + rigor verdict."""
-        from archimedes.services.strategy_fusion import (
-            FusionProposal, FusionBrief, CorpusPaper,
-        )
+    The HTTP layer (POST /api/strategies/generate) only enqueues a job and
+    returns 202; the meaningful work happens in the background task and
+    cannot be verified by the response body. These tests therefore call
+    ``_run_fusion_job`` directly and assert against the DB after it
+    completes, which is the only way to verify the issue-#133 contract
+    that the rigor verdict actually reaches the StrategyRecord library.
+
+    Redis-touching dependencies (``JobStore`` for queue state,
+    ``AgentStateStore`` for trace persistence) are mocked at their
+    constructor sites so the test is hermetic and doesn't require a
+    reachable ``redis:6379`` hostname.
+    """
+
+    @pytest.fixture()
+    def _no_redis_job_store(self):
+        """Replace JobStore with an in-memory mock so async Redis ops don't hit a real server."""
+        store_state: dict[str, dict] = {}
+
+        class _MockJobStore:
+            def __init__(self, url=None):
+                pass
+
+            async def _get_redis(self):  # pragma: no cover — never called via mock path
+                raise RuntimeError("mock JobStore has no real redis backing")
+
+            async def enqueue(self, payload):
+                import uuid
+                job_id = str(uuid.uuid4())
+                store_state[job_id] = {"status": "queued", "payload": payload}
+                return job_id
+
+            async def get(self, job_id):
+                return store_state.get(job_id)
+
+            async def update_status(self, job_id, status, result=None, error=None):
+                store_state.setdefault(job_id, {})["status"] = status
+                if result is not None:
+                    store_state[job_id]["result"] = result
+                if error is not None:
+                    store_state[job_id]["error"] = error
+
+            async def close(self):
+                return None
+
+        with patch(
+            "archimedes.services.job_queue.JobStore",
+            new=_MockJobStore,
+        ):
+            yield store_state
+
+    @pytest.fixture()
+    def _no_redis_agent_state(self):
+        """Replace AgentStateStore so trace persistence doesn't hit Redis."""
+        with patch("archimedes.services.redis_state.AgentStateStore") as mock_cls:
+            instance = mock_cls.return_value
+            instance.save_trace = AsyncMock(return_value=None)
+            instance.close = AsyncMock(return_value=None)
+            yield mock_cls
+
+    def _seed_job(self, store_state, job_id, payload):
+        """Pre-seed an enqueued job so _run_fusion_job has something to consume."""
+        store_state[job_id] = {"status": "queued", "payload": payload}
+
+    async def test_fusion_with_spec_persists_rigor_verdict_to_library(
+        self, client, _no_redis_job_store, _no_redis_agent_state,
+    ):
+        """Per issue #133: a fusion job with a strategy_spec must persist the
+        backtest metrics + rigor verdict into the StrategyRecord so the Library
+        renders fusion-generated strategies alongside seed picks with real
+        DSR / PBO / Sharpe numbers — not just an "evaluation pending" placeholder.
+
+        NOTE: declared ``async def`` (not ``def`` with ``asyncio.run``) because
+        pytest.ini sets ``asyncio_mode = auto`` — pytest-asyncio owns the event
+        loop and disposes of it cleanly. Calling ``asyncio.run`` from a sync
+        test closes the main-thread loop and breaks any subsequent async test
+        in the same session (e.g. ``test_trace_publisher.py`` was an unintended
+        casualty during an earlier iteration of this fix).
+        """
+        import json as _json
+        from archimedes.services.strategy_fusion import FusionProposal, FusionBrief
         from archimedes.models.portfolio import RiskProfile
+        from archimedes.models.strategy_store import StrategyRecord
         from archimedes.services.strategy_dsl import FABER_2007_SPEC
+        from archimedes.api.strategies_routes import _run_fusion_job
 
-        mock_result = FusionProposal(
+        mock_proposal = FusionProposal(
             status="ok",
             brief=FusionBrief(
                 asset_classes=["SPY"],
                 risk_appetite=RiskProfile.MODERATE,
                 strategic_direction="",
             ),
-            strategy_name="test_fusion_spec",
-            thesis="Test thesis",
+            strategy_name="test_fusion_with_spec",
+            thesis="Faber tactical with vol-targeting overlay",
             source_arxiv_ids=["0706.1497", "1710.00727"],
-            fusion_reasoning="Fused SMA crossover with vol targeting",
-            novelty_rationale="Novel combination",
-            risk_notes="Standard risks",
+            fusion_reasoning="Combines SMA-200 timing with vol-targeted sizing",
+            novelty_rationale="Both papers cited; combination is novel",
+            risk_notes="Standard tactical-allocation risks",
             model="canned",
             requested_model="canned",
             strategy_spec=FABER_2007_SPEC,
         )
 
         mock_fusion = MagicMock()
-        mock_fusion.propose.return_value = mock_result
+        mock_fusion.propose.return_value = mock_proposal
+
+        job_id = "test-job-with-spec"
+        self._seed_job(_no_redis_job_store, job_id, {
+            "asset_classes": ["SPY"],
+            "risk_appetite": "moderate",
+        })
 
         with patch(
             "archimedes.services.strategy_fusion.default_fusion",
             return_value=mock_fusion,
-        ), patch(
-            "archimedes.services.strategy_fusion.fusion_enabled",
-            return_value=True,
-        ), patch(
-            "archimedes.services.strategy_fusion.load_corpus",
-            return_value=[MagicMock(), MagicMock()],
-        ), patch("archimedes.services.redis_state.AgentStateStore"):
-            resp = client.post("/api/strategies/generate", json={
-                "asset_classes": ["SPY"],
-                "risk_appetite": "moderate",
-            })
+        ):
+            await _run_fusion_job(job_id)
 
-        assert resp.status_code == 202
-        data = resp.json()
-        assert data["status"] == "queued"
-        assert data["job_id"]
+        # ── The contract: rigor_verdict reached the library ──────────────
+        with get_session() as session:
+            record = session.query(StrategyRecord).filter(
+                StrategyRecord.strategy_name == "test_fusion_with_spec",
+            ).first()
 
-    def test_fusion_without_spec_falls_back_gracefully(self, client):
-        """Fusion job without strategy_spec completes without eval metrics."""
-        from archimedes.services.strategy_fusion import (
-            FusionProposal, FusionBrief,
+        assert record is not None, "StrategyRecord was not upserted"
+        assert record.generation_method == "fusion"
+
+        assert record.rigor_verdict is not None, (
+            "rigor_verdict was not persisted — the wedge ('generate → see it survive the "
+            "rigor gate → deploy') is broken without this field set"
         )
-        from archimedes.models.portfolio import RiskProfile
+        verdict = _json.loads(record.rigor_verdict)
+        # Verdict fields from RigorVerdict — all must be present
+        for key in ("passing", "look_ahead_clean", "num_trials"):
+            assert key in verdict, f"verdict missing required rigor field: {key}"
+        # Backtest metrics surfaced alongside for the passport renderer
+        for key in (
+            "sharpe_ratio", "sortino_ratio", "max_drawdown",
+            "cagr", "calmar_ratio", "win_rate", "total_trades",
+        ):
+            assert key in verdict, f"verdict missing backtest field: {key}"
 
-        mock_result = FusionProposal(
+        # ── Lifecycle: status is "live" (passing) or "rejected" (failing),
+        # NOT "candidate" — failed strategies must not be silently dropped.
+        assert record.status in ("live", "rejected"), (
+            f"status should be live/rejected after rigor gate, got: {record.status!r}"
+        )
+        if verdict["passing"]:
+            assert record.status == "live"
+        else:
+            assert record.status == "rejected"
+
+    async def test_fusion_without_spec_falls_back_to_candidate(
+        self, client, _no_redis_job_store, _no_redis_agent_state,
+    ):
+        """When the LLM doesn't emit a strategy_spec (back-compat or canned fallback),
+        the job must still complete: upsert a candidate StrategyRecord with the prose
+        fields, no rigor_verdict, status="candidate". No exception escapes.
+
+        ``async def`` for the same reason as the with-spec test above —
+        pytest-asyncio owns the loop.
+        """
+        from archimedes.services.strategy_fusion import FusionProposal, FusionBrief
+        from archimedes.models.portfolio import RiskProfile
+        from archimedes.models.strategy_store import StrategyRecord
+        from archimedes.api.strategies_routes import _run_fusion_job
+
+        mock_proposal = FusionProposal(
             status="ok",
             brief=FusionBrief(
                 asset_classes=["SPY"],
                 risk_appetite=RiskProfile.MODERATE,
                 strategic_direction="",
             ),
-            strategy_name="test_no_spec",
-            thesis="Text-only fusion",
+            strategy_name="test_fusion_no_spec",
+            thesis="Text-only fusion (no DSL spec emitted)",
             source_arxiv_ids=["0706.1497", "1710.00727"],
-            fusion_reasoning="Basic fusion",
-            novelty_rationale="None",
-            risk_notes="Standard",
+            fusion_reasoning="Reasoning prose only",
+            novelty_rationale="Novelty prose",
+            risk_notes="Risk prose",
             model="canned",
             requested_model="canned",
             strategy_spec=None,
         )
 
         mock_fusion = MagicMock()
-        mock_fusion.propose.return_value = mock_result
+        mock_fusion.propose.return_value = mock_proposal
+
+        job_id = "test-job-no-spec"
+        self._seed_job(_no_redis_job_store, job_id, {
+            "asset_classes": ["SPY"],
+            "risk_appetite": "moderate",
+        })
 
         with patch(
             "archimedes.services.strategy_fusion.default_fusion",
             return_value=mock_fusion,
-        ), patch(
-            "archimedes.services.strategy_fusion.fusion_enabled",
-            return_value=True,
-        ), patch(
-            "archimedes.services.strategy_fusion.load_corpus",
-            return_value=[MagicMock(), MagicMock()],
-        ), patch("archimedes.services.redis_state.AgentStateStore"):
-            resp = client.post("/api/strategies/generate", json={
-                "asset_classes": ["SPY"],
-                "risk_appetite": "moderate",
-            })
+        ):
+            await _run_fusion_job(job_id)
 
-        assert resp.status_code == 202
-        data = resp.json()
-        assert data["status"] == "queued"
+        with get_session() as session:
+            record = session.query(StrategyRecord).filter(
+                StrategyRecord.strategy_name == "test_fusion_no_spec",
+            ).first()
+
+        assert record is not None, "StrategyRecord was not upserted on the fallback path"
+        assert record.generation_method == "fusion"
+        assert record.rigor_verdict is None, (
+            "no rigor_verdict expected when strategy_spec is missing"
+        )
+        assert record.status == "candidate", (
+            f"no-spec fallback should leave status at candidate, got: {record.status!r}"
+        )
+
+        # And the job state was updated to done — no silent abort
+        assert _no_redis_job_store[job_id]["status"] == "done", (
+            f"job did not reach 'done' state: {_no_redis_job_store[job_id]}"
+        )

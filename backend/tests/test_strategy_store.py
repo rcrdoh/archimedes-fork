@@ -99,13 +99,17 @@ class TestUpsertStrategy:
         )
         assert r.status == "live"
 
-    def test_rigor_verdict_keeps_candidate_if_not_passing(self, session):
+    def test_rigor_verdict_transitions_to_rejected_if_not_passing(self, session):
+        """Per issue #133: failed rigor must transition to a distinguishable
+        'rejected' status — NOT silently dropped at 'candidate'. The honesty
+        wedge depends on failed strategies being visible failures rather than
+        looking indistinguishable from un-evaluated candidates."""
         r = upsert_strategy(
             session, generation_method="fusion", strategy_name="T",
             thesis="X", source_papers=PAPERS_A, asset_universe=["SPY"],
             rigor_verdict={"passing": False, "dsr": 0.3, "pbo": 0.9},
         )
-        assert r.status == "candidate"
+        assert r.status == "rejected"
 
     def test_late_rigor_verdict_updates_existing(self, session):
         r1 = upsert_strategy(

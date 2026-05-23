@@ -49,7 +49,7 @@ class StrategyRecord(Base):
     risk_profile = Column(String(32), nullable=False, default="moderate")
 
     # Status lifecycle
-    status = Column(String(16), nullable=False, default="candidate")  # candidate|live|retired
+    status = Column(String(16), nullable=False, default="candidate")  # candidate|live|retired|rejected
     rigor_verdict = Column(Text, nullable=True)  # JSON: DSR/PBO/walk-forward results
     is_example = Column(Boolean, nullable=False, default=False)  # hand-curated static strategies
 
@@ -139,8 +139,15 @@ def upsert_strategy(
         if rigor_verdict is not None:
             existing.rigor_verdict = json.dumps(rigor_verdict)
             existing.updated_at = datetime.now(timezone.utc)
+            # Status transition per docs/specs strategy-lifecycle:
+            #   passing=True  → "live"     (in-portfolio-eligible, preserves
+            #                                marketplace_service.trending logic)
+            #   passing=False → "rejected" (visible failure — honesty wedge)
+            #   no verdict    → unchanged
             if rigor_verdict.get("passing"):
                 existing.status = "live"
+            else:
+                existing.status = "rejected"
             session.flush()
         return existing
 
@@ -159,8 +166,9 @@ def upsert_strategy(
         provenance_hash=provenance_hash,
         is_example=is_example,
     )
-    if rigor_verdict and rigor_verdict.get("passing"):
-        record.status = "live"
+    if rigor_verdict:
+        # Same transition rule as the upsert-existing branch above
+        record.status = "live" if rigor_verdict.get("passing") else "rejected"
     session.add(record)
     session.flush()
     logger.info(

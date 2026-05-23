@@ -1198,6 +1198,35 @@ async def _run_fusion_job(job_id: str) -> None:
                 import logging as _logging
                 _logging.getLogger(__name__).warning("fusion eval pipeline failed (non-fatal): %s", _eval_exc)
 
+        # ── Build rigor_verdict dict from eval_result for persistence ──
+        # This is what closes the demo wedge: the user sees the gate's verdict
+        # in the library, not just a "rigor pending" placeholder. Status
+        # transitions ("validated"/"rejected") fall out of upsert_strategy.
+        rigor_verdict_dict: dict | None = None
+        if eval_result is not None and eval_result.success:
+            r = eval_result.rigor
+            bt = eval_result.backtest
+            rigor_verdict_dict = {
+                "passing": bool(r.passing),
+                "dsr": r.dsr,
+                "dsr_p_value": r.dsr_p_value,
+                "pbo_score": r.pbo_score,
+                "oos_sharpe": r.oos_sharpe,
+                "look_ahead_clean": bool(r.look_ahead_clean),
+                "num_trials": int(r.num_trials),
+                # Backtest metrics — surface alongside so the passport renders
+                # without the UI having to denormalize from a separate field.
+                "sharpe_ratio": bt.sharpe_ratio,
+                "sortino_ratio": bt.sortino_ratio,
+                "max_drawdown": bt.max_drawdown,
+                "cagr": bt.cagr,
+                "calmar_ratio": bt.calmar_ratio,
+                "win_rate": bt.win_rate,
+                "total_trades": bt.total_trades,
+                "backtest_start": bt.backtest_start.isoformat() if bt.backtest_start else None,
+                "backtest_end": bt.backtest_end.isoformat() if bt.backtest_end else None,
+            }
+
         strategy_id = None
         try:
             with get_session() as session:
@@ -1214,6 +1243,7 @@ async def _run_fusion_job(job_id: str) -> None:
                     asset_universe=brief.asset_classes,
                     risk_profile=rp.value,
                     provenance_hash=result.model,
+                    rigor_verdict=rigor_verdict_dict,
                 )
                 session.commit()
                 strategy_id = record.id

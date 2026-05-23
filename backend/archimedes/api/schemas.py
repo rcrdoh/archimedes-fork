@@ -159,7 +159,7 @@ class StrategyResponse(BaseModel):
     asset_universe: list[str]
     position_sizing: str
     rebalance_frequency: str
-    status: str  # "candidate" | "validated" | "live" | "retired"
+    status: str  # "candidate" | "validated" | "live" | "retired" | "rejected"
 
     # Paper provenance (passport fields)
     paper_venue: str | None = None
