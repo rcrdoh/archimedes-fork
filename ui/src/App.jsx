@@ -9,6 +9,7 @@ import Strategies from './components/Strategies'   // serves /library route ("Ex
 import CorpusExplorer from './components/CorpusExplorer'
 import Reasoning from './components/Reasoning'
 import VaultDetail from './components/VaultDetail'
+import OnboardingTour, { hasCompletedOnboarding } from './components/OnboardingTour'
 import './App.css'
 
 // Spine routing per docs/user-stories.md. Anything not in this map is gone.
@@ -66,6 +67,7 @@ export default function App() {
   const [page, setPage] = useState(initialRoute.page)
   const [walletAddr, setWalletAddr] = useState(null)
   const [selectedVault, setSelectedVault] = useState(initialRoute.vaultAddress)
+  const [tourOpen, setTourOpen] = useState(() => !hasCompletedOnboarding())
 
   // Reconnect a previously connected wallet on mount (silent — uses eth_accounts,
   // no popup). The wallet-changed event keeps state in sync if the user changes
@@ -134,12 +136,27 @@ export default function App() {
   }
 
   if (page === 'landing') {
-    return <Landing onNavigate={navigateToPage} onConnect={handleConnect} walletAddr={walletAddr} />
+    return (
+      <>
+        <Landing onNavigate={navigateToPage} onConnect={handleConnect} walletAddr={walletAddr} />
+        <OnboardingTour open={tourOpen} onClose={() => setTourOpen(false)} setPage={navigateToPage} />
+      </>
+    )
   }
 
   return (
-    <Layout page={page} setPage={navigateToPage} walletAddr={walletAddr} onConnect={handleConnect} onDisconnect={handleDisconnect}>
-      {renderPage()}
-    </Layout>
+    <>
+      <Layout
+        page={page}
+        setPage={navigateToPage}
+        walletAddr={walletAddr}
+        onConnect={handleConnect}
+        onDisconnect={handleDisconnect}
+        onOpenTour={() => setTourOpen(true)}
+      >
+        {renderPage()}
+      </Layout>
+      <OnboardingTour open={tourOpen} onClose={() => setTourOpen(false)} setPage={navigateToPage} />
+    </>
   )
 }

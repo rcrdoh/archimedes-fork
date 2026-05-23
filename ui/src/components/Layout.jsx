@@ -31,7 +31,7 @@ export const PAGE_LABELS = {
   imprint: 'Imprint',
 }
 
-export default function Layout({ page, setPage, walletAddr, onConnect, onDisconnect, children }) {
+export default function Layout({ page, setPage, walletAddr, onConnect, onDisconnect, onOpenTour, children }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const blockLabel = Object.keys(NEW_CONTRACTS).length ? 'Arc · Testnet live' : 'Arc · Connecting'
@@ -128,7 +128,20 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
             </button>
             <Breadcrumbs page={page} setPage={setPage} />
           </div>
-          <WalletConnect address={walletAddr} onConnect={onConnect} onDisconnect={onDisconnect} />
+          <div className="flex items-center gap-2">
+            {onOpenTour && (
+              <button
+                type="button"
+                className="topbar-icon-btn"
+                onClick={onOpenTour}
+                aria-label="Open onboarding tour"
+                title="What is Archimedes? — open the tour"
+              >
+                <span className="i-lucide-help-circle" style={{width:18,height:18}} />
+              </button>
+            )}
+            <WalletConnect address={walletAddr} onConnect={onConnect} onDisconnect={onDisconnect} />
+          </div>
         </div>
         <main className={`page-content page-${page}`}>{children}</main>
       </div>
