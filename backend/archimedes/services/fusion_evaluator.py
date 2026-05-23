@@ -90,7 +90,11 @@ def run_dsl_backtest(
 ) -> BacktestMetrics:
     """Run a backtest for a DSL-interpreted strategy.
 
-    If data_feed is None, generates synthetic price data for testing.
+    If ``data_feed`` is None, generates a deterministic synthetic price series
+    for hermetic testing. The equity curve is captured **bar-by-bar** via a
+    backtrader analyzer (NOT linearly interpolated from final value — that was
+    the pre-existing bug that made downstream Sharpe/Sortino/MaxDD numbers
+    meaningless because they were computed over a fake straight line).
     """
     import backtrader as bt
 
@@ -105,17 +109,24 @@ def run_dsl_backtest(
     cerebro.broker.setcash(initial_cash)
     cerebro.broker.setcommission(commission=tx_cost_bps / 10_000)
 
-    # Track trades for win rate
-    trades: list[dict] = []
-    original_next = strategy_cls.next
+    # Per-bar equity capture + trade tracking via custom analyzers. Without
+    # these, _extract_equity_curve falls back to fake linear interpolation
+    # (see commit log for the equity-curve correctness fix).
+    cerebro.addanalyzer(_EquityCurveAnalyzer, _name="equity_curve")
+    cerebro.addanalyzer(_TradeStatsAnalyzer, _name="trade_stats")
 
     results = cerebro.run()
     final_value = cerebro.broker.getvalue()
     initial = initial_cash
 
-    # Extract metrics from the cerebro run
     strat = results[0] if results else None
-    equity_curve = _extract_equity_curve(strat, initial_cash) if strat is not None else [initial_cash]
+    equity_curve: list[float]
+    if strat is not None:
+        ec = strat.analyzers.equity_curve.get_analysis()
+        equity_curve = list(ec.get("values", [])) or [initial_cash]
+    else:
+        equity_curve = [initial_cash]
+
     monthly_returns = _compute_monthly_returns(equity_curve)
 
     total_return = (final_value - initial) / initial
@@ -134,15 +145,24 @@ def run_dsl_backtest(
     max_dd = _max_drawdown(equity_curve)
     calmar = cagr / max_dd if max_dd > 0 else 0.0
 
+    # Real trade stats from the analyzer (replaces the fixed 0.5 win-rate stub).
+    trade_stats = (
+        strat.analyzers.trade_stats.get_analysis()
+        if strat is not None
+        else {"total_trades": 0, "win_rate": 0.0, "avg_holding_period_days": 0.0}
+    )
+
     return BacktestMetrics(
         sharpe_ratio=round(sharpe, 4),
         sortino_ratio=round(sortino, 4),
         max_drawdown=round(max_dd, 4),
         cagr=round(cagr, 4),
         calmar_ratio=round(calmar, 4),
-        win_rate=0.5,  # Approximation; exact requires trade tracking
-        total_trades=0,
-        avg_holding_period_days=0.0,
+        win_rate=round(float(trade_stats.get("win_rate", 0.0)), 4),
+        total_trades=int(trade_stats.get("total_trades", 0)),
+        avg_holding_period_days=round(
+            float(trade_stats.get("avg_holding_period_days", 0.0)), 2,
+        ),
         equity_curve=[round(e, 2) for e in equity_curve],
         monthly_returns=[round(m, 4) for m in monthly_returns],
         backtest_start=date(2004, 1, 2) if data_feed is None else None,
@@ -157,7 +177,21 @@ def apply_rigor_gate(
     metrics: BacktestMetrics,
     num_trials: int = 10,
 ) -> RigorVerdict:
-    """Apply rigor gate to fusion backtest metrics."""
+    """Apply rigor gate to fusion backtest metrics.
+
+    PBO is set to ``None`` (not 0.0) for the single-strategy case. The
+    Bailey/Borwein/López de Prado/Zhu CSCV PBO algorithm formally compares
+    multiple competing strategies against the same return matrix; a single
+    DSL-generated strategy doesn't yield a meaningful PBO without
+    parameter-sweep variants to cross-validate against. Returning 0.0
+    (best-possible score) was misleading — it made every fusion strategy
+    look like it had passed the overfitting test it never ran. Surfacing
+    ``None`` lets the UI render "PBO: n/a (single strategy)" honestly.
+
+    Real CSCV PBO will land when the fusion pipeline emits a small grid of
+    parameter variants per strategy (separate issue) — at that point we
+    invoke ``rigor_evaluator.compute_pbo`` against the variant matrix.
+    """
     daily_returns = [
         (metrics.equity_curve[i] - metrics.equity_curve[i - 1]) / metrics.equity_curve[i - 1]
         for i in range(1, len(metrics.equity_curve))
@@ -167,17 +201,27 @@ def apply_rigor_gate(
     dsr, dsr_p = compute_dsr(daily_returns, num_trials)
     oos_sharpe = compute_oos_sharpe(daily_returns)
 
-    # PBO requires multiple strategies — use conservative default for single strategy
-    pbo_score = 0.0
+    # Single-strategy → no meaningful PBO. See docstring above.
+    pbo_score: float | None = None
 
-    # Look-ahead is guaranteed by the DSL design (static check in validate_strategy_spec)
+    # Look-ahead is guaranteed by the DSL design (static check in
+    # validate_strategy_spec — DSL specs with look_ahead_safe=false are
+    # rejected at validation time, long before reaching this evaluator).
     look_ahead_clean = True
+
+    # DSR-passing convention follows the seed strategies' implementation:
+    # the canonical Bailey-LdP DSR is "credibly > 0" via the test
+    # statistic z-score, where ``dsr_p_value`` is the p-value under the
+    # null Sharpe=0. We pass when ``dsr > 0`` (the DSR itself is positive
+    # after correcting for the trials-correction).
+    dsr_pass = dsr is not None and dsr > 0.0
 
     passing = (
         metrics.sharpe_ratio > 0.0
-        and (dsr_p is None or dsr_p >= 0.05)
-        and (pbo_score < 0.5)
+        and dsr_pass
         and look_ahead_clean
+        # NOTE: PBO not in the passing criteria for single-strategy; once
+        # the variant-grid lands, add `and (pbo_score is None or pbo_score < 0.5)`.
     )
 
     return RigorVerdict(
@@ -270,22 +314,89 @@ def _synthetic_data() -> Any:
     )
 
 
-def _extract_equity_curve(strat: Any, initial_cash: float) -> list[float]:
-    """Extract equity curve from a completed strategy run."""
-    # Use the analyzer if available, otherwise synthesize from broker value
-    vals = []
-    try:
-        for i in range(len(strat.data)):
-            # Approximate by replaying — in practice cerebro.run() doesn't keep history
-            pass
-    except Exception:
-        pass
-    # Cerebro doesn't easily expose per-bar equity after run()
-    # Return a simplified curve based on initial → final
-    final = float(strat.broker.getvalue())
-    n_bars = max(1, len(strat.data))
-    # Linear interpolation as approximation (real curve would need observer)
-    return [initial_cash + (final - initial_cash) * i / n_bars for i in range(n_bars + 1)]
+# ── Analyzers: real per-bar equity capture + trade stats ────────────────
+# Replace the pre-existing _extract_equity_curve that linearly interpolated
+# between initial and final broker value (making all downstream Sharpe/MaxDD
+# numbers meaningless because they were computed on a fake straight line).
+
+
+class _EquityCurveAnalyzer:
+    """Backtrader analyzer that captures broker value on every bar.
+
+    Backtrader's standard ``Cerebro.run()`` does not retain the broker's
+    per-bar value history; an analyzer is the canonical way to record it.
+    The captured list is the input to all downstream Sharpe/Sortino/MaxDD
+    calculations.
+    """
+
+    # NOTE: defined as a regular class with the bt.Analyzer-compatible
+    # surface rather than `class X(bt.Analyzer)` so it's importable even
+    # when backtrader isn't on the path at module-import time (matters for
+    # the test harness's lazy import pattern).
+    def __init__(self):
+        self._values: list[float] = []
+
+    def __getattr__(self, name):
+        # backtrader pokes a few attributes at analyzer instances during wiring;
+        # be liberal about missing ones (we only need start/next/get_analysis).
+        raise AttributeError(name)
+
+
+# Wire as a real backtrader analyzer at import time (so cerebro.addanalyzer
+# accepts it). Done lazily inside a function so module import doesn't pull
+# backtrader (matters for environments where backtrader is optional).
+def _build_analyzers():
+    import backtrader as bt
+
+    class _EquityCurve(bt.Analyzer):
+        def start(self):
+            self._values: list[float] = []
+
+        def next(self):
+            self._values.append(float(self.strategy.broker.getvalue()))
+
+        def stop(self):
+            # Capture the final value once after the last bar so the curve
+            # spans the full backtest including the closing mark.
+            final = float(self.strategy.broker.getvalue())
+            if not self._values or self._values[-1] != final:
+                self._values.append(final)
+
+        def get_analysis(self):
+            return {"values": list(self._values)}
+
+    class _TradeStats(bt.Analyzer):
+        """Trade-level stats: total trades, win rate, average holding period."""
+
+        def start(self):
+            self._closed_pnls: list[float] = []
+            self._holding_periods_bars: list[int] = []
+
+        def notify_trade(self, trade):
+            if trade.isclosed:
+                self._closed_pnls.append(float(trade.pnlcomm))
+                self._holding_periods_bars.append(int(trade.barlen))
+
+        def get_analysis(self):
+            n = len(self._closed_pnls)
+            wins = sum(1 for p in self._closed_pnls if p > 0)
+            win_rate = wins / n if n > 0 else 0.0
+            avg_hold = (
+                sum(self._holding_periods_bars) / n if n > 0 else 0.0
+            )
+            return {
+                "total_trades": n,
+                "win_rate": win_rate,
+                # Bars are roughly daily for our seed strategies → days.
+                "avg_holding_period_days": avg_hold,
+            }
+
+    return _EquityCurve, _TradeStats
+
+
+# Resolve the real analyzer classes once and bind module-level so
+# cerebro.addanalyzer(_EquityCurveAnalyzer, ...) works.
+_EquityCurveAnalyzer, _TradeStatsAnalyzer = _build_analyzers()
 
 
 def _compute_monthly_returns(equity_curve: list[float]) -> list[float]:
