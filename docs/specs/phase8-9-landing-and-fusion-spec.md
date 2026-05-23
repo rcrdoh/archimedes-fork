@@ -77,6 +77,60 @@ Landing.jsx is 343 lines today and was rewritten in Daniel R.'s UnoCSS PR (#124)
 
 If time-boxed, the bug fixes alone are sufficient to unblock the demo. The polish work is incremental.
 
+### Sub-issue — RegimePanel duplication across pages
+
+The current market-regime indicator appears in **three** places across the spine after the #119 panel-integration merge:
+
+1. `Generate.jsx` — `<RegimePanel />` rendered as a "Compact regime strip" at the top of the page.
+2. `Portfolio.jsx` — `<RegimePanel />` rendered above the status strip.
+3. `Portfolio.jsx` — a separate `Market Regime` stat-card inside the 4-card status strip (text-only, just the label + confidence).
+
+Two of these on one page is the more glaring duplication. Per [`docs/specs/page-roles-spec.md`](page-roles-spec.md), each page owns one job — and market context is a Portfolio (Monitor) concern, not a Generate concern. The agent already incorporates regime into its decision-making internally; the user constructing a strategy doesn't need a visible regime widget alongside the input form.
+
+**Resolution:**
+
+- **Drop `<RegimePanel />` from Generate.jsx.** Keep the page focused on intent → result. The mode toggle + form + streaming UI is enough; a regime strip is decoration that competes for attention with the actual primary action.
+- **Drop the bare Market-Regime stat card from Portfolio.jsx's status strip.** The richer `<RegimePanel />` above the strip already shows the regime + confidence + narrative + signals. The stat-card is redundant.
+- **Keep `<RegimePanel />` on Portfolio.jsx only.** That's where market context belongs.
+
+Code-level diff in `Generate.jsx`:
+
+```diff
+- import RegimePanel from './RegimePanel'
+…
+-       {/* Compact regime strip */}
+-       <div className="mb-4 fade-up fade-up-2" style={{ fontSize: '0.88rem' }}>
+-         <RegimePanel />
+-       </div>
+```
+
+Code-level diff in `Portfolio.jsx`:
+
+```diff
+        {/* Status strip — agent + regime are real (Redis-backed) regardless of wallet */}
+-       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
++       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+          <div className="card-flat p-4">
+            <div className="label mb-2">Your Vaults</div>
+            …
+          </div>
+          <div className="card-flat p-4">
+            <div className="label mb-2">Total AUM</div>
+            …
+          </div>
+          <div className="card-flat p-4">
+            <div className="label mb-2">Agent</div>
+            …
+          </div>
+-         <div className="card-flat p-4">
+-           <div className="label mb-2">Market Regime</div>
+-           …
+-         </div>
+        </div>
+```
+
+The 3-card grid in Portfolio still shows: Your Vaults / Total AUM / Agent. Regime moves to the rich `<RegimePanel />` block above.
+
 ### Sub-issue — onboarding tour cards (Phase 6 follow-up)
 
 Two complaints on the Phase 6 onboarding tour (`ui/src/components/OnboardingTour.jsx`):
@@ -129,6 +183,7 @@ And in the overlay style block:
 - [ ] **Unknown page IDs do not silently render Landing-in-Layout.** Either a 404 card renders, or App.jsx redirects to `/`.
 - [ ] **Onboarding cards are readable over animating content.** Overlay opacity ≥ 0.75, blur ≥ 6px; card body has a solid (non-transparent) background.
 - [ ] **Onboarding CTAs keep the tour open.** Clicking "Open Corpus" / "Open Generate" / etc. navigates the page AND advances the card index; the tour modal stays visible until Skip, Done, or Esc.
+- [ ] **Regime indicator appears exactly once on the spine.** Visible on Portfolio (rich `<RegimePanel />` block); absent from Generate; the bare stat-card in Portfolio's status strip is removed.
 - [ ] **No regressions on other spine pages** — Layout topbar wallet button still works, sidebar nav still works, onboarding tour still triggers on first visit.
 - [ ] **Frontend build passes** — `cd ui && npm run build` exits 0. (Or via docker: `docker compose up -d --build` and verify <http://localhost> serves cleanly.)
 
