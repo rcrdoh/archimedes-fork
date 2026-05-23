@@ -1,12 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { createPortal } from 'react-dom'
+import { useState, useEffect, useCallback } from 'react'
 import {
   publicClient,
   TRACE_REGISTRY_ABI, NEW_CONTRACTS,
 } from '../config'
-import EfficientFrontier from './EfficientFrontier'
-import CorrelationMatrix from './CorrelationMatrix'
-import RigorExplainer from './RigorExplainer'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -43,370 +39,13 @@ function shortHash(hash) {
   return `${hash.slice(0, 12)}…${hash.slice(-6)}`
 }
 
-// ─── Reasoning Strategy Card ────────────────────────────────
-
-function StrategyReasoningCard({ strategy, isSelected, onClick }) {
-  const hasBacktest = strategy.sharpe_ratio != null
-
-  return (
-    <div
-      className={`card fade-up${isSelected ? ' card-accent' : ''}`}
-      style={{ cursor: 'pointer', padding: 16 }}
-      onClick={onClick}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-        <strong style={{ fontSize: '0.9rem', lineHeight: 1.3, flex: 1 }}>{strategy.paper_title}</strong>
-        <span className={`tag ${strategy.status === 'live' ? 'tag-positive' : 'tag-muted'}`} style={{ marginLeft: 8 }}>
-          {strategy.status}
-        </span>
-      </div>
-      <div className="caption" style={{ marginBottom: 8 }}>
-        {strategy.paper_authors?.slice(0, 2).join(', ')}{strategy.paper_authors?.length > 2 ? ' et al.' : ''}
-        {strategy.paper_year ? ` (${strategy.paper_year})` : ''}
-      </div>
-      <p className="hint" style={{ marginBottom: 8, lineHeight: 1.4 }}>
-        {strategy.methodology_summary?.slice(0, 120)}{strategy.methodology_summary?.length > 120 ? '…' : ''}
-      </p>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-        {strategy.asset_universe?.slice(0, 4).map(a => (
-          <span key={a} className="tag tag-muted">{a}</span>
-        ))}
-      </div>
-      {hasBacktest && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-          <div>
-            <div className="caption">Sharpe</div>
-            <div style={{ fontWeight: 700 }}>{strategy.sharpe_ratio?.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="caption">CAGR</div>
-            <div className="positive" style={{ fontWeight: 700 }}>{strategy.cagr ? `${(strategy.cagr * 100).toFixed(1)}%` : '—'}</div>
-          </div>
-          <div>
-            <div className="caption">Max DD</div>
-            <div className="negative" style={{ fontWeight: 700 }}>{strategy.max_drawdown ? `−${(strategy.max_drawdown * 100).toFixed(1)}%` : '—'}</div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Strategy Detail View ────────────────────────────────────
-
-function StrategyDetailView({ strategy, traces }) {
-  const [exporting, setExporting] = useState(false)
-  const [rigorModalOpen, setRigorModalOpen] = useState(false)
-
-  if (!strategy) return null
-
-  const handleExport = (format) => {
-    setExporting(true)
-    try {
-      let content, filename, type
-      if (format === 'json') {
-        content = JSON.stringify(strategy, null, 2)
-        filename = `strategy-${strategy.id.slice(0, 8)}.json`
-        type = 'application/json'
-      } else {
-        // CSV
-        const rows = [
-          ['Field', 'Value'],
-          ['Title', strategy.paper_title],
-          ['Authors', strategy.paper_authors?.join(', ')],
-          ['Year', strategy.paper_year],
-          ['Status', strategy.status],
-          ['Sharpe', strategy.sharpe_ratio],
-          ['CAGR', strategy.cagr],
-          ['Max Drawdown', strategy.max_drawdown],
-          ['Methodology', strategy.methodology_summary],
-          ['Assets', strategy.asset_universe?.join(', ')],
-          ['Methodology Hash', strategy.methodology_hash],
-        ]
-        content = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
-        filename = `strategy-${strategy.id.slice(0, 8)}.csv`
-        type = 'text/csv'
-      }
-      const blob = new Blob([content], { type })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = filename; a.click()
-      URL.revokeObjectURL(url)
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  return (
-    <div className="card-elevated" style={{ padding: 24 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-        <div>
-          <h2 style={{ fontSize: '1.3rem', lineHeight: 1.3 }}>{strategy.paper_title}</h2>
-          <div className="caption" style={{ marginTop: 4 }}>
-            {strategy.paper_authors?.join(', ')} · {strategy.paper_year} · {strategy.paper_venue}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-outline btn-sm" onClick={() => handleExport('json')} disabled={exporting}>
-            Export JSON
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={() => handleExport('csv')} disabled={exporting}>
-            Export CSV
-          </button>
-        </div>
-      </div>
-
-      {/* Methodology */}
-      <div style={{ marginBottom: 20 }}>
-        <div className="label mb-2">Methodology</div>
-        <p className="body" style={{ lineHeight: 1.6 }}>{strategy.methodology_summary}</p>
-      </div>
-
-      {/* Reasoning Trace */}
-      <div style={{ marginBottom: 20 }}>
-        <div className="label mb-2">Reasoning Trace</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div className="card-flat" style={{ padding: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
-            <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.75rem' }}>STEP 1</span>
-            <span className="body">Signal generation: {strategy.position_sizing} position sizing across {strategy.asset_universe?.join(', ')}</span>
-          </div>
-          <div className="card-flat" style={{ padding: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
-            <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.75rem' }}>STEP 2</span>
-            <span className="body">Rebalance frequency: {strategy.rebalance_frequency}</span>
-          </div>
-          <div className="card-flat" style={{ padding: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
-            <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.75rem' }}>STEP 3</span>
-            <span className="body">Risk guardrail: {strategy.status === 'live' ? 'validated + deployed' : 'pending validation'}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Performance Metrics */}
-      <div style={{ marginBottom: 20 }}>
-        <div className="label mb-2">Performance Metrics{strategy.is_backtest_placeholder ? ' (est.)' : ''}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-          <div className="card-flat" style={{ padding: 12 }}>
-            <div className="caption">Sharpe</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>{strategy.sharpe_ratio?.toFixed(2) ?? '—'}</div>
-          </div>
-          <div className="card-flat" style={{ padding: 12 }}>
-            <div className="caption">CAGR</div>
-            <div className="positive" style={{ fontSize: '1.2rem', fontWeight: 700 }}>
-              {strategy.cagr ? `${(strategy.cagr * 100).toFixed(1)}%` : '—'}
-            </div>
-          </div>
-          <div className="card-flat" style={{ padding: 12 }}>
-            <div className="caption">Max DD</div>
-            <div className="negative" style={{ fontSize: '1.2rem', fontWeight: 700 }}>
-              {strategy.max_drawdown ? `−${(strategy.max_drawdown * 100).toFixed(1)}%` : '—'}
-            </div>
-          </div>
-          <div className="card-flat" style={{ padding: 12 }}>
-            <div className="caption">Win Rate</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>
-              {strategy.win_rate ? `${(strategy.win_rate * 100).toFixed(1)}%` : '—'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Rigor Metrics with help affordance */}
-      {(strategy.deflated_sharpe_ratio != null || strategy.pbo_score != null || strategy.out_of_sample_sharpe != null) && (
-        <div style={{ marginBottom: 20 }}>
-          <div className="label mb-2 flex items-center gap-2">
-            Rigor Gate
-            <button
-              type="button"
-              onClick={() => setRigorModalOpen(true)}
-              style={{
-                width: 18, height: 18, borderRadius: '50%',
-                border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.04)',
-                color: 'var(--text-4)', fontSize: '0.68rem', fontWeight: 700,
-                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                lineHeight: 1,
-              }}
-              aria-label="What is the rigor gate?"
-            >
-              ?
-            </button>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-            <div className="card-flat" style={{ padding: 12 }}>
-              <div className="caption flex items-center gap-1">
-                DSR p-value
-                <button
-                  type="button"
-                  onClick={() => setRigorModalOpen(true)}
-                  style={{
-                    width: 14, height: 14, borderRadius: '50%',
-                    border: '1px solid var(--glass-border)', background: 'transparent',
-                    color: 'var(--text-4)', fontSize: '0.58rem', fontWeight: 700,
-                    cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    lineHeight: 1, padding: 0,
-                  }}
-                  aria-label="Explain DSR"
-                >
-                  ?
-                </button>
-              </div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>
-                {strategy.deflated_sharpe_ratio != null ? strategy.deflated_sharpe_ratio.toFixed(3) : '—'}
-              </div>
-            </div>
-            <div className="card-flat" style={{ padding: 12 }}>
-              <div className="caption flex items-center gap-1">
-                PBO
-                <button
-                  type="button"
-                  onClick={() => setRigorModalOpen(true)}
-                  style={{
-                    width: 14, height: 14, borderRadius: '50%',
-                    border: '1px solid var(--glass-border)', background: 'transparent',
-                    color: 'var(--text-4)', fontSize: '0.58rem', fontWeight: 700,
-                    cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    lineHeight: 1, padding: 0,
-                  }}
-                  aria-label="Explain PBO"
-                >
-                  ?
-                </button>
-              </div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: (strategy.pbo_score ?? 0) > 0.5 ? 'var(--negative)' : 'var(--positive)' }}>
-                {strategy.pbo_score != null ? (strategy.pbo_score * 100).toFixed(1) + '%' : '—'}
-              </div>
-            </div>
-            <div className="card-flat" style={{ padding: 12 }}>
-              <div className="caption flex items-center gap-1">
-                OOS Sharpe
-                <button
-                  type="button"
-                  onClick={() => setRigorModalOpen(true)}
-                  style={{
-                    width: 14, height: 14, borderRadius: '50%',
-                    border: '1px solid var(--glass-border)', background: 'transparent',
-                    color: 'var(--text-4)', fontSize: '0.58rem', fontWeight: 700,
-                    cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    lineHeight: 1, padding: 0,
-                  }}
-                  aria-label="Explain walk-forward OOS"
-                >
-                  ?
-                </button>
-              </div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>
-                {strategy.out_of_sample_sharpe != null ? strategy.out_of_sample_sharpe.toFixed(2) : '—'}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Paper-Claim Delta */}
-      {strategy.paper_claimed_sharpe && strategy.sharpe_ratio && (
-        <div style={{ marginBottom: 20 }}>
-          <div className="label mb-2">Paper-Claim Delta</div>
-          <div className="card-flat" style={{ padding: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="caption">Paper claimed Sharpe</span>
-              <strong>{strategy.paper_claimed_sharpe.toFixed(2)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="caption">Backtest Sharpe</span>
-              <strong>{strategy.sharpe_ratio.toFixed(2)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="caption">Delta</span>
-              <strong className={strategy.sharpe_ratio / strategy.paper_claimed_sharpe >= 0.5 ? 'positive' : 'negative'}>
-                {((strategy.sharpe_ratio / strategy.paper_claimed_sharpe) * 100).toFixed(0)}% of claim
-              </strong>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* On-chain Provenance */}
-      <div style={{ marginBottom: 20 }}>
-        <div className="label mb-2">On-Chain Provenance</div>
-        <div className="card-flat" style={{ padding: 12 }}>
-          <div className="caption">Strategy ID: <code style={{ color: 'var(--info)' }}>{shortHash(strategy.id)}</code></div>
-          {strategy.methodology_hash && (
-            <div className="caption" style={{ marginTop: 4 }}>
-              Methodology Hash: <code style={{ color: 'var(--text-2)' }}>{shortHash(strategy.methodology_hash)}</code>
-            </div>
-          )}
-          {strategy.curator_note && (
-            <div className="caption" style={{ marginTop: 8, fontStyle: 'italic', color: 'var(--text-3)' }}>
-              Curator: "{strategy.curator_note?.slice(0, 150)}{strategy.curator_note?.length > 150 ? '…' : ''}"
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* On-chain Traces for this strategy */}
-      {traces.length > 0 && (
-        <div>
-          <div className="label mb-2">Reasoning Traces ({traces.length})</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {traces.map((t, i) => (
-              <div key={i} className="card-flat" style={{ padding: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
-                    <span className="tag tag-accent">{t.decision_type || 'trace'}</span>
-                    <code style={{ fontSize: '0.75rem' }}>{shortHash(t.trace_hash)}</code>
-                    {t.is_verified && <span className="i-lucide-check w-3 h-3 text-[var(--positive)]" />}
-                    {t.arc_tx_hash && <span className="i-lucide-anchor w-3 h-3 text-[var(--text-3)]" />}
-                  </div>
-                  {t.reasoning && <p className="hint" style={{ marginBottom: 0 }}>{t.reasoning.slice(0, 120)}{t.reasoning.length > 120 ? '…' : ''}</p>}
-                  {t.confidence > 0 && <div className="caption">Confidence: {(t.confidence * 100).toFixed(0)}%</div>}
-                </div>
-                <div className="caption" style={{ whiteSpace: 'nowrap' }}>{timeAgo(t.timestamp)}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Efficient Frontier + Correlation Matrix — side-by-side on md+, stacked on small */}
-      <div style={{ marginTop: 24 }} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <EfficientFrontier />
-        <CorrelationMatrix selectedStrategyId={strategy.id} />
-      </div>
-
-      {/* Rigor Explainer modal (portal-rendered) */}
-      {rigorModalOpen && createPortal(
-        <div
-          className="modal-overlay"
-          onClick={() => setRigorModalOpen(false)}
-          style={{ zIndex: 1000 }}
-        >
-          <div
-            className="modal"
-            onClick={e => e.stopPropagation()}
-            style={{ maxWidth: 820, maxHeight: '85vh', overflowY: 'auto', width: '90vw' }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-              <button
-                type="button"
-                onClick={() => setRigorModalOpen(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-4)' }}
-                aria-label="Close"
-              >
-                <span className="i-lucide-x" style={{ width: 20, height: 20 }} />
-              </button>
-            </div>
-            <RigorExplainer />
-          </div>
-        </div>,
-        document.body,
-      )}
-    </div>
-  )
-}
-
 // ─── On-chain Traces Panel ───────────────────────────────────
+// Reasoning is now the dedicated trace browser per page-roles-spec.md.
+// Strategy detail (export, paper-claim delta, EfficientFrontier,
+// CorrelationMatrix, RigorExplainer) lives on Library where the strategy
+// itself does — open via ?highlight=<id> deep-link from any trace card.
 
-function OnChainTraces() {
+function OnChainTraces({ onNavigate }) {
   const [traces, setTraces] = useState([])
   const [totalCount, setTotalCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -473,7 +112,8 @@ function OnChainTraces() {
         is computed deterministically off-chain and anchored on Arc via the
         <code style={{ marginLeft: 4 }}>ReasoningTraceRegistry</code> contract.
         Click <strong>Verify on-chain</strong> on any trace to recompute and check
-        against the on-chain anchor.
+        against the on-chain anchor; click <strong>→ Strategy in Library</strong>
+        to jump to the source strategy and its full passport.
       </p>
 
       {/* Trace list */}
@@ -543,7 +183,7 @@ function OnChainTraces() {
                   </div>
                 )}
 
-                {/* Verify button */}
+                {/* Verify button + strategy back-link */}
                 <div className="flex gap-2 items-center flex-wrap">
                   <button
                     className="btn btn-outline btn-sm flex items-center gap-1.5"
@@ -556,6 +196,15 @@ function OnChainTraces() {
                       <><span className="i-lucide-search w-3.5 h-3.5" /> Verify on-chain</>
                     )}
                   </button>
+                  {t.strategy_id && onNavigate && (
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => onNavigate('library', { highlight: t.strategy_id })}
+                      title="Open this trace's strategy in the Library"
+                    >
+                      → Strategy in Library
+                    </button>
+                  )}
                   {vResult && (
                     <span className={`caption flex items-center gap-1 ${vResult.is_verified ? 'positive' : 'negative'}`}>
                       <span className={vResult.is_verified ? 'i-lucide-check w-3 h-3' : 'i-lucide-x w-3 h-3'} />
@@ -595,148 +244,18 @@ function OnChainTraces() {
 
 // ─── Main Export ─────────────────────────────────────────────
 
-export default function Reasoning() {
-  const [strategies, setStrategies] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [selectedId, setSelectedId] = useState(null)
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [filterAuthor, setFilterAuthor] = useState('all')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [onChainTraces, setOnChainTraces] = useState([])
-  const [tab, setTab] = useState('strategies')
-
-  // Load strategies from API
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const data = await apiGet('/api/strategies/')
-        setStrategies(data.strategies || [])
-      } catch (e) {
-        setError(e.message)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
-
-  // Load on-chain traces for selected strategy
-  useEffect(() => {
-    const loadTraces = async () => {
-      try {
-        const data = await apiGet('/api/traces/')
-        setOnChainTraces(data.traces || [])
-      } catch {}
-    }
-    loadTraces()
-  }, [])
-
-  // Unique authors for filter
-  const authors = useMemo(() => {
-    const set = new Set()
-    strategies.forEach(s => s.paper_authors?.forEach(a => set.add(a)))
-    return [...set].sort()
-  }, [strategies])
-
-  // Filtered strategies
-  const filtered = useMemo(() => {
-    return strategies.filter(s => {
-      if (filterStatus !== 'all' && s.status !== filterStatus) return false
-      if (filterAuthor !== 'all' && !s.paper_authors?.includes(filterAuthor)) return false
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase()
-        return s.paper_title?.toLowerCase().includes(q) ||
-               s.methodology_summary?.toLowerCase().includes(q) ||
-               s.asset_universe?.some(a => a.toLowerCase().includes(q))
-      }
-      return true
-    })
-  }, [strategies, filterStatus, filterAuthor, searchQuery])
-
-  const selected = selectedId ? strategies.find(s => s.id === selectedId) : filtered[0]
-  const selectedTraces = selected ? onChainTraces.filter(t =>
-    t.vault_address?.includes(selected.id.slice(0, 8))
-  ) : []
-
+export default function Reasoning({ onNavigate }) {
   return (
     <div>
-      <div className="fade-up fade-up-1 max-w-[640px] mb-7">
-        <h2 className="font-serif text-[2rem] mb-2.5">Intelligence — Reasoning</h2>
+      <div className="fade-up fade-up-1 max-w-[720px] mb-7">
+        <h2 className="font-serif text-[2rem] mb-2.5">Reasoning</h2>
         <p className="body">
-          Every strategy carries a verifiable reasoning trace. Methodology is extracted from
-          published research, anchored on-chain, and auditable by anyone.
+          Every autonomous agent decision is anchored on-chain by hash. Browse the
+          trace timeline below, verify any hash against the on-chain registry, and
+          follow each trace back to the source strategy in the Library.
         </p>
       </div>
-
-      {/* Tabs */}
-      <div className="tabs fade-up fade-up-2 mb-6">
-        <div className={`tab${tab === 'strategies' ? ' active' : ''}`} onClick={() => setTab('strategies')}>Strategies</div>
-        <div className={`tab${tab === 'traces' ? ' active' : ''}`} onClick={() => setTab('traces')}>On-Chain Traces</div>
-      </div>
-
-      {tab === 'strategies' && (
-        <div className="trade-grid fade-up fade-up-2">
-          {/* Left: Strategy list + filters */}
-          <div>
-            {/* Filters */}
-            <div className="flex gap-2 mb-4 flex-wrap">
-              <input
-                type="text"
-                placeholder="Search strategies…"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="chat-input"
-                style={{ flex: 1, minWidth: 140 }}
-              />
-              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="chat-input" style={{ width: 'auto' }}>
-                <option value="all">All status</option>
-                <option value="live">Live</option>
-                <option value="validated">Validated</option>
-                <option value="candidate">Candidate</option>
-              </select>
-              <select value={filterAuthor} onChange={e => setFilterAuthor(e.target.value)} className="chat-input" style={{ width: 'auto' }}>
-                <option value="all">All authors</option>
-                {authors.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
-
-            {loading && <div className="caption">Loading strategies…</div>}
-            {error && <div className="info-box warning">API error: {error}</div>}
-            {!loading && filtered.length === 0 && <div className="caption">No strategies match filters.</div>}
-
-            <div className="flex flex-col gap-2.5">
-              {filtered.map(s => (
-                <StrategyReasoningCard
-                  key={s.id}
-                  strategy={s}
-                  isSelected={selected?.id === s.id}
-                  onClick={() => setSelectedId(s.id)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Right: Detail view */}
-          <div>
-            {selected ? (
-              <StrategyDetailView strategy={selected} traces={selectedTraces} />
-            ) : (
-              <div className="card text-center p-10">
-                <div className="mb-2.5 flex justify-center">
-                  <span className="i-lucide-brain w-8 h-8 text-[var(--accent)]" />
-                </div>
-                <strong>Select a strategy</strong>
-                <p className="caption mt-2">Click a strategy card to view its reasoning trace, metrics, and on-chain provenance.</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {tab === 'traces' && (
-        <OnChainTraces />
-      )}
+      <OnChainTraces onNavigate={onNavigate} />
     </div>
   )
 }

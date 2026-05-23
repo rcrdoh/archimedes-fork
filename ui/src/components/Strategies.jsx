@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import CustomSelect from './CustomSelect'
+import EfficientFrontier from './EfficientFrontier'
+import CorrelationMatrix from './CorrelationMatrix'
+import RigorExplainer from './RigorExplainer'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -378,7 +382,7 @@ export function StrategyArchitect({ strategies }) {
 // + rigor metrics). One row per strategy; no visual hierarchy by status (the
 // STATUS column does that job).
 
-function StrategyRow({ s, isHighlighted }) {
+function StrategyRow({ s, isHighlighted, onOpenRigorExplainer }) {
   const [open, setOpen] = useState(isHighlighted)
   const rowRef = useRef(null)
   const years = periodInYears(s.backtest_start, s.backtest_end)
@@ -479,7 +483,20 @@ function StrategyRow({ s, isHighlighted }) {
                 )}
               </div>
               <div>
-                <div className="label mb-2">Rigor metrics</div>
+                <div className="label mb-2 flex items-center gap-2">
+                  Rigor metrics
+                  {onOpenRigorExplainer && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onOpenRigorExplainer() }}
+                      className="rigor-help-btn"
+                      aria-label="What is the rigor gate?"
+                      title="What is the rigor gate?"
+                    >
+                      ?
+                    </button>
+                  )}
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                   <div><div className="caption">DSR</div><div className="mono" style={{ fontWeight: 700 }}>{fmt(s.deflated_sharpe_ratio)}</div></div>
                   <div><div className="caption">PBO</div><div className="mono" style={{ fontWeight: 700 }}>{fmtPct(s.pbo_score)}</div></div>
@@ -525,7 +542,7 @@ function StrategyRow({ s, isHighlighted }) {
   )
 }
 
-function StrategyTable({ strategies, emptyState, highlightStrategyId }) {
+function StrategyTable({ strategies, emptyState, highlightStrategyId, onOpenRigorExplainer }) {
   if (!strategies.length) return emptyState
   return (
     <div className="overflow-x-auto rounded-lg border border-[var(--glass-border)]">
@@ -543,7 +560,14 @@ function StrategyTable({ strategies, emptyState, highlightStrategyId }) {
           </tr>
         </thead>
         <tbody>
-          {strategies.map(s => <StrategyRow key={s.id} s={s} isHighlighted={highlightStrategyId && s.id === highlightStrategyId} />)}
+          {strategies.map(s => (
+            <StrategyRow
+              key={s.id}
+              s={s}
+              isHighlighted={highlightStrategyId && s.id === highlightStrategyId}
+              onOpenRigorExplainer={onOpenRigorExplainer}
+            />
+          ))}
         </tbody>
       </table>
     </div>
@@ -596,6 +620,10 @@ export default function Strategies({ highlightStrategyId }) {
   // 'generated' is the first-class tab per product feedback — pushes user
   // toward Generate when empty.
   const [activeTab, setActiveTab] = useState('generated')
+  // Page-level rigor explainer modal, opened from any row expansion's "?"
+  // affordance. Single modal instance per page keeps state simple.
+  const [rigorModalOpen, setRigorModalOpen] = useState(false)
+  const openRigorExplainer = useCallback(() => setRigorModalOpen(true), [])
 
   // If we arrived via ?highlight=<id> and the strategy is only in Examples,
   // auto-switch to the Examples tab so the scrollIntoView lands a real row.
@@ -669,6 +697,7 @@ export default function Strategies({ highlightStrategyId }) {
           <StrategyTable
             strategies={generated}
             highlightStrategyId={highlightStrategyId}
+            onOpenRigorExplainer={openRigorExplainer}
             emptyState={
               <div className="card" style={{ padding: 22 }}>
                 <div className="label mb-2">No generated strategies yet</div>
@@ -703,6 +732,7 @@ export default function Strategies({ highlightStrategyId }) {
             <StrategyTable
               strategies={examples}
               highlightStrategyId={highlightStrategyId}
+              onOpenRigorExplainer={openRigorExplainer}
               emptyState={<p className="caption">No example strategies loaded.</p>}
             />
           )}
@@ -714,6 +744,41 @@ export default function Strategies({ highlightStrategyId }) {
           * Estimated metrics — sourced from paper claims with McLean-Pontiff post-publication decay
           applied. Replaced by real BacktestResult once the analytics engine runs.
         </div>
+      )}
+
+      {/* Page-level analytics panels — moved from Reasoning per page-roles-spec.
+          CorrelationMatrix highlights the deep-linked row when present. */}
+      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <EfficientFrontier />
+        <CorrelationMatrix selectedStrategyId={highlightStrategyId || null} />
+      </div>
+
+      {/* Rigor Explainer modal (portal-rendered, page-level) */}
+      {rigorModalOpen && createPortal(
+        <div
+          className="modal-overlay"
+          onClick={() => setRigorModalOpen(false)}
+          style={{ zIndex: 1000 }}
+        >
+          <div
+            className="modal"
+            onClick={e => e.stopPropagation()}
+            style={{ maxWidth: 820, maxHeight: '85vh', overflowY: 'auto', width: '90vw' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+              <button
+                type="button"
+                onClick={() => setRigorModalOpen(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-4)' }}
+                aria-label="Close"
+              >
+                <span className="i-lucide-x" style={{ width: 20, height: 20 }} />
+              </button>
+            </div>
+            <RigorExplainer />
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

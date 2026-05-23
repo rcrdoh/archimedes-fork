@@ -165,6 +165,29 @@ h4, .h4 { font-family: var(--sans); font-size: 0.8rem; font-weight: 600; text-tr
   background: rgba(224, 166, 79, 0.08);
 }
 
+.rigor-help-btn {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-4);
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.rigor-help-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .page-content {
   padding: var(--space-7) var(--space-6);
   max-width: var(--max-w);
