@@ -748,7 +748,7 @@ export default function Strategies({ highlightStrategyId }) {
 
       {/* Page-level analytics panels — moved from Reasoning per page-roles-spec.
           CorrelationMatrix highlights the deep-linked row when present. */}
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="mt-8 flex flex-col gap-4">
         <EfficientFrontier />
         <CorrelationMatrix selectedStrategyId={highlightStrategyId || null} />
       </div>

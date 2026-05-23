@@ -54,7 +54,6 @@ export default function CorrelationMatrix({ selectedStrategyId = null }) {
   }
 
   const { matrix, labels, avg_pairwise_correlation, note } = data
-  const n = labels.length
 
   /**
    * Colour interpolation: green (0) → neutral grey (0.5) → red (1).
@@ -84,10 +83,10 @@ export default function CorrelationMatrix({ selectedStrategyId = null }) {
     return value > 0.7 ? 'var(--negative)' : value < 0.3 ? 'var(--positive)' : 'var(--text-2)'
   }
 
-  // Short label for table header: trim to 12 chars
-  function shortLabel(title) {
-    return title.length > 12 ? title.slice(0, 11) + '…' : title
-  }
+  // Show full strategy names in both headers and row labels. Names ellipsize
+  // (with a hover title) only when they exceed COL_MAXW — short names render in
+  // full; columns size to content (table-layout: auto).
+  const COL_MAXW = 220
 
   return (
     <div className="card-flat" style={{ padding: 20 }}>
@@ -106,16 +105,17 @@ export default function CorrelationMatrix({ selectedStrategyId = null }) {
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.75rem' }}>
           <thead>
             <tr>
-              <th style={{ padding: '4px 8px', textAlign: 'left', color: 'var(--text-4)', fontWeight: 400, borderBottom: '1px solid var(--glass-border)', whiteSpace: 'nowrap' }}>
+              <th style={{ padding: '4px 8px', textAlign: 'left', color: 'var(--text-4)', fontWeight: 400, borderBottom: '1px solid var(--glass-border)' }}>
                 Strategy
               </th>
               {labels.map((l, j) => (
-                <th key={j} style={{
-                  padding: '4px 6px', textAlign: 'center', color: 'var(--text-3)',
+                <th key={j} title={l.title} style={{
+                  padding: '4px 10px', textAlign: 'center', color: 'var(--text-3)',
                   fontWeight: 400, borderBottom: '1px solid var(--glass-border)',
-                  fontSize: '0.67rem', whiteSpace: 'nowrap',
+                  fontSize: '0.68rem', whiteSpace: 'nowrap',
+                  maxWidth: COL_MAXW, overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
-                  {shortLabel(l.title)}
+                  {l.title}
                 </th>
               ))}
             </tr>
@@ -125,28 +125,32 @@ export default function CorrelationMatrix({ selectedStrategyId = null }) {
               const isSelectedRow = selectedStrategyId != null && labels[i]?.id === selectedStrategyId
               return (
               <tr key={i} style={isSelectedRow ? { background: 'rgba(99,102,241,0.08)' } : undefined}>
-                <td style={{
+                <td title={labels[i].title} style={{
                   padding: '4px 8px', color: isSelectedRow ? 'var(--accent)' : 'var(--text-2)',
                   fontWeight: isSelectedRow ? 700 : 500,
-                  borderBottom: '1px solid var(--glass-border)', whiteSpace: 'nowrap',
-                  fontSize: '0.68rem',
+                  borderBottom: '1px solid var(--glass-border)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  maxWidth: COL_MAXW, fontSize: '0.68rem',
                 }}>
-                  {shortLabel(labels[i].title)}
+                  {labels[i].title}
                   {labels[i].passes_rigor_gate && (
-                    <span style={{ marginLeft: 4, color: 'var(--positive)', fontSize: '0.65rem' }}>T1</span>
+                    <span style={{
+                      marginLeft: 6, padding: '0 4px', borderRadius: 3,
+                      background: 'rgba(16,185,129,0.12)', color: 'var(--positive)',
+                      fontSize: '0.6rem', fontWeight: 700, verticalAlign: 'middle',
+                    }}>T1</span>
                   )}
                 </td>
                 {row.map((val, j) => {
                   const isSelectedCol = selectedStrategyId != null && labels[j]?.id === selectedStrategyId
                   return (
                   <td key={j} style={{
-                    padding: '4px 6px', textAlign: 'center',
+                    padding: '4px 12px', textAlign: 'center',
                     background: i === j ? 'rgba(255,255,255,0.06)' : cellColor(val),
                     borderBottom: '1px solid var(--glass-border)',
                     borderRight: isSelectedCol ? '2px solid var(--accent)' : undefined,
                     color: i === j ? 'var(--text-4)' : textColor(val),
                     fontWeight: i === j ? 400 : (isSelectedRow || isSelectedCol) ? 700 : 600,
-                    minWidth: 44,
                   }}>
                     {i === j ? '—' : val.toFixed(2)}
                   </td>

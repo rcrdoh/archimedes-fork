@@ -55,7 +55,7 @@ export default function EfficientFrontier() {
   const strategies = data.strategies || []
 
   // Map frontier points to SVG pixel coordinates
-  const SVG_W = 480
+  const SVG_W = 720
   const SVG_H = 300
   const PAD_L = 52
   const PAD_R = 20
@@ -115,7 +115,7 @@ export default function EfficientFrontier() {
       <svg
         viewBox={`0 0 ${SVG_W} ${SVG_H}`}
         width="100%"
-        style={{ display: 'block', maxHeight: 300 }}
+        style={{ display: 'block', maxHeight: 360 }}
         aria-label="Efficient frontier chart"
       >
         {/* Grid lines */}
