@@ -420,6 +420,7 @@ class FusionProposal:
     risk_notes: str
     model: str
     requested_model: str
+    strategy_spec: dict[str, Any] | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
@@ -615,6 +616,11 @@ class StrategyFusion:
                 "single-paper hypothesis is produced.",
             )
 
+        # Extract strategy_spec if present (additive — back-compat if missing)
+        strategy_spec = parsed.get("strategy_spec")
+        if not isinstance(strategy_spec, dict):
+            strategy_spec = None
+
         return FusionProposal(
             status="ok",
             brief=brief,
@@ -626,6 +632,7 @@ class StrategyFusion:
             risk_notes=str(parsed.get("risk_notes", "")).strip(),
             model=backend.served_model,  # TRUE served model — field of record
             requested_model=backend.model_id,  # what we asked for
+            strategy_spec=strategy_spec,
         )
 
 
