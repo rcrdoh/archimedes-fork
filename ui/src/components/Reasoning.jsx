@@ -258,8 +258,8 @@ function StrategyDetailView({ strategy, traces }) {
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
                     <span className="tag tag-accent">{t.decision_type || 'trace'}</span>
                     <code style={{ fontSize: '0.75rem' }}>{shortHash(t.trace_hash)}</code>
-                    {t.is_verified && <span style={{ fontSize: '0.7rem', color: 'var(--positive)' }}>✓</span>}
-                    {t.arc_tx_hash && <span style={{ fontSize: '0.7rem' }}>⚓</span>}
+                    {t.is_verified && <span className="i-lucide-check w-3 h-3 text-[var(--positive)]" />}
+                    {t.arc_tx_hash && <span className="i-lucide-anchor w-3 h-3 text-[var(--text-3)]" />}
                   </div>
                   {t.reasoning && <p className="hint" style={{ marginBottom: 0 }}>{t.reasoning.slice(0, 120)}{t.reasoning.length > 120 ? '…' : ''}</p>}
                   {t.confidence > 0 && <div className="caption">Confidence: {(t.confidence * 100).toFixed(0)}%</div>}
@@ -350,7 +350,7 @@ function OnChainTraces() {
   return (
     <div>
       <div className="label mb-3">Reasoning Trace Registry ({totalCount} total)</div>
-      <p className="caption" style={{ marginBottom: 16, maxWidth: 640, lineHeight: 1.5 }}>
+      <p className="caption mb-4 max-w-[640px] leading-relaxed">
         Every trace below is a real agent decision: an autonomous rebalance, a
         regime change, or a strategy construction from the Generate page. The hash
         is computed deterministically off-chain and anchored on Arc via the
@@ -373,24 +373,24 @@ function OnChainTraces() {
           </p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="flex flex-col gap-2.5">
           {traces.map((t, i) => {
             const vResult = verifyResults[t.id]
             return (
               <div key={i} className="card" style={{ padding: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex gap-2 items-center flex-wrap">
                     <span style={{ fontWeight: 700, color: 'var(--accent)' }}>#{typeof t.id === 'string' ? t.id.slice(0, 8) : t.id}</span>
                     <span className={`tag ${t.decision_type === 'rebalance' ? 'tag-accent' : t.decision_type === 'construction' ? 'tag-positive' : 'tag-muted'}`}>
                       {t.decision_type}
                     </span>
-                    {t.is_verified && <span style={{ fontSize: '0.75rem', color: 'var(--positive)' }}>✓ verified</span>}
-                    {t.arc_tx_hash && <span style={{ fontSize: '0.75rem' }}>⚓ on-chain</span>}
+                    {t.is_verified && <span className="flex items-center gap-1 text-xs text-[var(--positive)]"><span className="i-lucide-check w-3 h-3" /> verified</span>}
+                    {t.arc_tx_hash && <span className="flex items-center gap-1 text-xs"><span className="i-lucide-anchor w-3 h-3" /> on-chain</span>}
                   </div>
                   <div className="caption">{timeAgo(t.timestamp)}</div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <div className="grid grid-cols-2 gap-2 mb-2">
                   <div>
                     <div className="caption">Vault</div>
                     <code style={{ fontSize: '0.75rem' }}>{shortAddr(t.vault_address || t.vault)}</code>
@@ -402,7 +402,7 @@ function OnChainTraces() {
                 </div>
 
                 {t.reasoning && (
-                  <div style={{ marginBottom: 8 }}>
+                  <div className="mb-2">
                     <div className="caption">Reasoning</div>
                     <p className="body" style={{ fontSize: '0.85rem', lineHeight: 1.4 }}>{t.reasoning.slice(0, 200)}{t.reasoning.length > 200 ? '…' : ''}</p>
                   </div>
@@ -418,39 +418,44 @@ function OnChainTraces() {
                 )}
 
                 {t.confidence > 0 && (
-                  <div style={{ marginBottom: 8 }}>
+                  <div className="mb-2">
                     <div className="caption">Confidence: {(t.confidence * 100).toFixed(0)}%</div>
-                    <div style={{ background: 'var(--bg-2)', borderRadius: 4, height: 4, width: '100%' }}>
-                      <div style={{ background: 'var(--accent)', borderRadius: 4, height: 4, width: `${t.confidence * 100}%` }} />
+                    <div className="rounded h-1 w-full" style={{ background: 'var(--bg-2)' }}>
+                      <div className="rounded h-1 bg-[var(--accent)]" style={{ width: `${t.confidence * 100}%` }} />
                     </div>
                   </div>
                 )}
 
                 {/* Verify button */}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div className="flex gap-2 items-center flex-wrap">
                   <button
-                    className="btn btn-outline btn-sm"
+                    className="btn btn-outline btn-sm flex items-center gap-1.5"
                     onClick={() => verifyTrace(t.id)}
                     disabled={verifying[t.id]}
                   >
-                    {verifying[t.id] ? 'Verifying…' : '🔍 Verify on-chain'}
+                    {verifying[t.id] ? (
+                      'Verifying…'
+                    ) : (
+                      <><span className="i-lucide-search w-3.5 h-3.5" /> Verify on-chain</>
+                    )}
                   </button>
                   {vResult && (
-                    <span className={`caption ${vResult.is_verified ? 'positive' : 'negative'}`}>
-                      {vResult.is_verified ? `✓ ${vResult.details}` : `✗ ${vResult.details}`}
+                    <span className={`caption flex items-center gap-1 ${vResult.is_verified ? 'positive' : 'negative'}`}>
+                      <span className={vResult.is_verified ? 'i-lucide-check w-3 h-3' : 'i-lucide-x w-3 h-3'} />
+                      {vResult.details}
                     </span>
                   )}
                 </div>
 
                 {/* Temporal binding verification */}
                 {t.temporal_binding_valid != null && (
-                  <div style={{ marginTop: 8, padding: '8px 12px', background: t.temporal_binding_valid ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', borderRadius: 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <span style={{ fontSize: '1rem' }}>{t.temporal_binding_valid ? '✅' : '❌'}</span>
-                      <strong style={{ fontSize: '0.85rem' }}>Temporal Binding</strong>
-                      {t.temporal_binding_valid && <span className="tag tag-positive" style={{ fontSize: '0.7rem' }}>VERIFIED</span>}
+                  <div className="mt-2 rounded-md px-3 py-2" style={{ background: t.temporal_binding_valid ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)' }}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className={`w-4 h-4 flex-shrink-0 ${t.temporal_binding_valid ? 'i-lucide-check-circle text-[var(--positive)]' : 'i-lucide-x-circle text-[var(--negative)]'}`} />
+                      <strong className="text-[0.85rem]">Temporal Binding</strong>
+                      {t.temporal_binding_valid && <span className="tag tag-positive text-[0.7rem]">VERIFIED</span>}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', lineHeight: 1.5 }}>
+                    <div className="text-xs text-[var(--text-3)] leading-relaxed">
                       {t.commit_block_number != null && <div>Commit block: <strong>#{t.commit_block_number}</strong></div>}
                       {t.trade_block_number != null && <div>Trade block: <strong>#{t.trade_block_number}</strong></div>}
                       {t.reveal_block_number != null && <div>Reveal block: <strong>#{t.reveal_block_number}</strong></div>}
@@ -539,8 +544,8 @@ export default function Reasoning() {
 
   return (
     <div>
-      <div className="fade-up fade-up-1" style={{ maxWidth: 640, marginBottom: 28 }}>
-        <h2 style={{ fontFamily: 'var(--serif)', fontSize: '2rem', marginBottom: 10 }}>Intelligence — Reasoning</h2>
+      <div className="fade-up fade-up-1 max-w-[640px] mb-7">
+        <h2 className="font-serif text-[2rem] mb-2.5">Intelligence — Reasoning</h2>
         <p className="body">
           Every strategy carries a verifiable reasoning trace. Methodology is extracted from
           published research, anchored on-chain, and auditable by anyone.
@@ -548,7 +553,7 @@ export default function Reasoning() {
       </div>
 
       {/* Tabs */}
-      <div className="tabs fade-up fade-up-2" style={{ marginBottom: 24 }}>
+      <div className="tabs fade-up fade-up-2 mb-6">
         <div className={`tab${tab === 'strategies' ? ' active' : ''}`} onClick={() => setTab('strategies')}>Strategies</div>
         <div className={`tab${tab === 'traces' ? ' active' : ''}`} onClick={() => setTab('traces')}>On-Chain Traces</div>
       </div>
@@ -558,7 +563,7 @@ export default function Reasoning() {
           {/* Left: Strategy list + filters */}
           <div>
             {/* Filters */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            <div className="flex gap-2 mb-4 flex-wrap">
               <input
                 type="text"
                 placeholder="Search strategies…"
@@ -583,7 +588,7 @@ export default function Reasoning() {
             {error && <div className="info-box warning">API error: {error}</div>}
             {!loading && filtered.length === 0 && <div className="caption">No strategies match filters.</div>}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="flex flex-col gap-2.5">
               {filtered.map(s => (
                 <StrategyReasoningCard
                   key={s.id}
@@ -600,10 +605,12 @@ export default function Reasoning() {
             {selected ? (
               <StrategyDetailView strategy={selected} traces={selectedTraces} />
             ) : (
-              <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-                <div style={{ fontSize: '2rem', marginBottom: 10 }}>🧠</div>
+              <div className="card text-center p-10">
+                <div className="mb-2.5 flex justify-center">
+                  <span className="i-lucide-brain w-8 h-8 text-[var(--accent)]" />
+                </div>
                 <strong>Select a strategy</strong>
-                <p className="caption" style={{ marginTop: 8 }}>Click a strategy card to view its reasoning trace, metrics, and on-chain provenance.</p>
+                <p className="caption mt-2">Click a strategy card to view its reasoning trace, metrics, and on-chain provenance.</p>
               </div>
             )}
           </div>

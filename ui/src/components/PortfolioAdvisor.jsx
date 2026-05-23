@@ -46,12 +46,11 @@ function AllocationBar({ label, weight, isUsdc, kelly, rigorPassed, isCandidate 
             </span>
           )}
           {!isUsdc && rigorPassed && (
-            <span style={{
-              fontSize: '0.68rem', fontWeight: 600, padding: '1px 6px', borderRadius: 3,
+            <span className="inline-flex items-center gap-1 text-[0.68rem] font-semibold px-1.5 py-px rounded" style={{
               background: 'rgba(16,185,129,0.12)', color: 'var(--positive)',
               border: '1px solid rgba(16,185,129,0.3)',
             }}>
-              Rigor Gate ✓
+              Rigor Gate <span className="i-lucide-check w-3 h-3" />
             </span>
           )}
           {!isUsdc && !rigorPassed && isCandidate !== undefined && (
@@ -435,7 +434,7 @@ export default function PortfolioAdvisor() {
                         </td>
                         <td>
                           {a.passes_rigor_gate ? (
-                            <span style={{ color: 'var(--positive)', fontSize: '0.72rem', fontWeight: 600 }}>✓ Passed</span>
+                            <span className="flex items-center gap-1 text-[var(--positive)] text-[0.72rem] font-semibold"><span className="i-lucide-check w-3 h-3" /> Passed</span>
                           ) : (
                             <span style={{ color: 'var(--text-4)', fontSize: '0.72rem' }}>Candidate</span>
                           )}

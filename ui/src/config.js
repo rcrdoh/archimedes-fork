@@ -18,7 +18,7 @@ export const WALLET_PROVIDERS = [
   {
     id: 'metamask',
     name: 'MetaMask',
-    icon: '🦊',
+    icon: 'i-token-branded-metamask',
     detect: () => {
       if (!window.ethereum) return null
       // MetaMask injects window.ethereum with isMetaMask
@@ -33,7 +33,7 @@ export const WALLET_PROVIDERS = [
   {
     id: 'coinbase',
     name: 'Coinbase Wallet',
-    icon: '🔵',
+    icon: 'i-simple-icons-coinbase',
     detect: () => {
       // Coinbase Wallet extension
       if (window.ethereum?.isCoinbaseWallet) return window.ethereum
@@ -49,7 +49,7 @@ export const WALLET_PROVIDERS = [
   {
     id: 'browser',
     name: 'Browser Wallet',
-    icon: '🌐',
+    icon: 'i-lucide-globe',
     detect: () => {
       // Fallback: any window.ethereum provider
       return window.ethereum || null
@@ -335,11 +335,13 @@ export const VAULT_FACTORY_ABI = [
 export const USDC = "0x3600000000000000000000000000000000000000"
 
 export const ASSETS = [
-  { id: 'TSLA',   name: 'Tesla',      sym: 'sTSLA',   emoji: '🚗', oracle: '0x9eEd179B2E4f6Fb54a452D3E727649EA3b15b763', token: '0xE745C07d7d32A1Ca0d6162A1c50e876619CF7388' },
-  { id: 'NVDA',   name: 'Nvidia',     sym: 'sNVDA',   emoji: '🎮', oracle: '0xbDa34c7e3FdF7B8e93c9aa383b50C2e0cE58E0dB', token: '0xC297A15E702C910b71Ac531c6633aFDd90389e1d' },
-  { id: 'SPY',    name: 'S&P 500',    sym: 'sSPY',    emoji: '📈', oracle: '0x2D41e62D6bAD0a84190E257d3F5A90F48Be55Fbe', token: '0x04315D3c35639288949cEE1d1E01Bd6100aDf3f5' },
-  { id: 'BTC',    name: 'Bitcoin',    sym: 'sBTC',    emoji: '₿',  oracle: '0xF9a2B28b9B4D67F43Cb490E54f8C6F4cd59482F1', token: '0xdDbac3Cf2feb7192f963e6a9bB4DE0822C3DF4DB' },
-  { id: 'GOLD',   name: 'Gold ETF',   sym: 'sGOLD',   emoji: '🥇', oracle: '0xbFAd6DaDd35Cb56aE29dC47D9Ac4c46f0fCd9B9A', token: '0xb13Eb59d8CDfACeDE2990207651e8649bdf7A89f' },
+  { id: 'TSLA',   name: 'Tesla',      sym: 'sTSLA',   icon: 'i-simple-icons-tesla',          oracle: '0xe1c9f2b11be97097223a66a188fca541e07873a6', vault: '0xf0356600e26c6c403ec4f5b36b0e3380bb0609ab', token: '0xd514cd27baf762c650536765cde9b61c876abacd' },
+  { id: 'NVDA',   name: 'Nvidia',     sym: 'sNVDA',   icon: 'i-simple-icons-nvidia',          oracle: '0xeb36acf88e739dd312de8278985262146a017374', vault: '0x4c3cdc2bf44195ad8a4d201c8afbd453949a8781', token: '0x805e75019a1291a598dfc134ad2519121a35fb11' },
+  { id: 'SPY',    name: 'S&P 500',    sym: 'sSPY',    icon: 'i-lucide-trending-up',           oracle: '0xd8161a8eeab7c7100e2863abe3d5f346b5ff9e52', vault: '0xd8d7855f76c384638cf1dfc3575ecff3538764b4', token: '0x6fea38dedea0c6bb66ce93e5383c34385d8b889f' },
+  { id: 'BTC',    name: 'Bitcoin',    sym: 'sBTC',    icon: 'i-cryptocurrency-color-btc',     oracle: '0x6cc5f621c4e3b46152e69e5c9873689cbb4a85e8', vault: '0x92990ed6f5c8cd72752ca9aeafad422269225c43', token: '0x317e82be8f7cba6c162ab968fcf695d88e8e0359' },
+  { id: 'GOLD',   name: 'Gold ETF',   sym: 'sGOLD',   icon: 'i-lucide-coins',                 oracle: '0x35fccde01ae8728c7a7cb83c3f59c701ebecc633', vault: '0x124b5c5da57d209b28d4997aaf6d4e96711efd5a', token: '0xf384562c8bdafce52400eb6839f195695f6fa276' },
+  { id: 'OIL',    name: 'Oil ETF',    sym: 'sOIL',    icon: 'i-lucide-fuel',                  oracle: '0x79f354524fd09af16d841a2221af2b2b7bc432c8', vault: '0xfa942399e36959c8060c3a82a610d680a7ac6d22', token: '0x46cead4120f17a968ba1168f1a56563962cf3c4b' },
+  { id: 'NIKKEI', name: 'Nikkei ETF', sym: 'sNKY',    icon: 'i-lucide-bar-chart-2',           oracle: '0xcd34a4103ad64a3cf729b1b1a58295ccc957fcee', vault: '0xb26029ca37c09400ca921f00fc541cd42143b508', token: '0x445b8f0f827a0d384d1b8ccf18cbc6ec8a543376' },
 ]
 
 // New contract addresses — set these after deploying via deploy-new.mjs

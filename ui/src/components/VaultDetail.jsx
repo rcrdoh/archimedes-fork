@@ -204,16 +204,14 @@ export default function VaultDetail({ address, onBack }) {
   return (
     <div className="vault-detail-page">
       {/* Back button */}
-      <button className="back-btn" onClick={onBack}>
-        ← Back to Vaults
-      </button>
+      <button className="back-btn flex items-center gap-1.5" onClick={onBack}><span className="i-lucide-arrow-left w-4 h-4" /> Back to Vaults</button>
 
       {/* Vault Header */}
       <div className="vault-detail-header">
         <div className="vault-detail-title-row">
           <h2 className="vault-detail-name">{name}</h2>
           <span className={`vault-tier-badge tier-${tier}`}>
-            {tier === 1 ? '🏆 Verified' : '👥 Community'}
+            <span className={tier === 1 ? 'i-lucide-trophy' : 'i-lucide-users'} style={{width:12,height:12,marginRight:4}} />{tier === 1 ? 'Verified' : 'Community'}
           </span>
         </div>
         <div className="vault-detail-meta">
@@ -328,7 +326,7 @@ export default function VaultDetail({ address, onBack }) {
                 <span className="vault-trace-type">{t.decision_type}</span>
                 <code className="vault-trace-hash">{t.trace_hash?.slice(0, 16)}…</code>
                 <span className="vault-trace-time">{timeAgo(t.timestamp)}</span>
-                {t.is_verified && <span className="vault-trace-verified">✓</span>}
+                {t.is_verified && <span className="vault-trace-verified i-lucide-check" style={{width:12,height:12}} />}
               </div>
             ))}
           </div>

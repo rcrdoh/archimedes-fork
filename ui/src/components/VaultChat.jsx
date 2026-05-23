@@ -35,7 +35,7 @@ function MessageBubble({ msg, isOwn }) {
     <div className={`chat-msg ${msg.is_ai ? 'chat-msg-ai' : ''} ${isOwn ? 'chat-msg-own' : ''}`}>
       <div className="chat-msg-header">
         <span className="chat-msg-avatar">
-          {msg.is_ai ? '🤖' : '👤'}
+          <span className={msg.is_ai ? 'i-lucide-bot' : 'i-lucide-user'} style={{width:14,height:14}} />
         </span>
         <span className="chat-msg-sender">
           {msg.is_ai ? 'Archimedes AI' : shortAddr}
@@ -157,11 +157,11 @@ export default function VaultChat({ vaultAddress, isOpen = true, onToggle }) {
       {/* Header */}
       <div className="chat-header" onClick={onToggle}>
         <div className="chat-header-left">
-          <span className="chat-icon">💬</span>
+          <span className="chat-icon i-lucide-message-circle" style={{width:15,height:15}} />
           <span className="chat-title">Vault Chat</span>
           <span className="chat-count">{messages.length}</span>
         </div>
-        <span className="chat-toggle">{isOpen ? '▼' : '▲'}</span>
+        <span className={`chat-toggle ${isOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'}`} style={{width:14,height:14}} />
       </div>
 
       {isOpen && (
@@ -172,7 +172,7 @@ export default function VaultChat({ vaultAddress, isOpen = true, onToggle }) {
               <div className="chat-empty">Loading messages…</div>
             ) : messages.length === 0 ? (
               <div className="chat-empty">
-                <div style={{ fontSize: '1.5rem', marginBottom: 8 }}>💬</div>
+                <div style={{ marginBottom: 8 }}><span className="i-lucide-message-circle" style={{width:28,height:28,display:'block',margin:'0 auto',color:'var(--text-3)'}} /></div>
                 <div>No messages yet</div>
                 <div className="chat-hint">
                   Be the first to say something, or @archimedes to talk to the AI
@@ -210,7 +210,7 @@ export default function VaultChat({ vaultAddress, isOpen = true, onToggle }) {
                   onClick={sendMessage}
                   disabled={sending || !input.trim()}
                 >
-                  {sending ? '⏳' : '➤'}
+                  <span className={sending ? 'i-lucide-loader' : 'i-lucide-send'} style={{width:14,height:14}} />
                 </button>
               </div>
             ) : (

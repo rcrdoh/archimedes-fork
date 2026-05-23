@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import EfficientFrontier from './EfficientFrontier'
-import CorrelationMatrix from './CorrelationMatrix'
-import RegimePanel from './RegimePanel'
+import CustomSelect from './CustomSelect'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -173,8 +171,8 @@ export function StrategyArchitect({ strategies }) {
   const isFallback = result?.model_id === 'canned-fallback'
 
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto' }}>
-      <h2 style={{ fontFamily: 'var(--serif)', fontSize: '1.6rem', marginBottom: 8 }}>Strategy Architect</h2>
+    <div className="max-w-[700px] mx-auto">
+      <h2 className="font-serif text-[1.6rem] mb-2">Strategy Architect</h2>
       <p className="hint">
         Describe what you want. The agent selects paper-grounded strategies, weights them
         under hard risk constraints, and anchors a verifiable reasoning trace.
@@ -191,12 +189,14 @@ export function StrategyArchitect({ strategies }) {
             placeholder="e.g. steady growth, low drawdowns, trend-following…"
           />
         </div>
-        <div className="form-row" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
+        <div className="form-row flex gap-4 flex-wrap mt-3">
           <div className="form-group">
             <label className="label">Risk profile</label>
-            <select className="chat-input" value={riskProfile} onChange={(e) => setRiskProfile(e.target.value)}>
-              {RISK_PROFILES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-            </select>
+            <CustomSelect
+              value={riskProfile}
+              onChange={setRiskProfile}
+              options={RISK_PROFILES.map(r => ({ value: r.id, label: r.label }))}
+            />
           </div>
           <div className="form-group">
             <label className="label">Capital (USDC)</label>
@@ -208,7 +208,7 @@ export function StrategyArchitect({ strategies }) {
               onChange={(e) => setCapital(e.target.value)}
             />
           </div>
-          <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <div className="form-group flex items-end">
             <button className="btn btn-primary" onClick={construct} disabled={constructing || !intent.trim()}>
               {constructing ? 'Constructing…' : 'Construct portfolio'}
             </button>
@@ -225,13 +225,14 @@ export function StrategyArchitect({ strategies }) {
       {result && (
         <div className="card" style={{ marginTop: 20 }}>
           {isFallback && (
-            <div className="info-box warning" style={{ marginBottom: 16 }}>
-              ⚠️ Offline fallback (no <code>ANTHROPIC_API_KEY</code>) — equal-weighted,
+            <div className="info-box warning mb-4">
+              <span className="i-lucide-alert-triangle w-3.5 h-3.5 mr-1.5" />
+              Offline fallback (no <code>ANTHROPIC_API_KEY</code>) — equal-weighted,
               not model reasoning. The guardrail + trace are still real.
             </div>
           )}
           <h3>Proposed portfolio</h3>
-          <p className="hint" style={{ marginTop: 4 }}>
+          <p className="hint mt-1">
             {result.risk_profile} · {Number(result.capital_usdc).toLocaleString()} USDC ·
             model: <span className="mono">{result.model_id}</span>
           </p>
@@ -252,9 +253,9 @@ export function StrategyArchitect({ strategies }) {
               : null
             if (!agg) return null
             return (
-              <div className="card-flat" style={{ padding: 14, marginTop: 14, background: 'rgba(255,255,255,0.03)' }}>
+              <div className="card-flat mt-3.5" style={{ padding: 14, background: 'rgba(255,255,255,0.03)' }}>
                 <div className="label mb-2">Expected portfolio profile (weighted from per-strategy backtests)</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 8 }}>
+                <div className="grid grid-cols-3 gap-3 mb-2">
                   <div><div className="caption">Blended Sharpe</div><div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fmt(agg.sharpe_ratio)}</div></div>
                   <div><div className="caption">Blended CAGR</div><div className="positive" style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fmtPct(agg.cagr)}</div></div>
                   <div><div className="caption">Blended Max DD</div><div className="negative" style={{ fontWeight: 700, fontSize: '1.1rem' }}>{agg.max_drawdown != null ? `−${fmtPct(agg.max_drawdown)}` : '—'}</div></div>
@@ -276,24 +277,27 @@ export function StrategyArchitect({ strategies }) {
             )
           })()}
           {result.overall_reasoning && (
-            <p style={{ marginTop: 12, lineHeight: 1.5 }}>{result.overall_reasoning}</p>
+            <p className="mt-3 leading-relaxed">{result.overall_reasoning}</p>
           )}
-          <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="mt-4 flex flex-col gap-3.5">
             {result.selected.map((s) => (
               <div key={s.strategy_id}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div className="flex justify-between mb-1">
                   <strong>{s.paper_title || s.strategy_id}</strong>
                   <span className="mono">{(s.weight * 100).toFixed(1)}%</span>
                 </div>
                 <WeightBar weight={s.weight} />
-                {s.rationale && <p className="hint" style={{ marginTop: 6 }}>{s.rationale}</p>}
+                {s.rationale && <p className="hint mt-1.5">{s.rationale}</p>}
                 {s.paper_citation && (
-                  <p className="caption" style={{ marginTop: 2 }}>📄 {s.paper_citation}</p>
+                  <p className="caption mt-0.5 flex items-center gap-1">
+                    <span className="i-lucide-file-text" style={{width:12,height:12,flexShrink:0}} />
+                    {s.paper_citation}
+                  </p>
                 )}
               </div>
             ))}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div className="flex justify-between mb-1">
                 <strong>USYC (cash-yield sleeve)</strong>
                 <span className="mono">{(result.usyc_weight * 100).toFixed(1)}%</span>
               </div>
@@ -301,19 +305,19 @@ export function StrategyArchitect({ strategies }) {
             </div>
           </div>
           {result.risk_notes && (
-            <p className="hint" style={{ marginTop: 16 }}><strong>Risk notes:</strong> {result.risk_notes}</p>
+            <p className="hint mt-4"><strong>Risk notes:</strong> {result.risk_notes}</p>
           )}
           {result.guardrail_notes?.length > 0 && (
-            <div style={{ marginTop: 16 }}>
+            <div className="mt-4">
               <div className="label">Guardrail adjustments</div>
-              <ul className="hint" style={{ marginTop: 6, paddingLeft: 18 }}>
+              <ul className="hint mt-1.5 pl-[18px]">
                 {result.guardrail_notes.map((n, i) => <li key={i}>{n}</li>)}
               </ul>
             </div>
           )}
           {result.trace && (
-            <div className="trace-card" style={{ marginTop: 18, flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div className="trace-card flex-col gap-1.5" style={{ marginTop: 18 }}>
+              <div className="flex items-center justify-between gap-2">
                 <span className="trace-id" style={{ fontSize: '0.85rem' }}>
                   {result.trace.decision_type} · {result.trace.trigger}
                 </span>
@@ -356,9 +360,9 @@ function StrategyRow({ s }) {
 
   return (
     <>
-      <tr className="lib-row" onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer' }}>
-        <td style={{ fontWeight: 600 }}>
-          <span style={{ marginRight: 6, color: 'var(--text-4)', display: 'inline-block', width: 10 }}>{open ? '▾' : '▸'}</span>
+      <tr className="lib-row cursor-pointer" onClick={() => setOpen(o => !o)}>
+        <td className="font-semibold">
+          <span className={`${open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'} w-3 h-3 mr-1.5 text-[var(--text-4)] flex-shrink-0 inline-block`} />
           {s.paper_title}
         </td>
         <td className="caption">{paperCite || (s.paper_year ? `(${s.paper_year})` : '—')}</td>
@@ -372,7 +376,7 @@ function StrategyRow({ s }) {
       {open && (
         <tr className="lib-row-detail">
           <td colSpan={8} style={{ padding: '12px 18px', background: 'rgba(255,255,255,0.02)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 18, fontSize: '0.82rem' }}>
+            <div className="text-[0.82rem]" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 18 }}>
               <div>
                 <div className="label mb-2">Methodology</div>
                 <div className="body">{s.methodology_summary || '—'}</div>
@@ -380,7 +384,7 @@ function StrategyRow({ s }) {
               <div>
                 <div className="label mb-2">Source paper</div>
                 <div className="body">"{s.paper_title}"</div>
-                <div className="caption" style={{ marginTop: 4 }}>
+                <div className="caption mt-2">
                   {s.paper_authors?.slice(0, 3).join(', ')}{s.paper_authors?.length > 3 ? ' et al.' : ''}
                   {s.paper_year ? ` (${s.paper_year})` : ''}
                   {s.paper_venue ? ` · ${s.paper_venue}` : ''}
@@ -404,7 +408,7 @@ function StrategyRow({ s }) {
                   <div><div className="caption">OOS Sharpe</div><div className="mono" style={{ fontWeight: 700 }}>{fmt(s.out_of_sample_sharpe)}</div></div>
                 </div>
                 {s.paper_claimed_sharpe != null && (
-                  <div className="caption" style={{ marginTop: 8 }}>
+                  <div className="caption mt-2">
                     Paper claim: <strong>{fmt(s.paper_claimed_sharpe)}</strong> · Backtest: <strong>{fmt(s.sharpe_ratio)}</strong>
                     {s.sharpe_ratio != null && (
                       <span className={s.sharpe_ratio / s.paper_claimed_sharpe >= 0.5 ? 'positive' : 'negative'} style={{ marginLeft: 6 }}>
@@ -414,7 +418,7 @@ function StrategyRow({ s }) {
                   </div>
                 )}
                 {years != null && (
-                  <div className="caption" style={{ marginTop: 6 }}>
+                  <div className="caption mt-1.5">
                     Window: <span className="mono">{startStr} → {endStr}</span>
                   </div>
                 )}
@@ -430,7 +434,7 @@ function StrategyRow({ s }) {
 function StrategyTable({ strategies, emptyState }) {
   if (!strategies.length) return emptyState
   return (
-    <div style={{ overflowX: 'auto', border: '1px solid var(--glass-border)', borderRadius: 8 }}>
+    <div className="overflow-x-auto rounded-lg border border-[var(--glass-border)]">
       <table className="lib-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
         <thead>
           <tr style={{ background: 'rgba(255,255,255,0.03)', textAlign: 'left', borderBottom: '1px solid var(--glass-border)' }}>
@@ -524,15 +528,15 @@ export default function Strategies() {
 
   return (
     <div>
-      <div className="fade-up fade-up-1" style={{ marginBottom: 18 }}>
-        <h2 className="serif" style={{ fontSize: '2rem', marginBottom: 10 }}>Library</h2>
-        <p className="body" style={{ marginBottom: 6 }}>
+      <div className="fade-up fade-up-1 mb-[18px]">
+        <h2 className="serif text-[2rem] mb-2.5">Library</h2>
+        <p className="body mb-1.5">
           Your strategies, plus a clearly-separated set of example strategies
           drawn from published research so you can learn the metric format.
         </p>
       </div>
 
-      <div className="strat-filter-bar fade-up fade-up-2" style={{ marginBottom: 16 }}>
+      <div className="strat-filter-bar fade-up fade-up-2 mb-4">
         <span
           className={`tag ${activeTab === 'generated' ? 'tag-accent' : 'tag-muted'}`}
           onClick={() => setActiveTab('generated')}
@@ -548,7 +552,7 @@ export default function Strategies() {
       </div>
 
       {loadError && (
-        <div className="info-box warning" style={{ marginBottom: 16 }}>
+        <div className="info-box warning mb-4">
           Couldn't load library: {loadError}
         </div>
       )}
@@ -579,14 +583,14 @@ export default function Strategies() {
 
       {activeTab === 'examples' && (
         <>
-          <div className="caption" style={{ marginBottom: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
+          <div className="caption mb-3 text-[var(--text-3)] leading-relaxed">
             <strong>Example strategies</strong> — hand-curated single-paper implementations
             from published research. <em>Not</em> outputs of the fusion engine. Included
             so you can read a strategy card, understand the metrics, and see what a
             rigor-gate verdict looks like. They're also the candidate pool the curated-library
             path of Generate picks and weights from.
           </div>
-          {loading && <div className="caption" style={{ marginBottom: 16 }}>Loading…</div>}
+          {loading && <div className="caption mb-4">Loading…</div>}
           {!loading && (
             <StrategyTable
               strategies={examples}
@@ -597,7 +601,7 @@ export default function Strategies() {
       )}
 
       {examples.some(s => s.is_backtest_placeholder) && (
-        <div className="caption" style={{ marginTop: 16, color: 'var(--text-4)' }}>
+        <div className="caption mt-4 text-[var(--text-4)]">
           * Estimated metrics — sourced from paper claims with McLean-Pontiff post-publication decay
           applied. Replaced by real BacktestResult once the analytics engine runs.
         </div>

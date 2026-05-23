@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import CustomSelect from './CustomSelect'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -276,10 +277,12 @@ function CatalogTab({ papers, total, page, loading, search, setSearch, categoryF
           onChange={e => { setSearch(e.target.value); setPage(1) }}
           className="catalog-search"
         />
-        <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="catalog-filter">
-          <option value="">All Categories</option>
-          {categories.map(c => <option key={c.name} value={c.name}>{c.name} ({c.count})</option>)}
-        </select>
+        <CustomSelect
+          value={categoryFilter}
+          onChange={v => { setCategoryFilter(v); setPage(1) }}
+          style={{ width: 180 }}
+          options={[{ value: '', label: 'All Categories' }, ...categories.map(c => ({ value: c.name, label: `${c.name} (${c.count})` }))]}
+        />
       </div>
 
       {loading ? <div className="corpus-loading">Loading...</div> : (
@@ -360,24 +363,24 @@ function PaperDetail({ paper, onBack }) {
 
   return (
     <div className="corpus-explorer">
-      <button className="back-btn" onClick={onBack}>← Back to Explorer</button>
+      <button className="back-btn flex items-center gap-1.5" onClick={onBack}><span className="i-lucide-arrow-left w-4 h-4" /> Back to Explorer</button>
       <div className="paper-detail" style={{ maxWidth: 820 }}>
-        <h2 style={{ lineHeight: 1.3, marginBottom: 8 }}>{paper.title || paper.arxiv_id}</h2>
+        <h2 className="leading-snug mb-2">{paper.title || paper.arxiv_id}</h2>
 
         {paper.authors?.length > 0 && (
-          <div className="caption" style={{ marginBottom: 12, fontSize: '0.92rem' }}>
+          <div className="caption mb-3 text-[0.92rem]">
             {paper.authors.join(', ')}
           </div>
         )}
 
-        <div className="paper-detail-meta" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+        <div className="paper-detail-meta flex flex-wrap gap-2 mb-3.5">
           <span className="tag tag-muted mono">arxiv:{paper.arxiv_id}</span>
           {paper.primary_category && <span className="tag tag-muted">{paper.primary_category}</span>}
           {paper.published && <span className="tag tag-muted">{(paper.published || '').slice(0, 10)}</span>}
           {paper.topic_label && <span className="tag tag-accent">Topic: {paper.topic_label}</span>}
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div className="flex gap-2.5 mb-5 flex-wrap">
           {arxivAbsUrl && (
             <a
               href={arxivAbsUrl} target="_blank" rel="noopener noreferrer"

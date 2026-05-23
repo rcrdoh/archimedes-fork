@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import WalletConnect from './WalletConnect'
 import Breadcrumbs from './Breadcrumbs'
 import { NEW_CONTRACTS } from '../config'
@@ -7,13 +8,13 @@ import { NEW_CONTRACTS } from '../config'
 // browse surface so users can actually inspect them.
 const NAV = [
   { group: '', items: [
-    { id: 'landing',   label: 'Home' },
-    { id: 'generate',  label: 'Generate' },
-    { id: 'library',   label: 'Library' },
-    { id: 'corpus',    label: 'Corpus' },
-    { id: 'portfolio', label: 'Portfolio' },
-    { id: 'reasoning', label: 'Reasoning' },
-    { id: 'learnings', label: 'Learnings' },
+    { id: 'landing',   label: 'Home',      icon: 'i-lucide-home' },
+    { id: 'generate',  label: 'Generate',  icon: 'i-lucide-sparkles' },
+    { id: 'library',   label: 'Library',   icon: 'i-lucide-line-chart' },
+    { id: 'corpus',    label: 'Corpus',    icon: 'i-lucide-library' },
+    { id: 'portfolio', label: 'Portfolio', icon: 'i-lucide-layout-dashboard' },
+    { id: 'reasoning', label: 'Reasoning', icon: 'i-lucide-brain' },
+    { id: 'learnings', label: 'Learnings', icon: 'i-lucide-graduation-cap' },
   ]},
 ]
 
@@ -31,54 +32,46 @@ export const PAGE_LABELS = {
 }
 
 export default function Layout({ page, setPage, walletAddr, onConnect, onDisconnect, children }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const blockLabel = Object.keys(NEW_CONTRACTS).length ? 'Arc · Testnet live' : 'Arc · Connecting'
-  // Semi-hard gate: prompt for wallet on every page except Landing (the marketing
-  // surface) until it's connected. Browse is still allowed; deploy + portfolio
-  // surfaces themselves enforce wallet at their own action sites.
-  const showWalletBanner = !walletAddr && page !== 'landing'
+
+  const handleNav = (id) => {
+    setPage(id)
+    setMenuOpen(false)
+  }
 
   return (
-    <div className="shell">
-      {showWalletBanner && (
+    <div className={`shell${sidebarCollapsed ? ' shell-sidebar-collapsed' : ''}`}>
+      {/* Mobile overlay — uses UnoCSS `fixed inset-0` + App.css `.sidebar-overlay` */}
+      {menuOpen && (
         <div
-          role="banner"
-          style={{
-            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
-            background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.06))',
-            borderBottom: '1px solid rgba(245, 158, 11, 0.35)',
-            padding: '8px 16px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16,
-            fontSize: '0.85rem', color: 'var(--text-2)',
-            backdropFilter: 'blur(8px)',
-          }}
-        >
-          <span>
-            <strong style={{ color: 'var(--accent)' }}>⚠ Wallet not connected.</strong>{' '}
-            You can browse and generate strategies, but you can't deploy, deposit, or see your portfolio without a wallet.
-          </span>
-          <a
-            href="#wallet"
-            onClick={(e) => { e.preventDefault(); document.querySelector('.wallet-chip')?.click() }}
-            style={{
-              padding: '4px 12px', borderRadius: 6, background: 'var(--accent)', color: '#0c0a09',
-              fontWeight: 600, textDecoration: 'none', fontSize: '0.8rem',
-            }}
-          >
-            Connect Wallet →
-          </a>
-        </div>
+          className="fixed inset-0 sidebar-overlay"
+          onClick={() => setMenuOpen(false)}
+          aria-hidden="true"
+        />
       )}
-      <aside className="sidebar" style={showWalletBanner ? { paddingTop: 50 } : undefined}>
+
+      <aside className={`sidebar${menuOpen ? ' sidebar-open' : ''}${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
         <div className="sidebar-brand">
-          <div className="logo-mark">
-            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M8 1L14 5v6l-6 4-6-4V5l6-4z" stroke="#09090B" strokeWidth="1.5"/>
-              <circle cx="8" cy="8" r="2.5" stroke="#09090B" strokeWidth="1.5"/>
-            </svg>
-          </div>
-          <div>
-            <div className="logo-text">Archimedes</div>
-            <div className="logo-sub">Portfolio Intelligence</div>
+          <div className="sidebar-brand-main">
+            <div className="logo-mark">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+                <rect width="32" height="32" rx="4" fill="#0a0a0b"/>
+                <text x="16" y="23" textAnchor="middle" fontFamily="serif" fontSize="22" fill="#e0a64f">Λ</text>
+              </svg>
+            </div>
+            <div className="logo-copy flex-1 min-w-0">
+              <div className="logo-text">Archimedes</div>
+              <div className="logo-sub">Portfolio Intelligence</div>
+            </div>
+            <button
+              className="sidebar-close-btn"
+              onClick={() => setMenuOpen(false)}
+              aria-label="Close menu"
+            >
+              <span className="i-lucide-x" style={{width:16,height:16}} />
+            </button>
           </div>
         </div>
 
@@ -91,9 +84,12 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
                   key={item.id}
                   type="button"
                   className={`nav-link${page === item.id || (item.id === 'portfolio' && page === 'vault-detail') ? ' active' : ''}`}
-                  onClick={() => setPage(item.id)}
+                  onClick={() => handleNav(item.id)}
+                  aria-label={item.label}
+                  title={sidebarCollapsed ? item.label : undefined}
                 >
-                  {item.label}
+                  <span className={`nav-icon ${item.icon}`} aria-hidden="true" />
+                  <span className="nav-label">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -102,16 +98,39 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
 
         <div className="sidebar-footer">
           <span className="live-dot" />
-          {blockLabel}
+          <span className="sidebar-footer-label">{blockLabel}</span>
+          <button
+            type="button"
+            className="sidebar-collapse-btn"
+            onClick={() => setSidebarCollapsed(v => !v)}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!sidebarCollapsed}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <span className={sidebarCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'} style={{width:18,height:18}} />
+          </button>
         </div>
       </aside>
 
-      <div className="main-area" style={showWalletBanner ? { paddingTop: 42 } : undefined}>
+      <div className="main-area">
         <div className="topbar">
-          <Breadcrumbs page={page} setPage={setPage} />
+          {/* Left: hamburger (mobile) + breadcrumbs */}
+          <div className="flex items-center gap-3">
+            <button
+              className={`hamburger-btn${menuOpen ? ' open' : ''}`}
+              onClick={() => setMenuOpen(v => !v)}
+              aria-label="Toggle navigation"
+              aria-expanded={menuOpen}
+            >
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+            </button>
+            <Breadcrumbs page={page} setPage={setPage} />
+          </div>
           <WalletConnect address={walletAddr} onConnect={onConnect} onDisconnect={onDisconnect} />
         </div>
-        <main className="page-content">{children}</main>
+        <main className={`page-content page-${page}`}>{children}</main>
       </div>
     </div>
   )
