@@ -267,6 +267,18 @@ function OverviewTab({ overview }) {
   )
 }
 
+function formatAuthors(authors) {
+  if (!Array.isArray(authors) || authors.length === 0) return '—'
+  if (authors.length === 1) return authors[0]
+  if (authors.length === 2) return `${authors[0]} & ${authors[1]}`
+  return `${authors[0]}, ${authors[1]} et al.`
+}
+
+function truncate(s, n) {
+  if (!s) return ''
+  return s.length > n ? `${s.slice(0, n)}…` : s
+}
+
 function CatalogTab({ papers, total, page, loading, search, setSearch, categoryFilter, setCategoryFilter, setPage, openPaper, categories }) {
   const totalPages = Math.ceil(total / 20)
   return (
@@ -288,31 +300,51 @@ function CatalogTab({ papers, total, page, loading, search, setSearch, categoryF
       {loading ? <div className="corpus-loading">Loading...</div> : (
         <>
           <div className="catalog-results-info">{total.toLocaleString()} papers found</div>
-          <div className="paper-list">
-            {papers.map(p => (
-              <div key={p.arxiv_id} className="paper-card" onClick={() => openPaper(p.arxiv_id)}>
-                <div className="paper-title">{p.title || p.arxiv_id}</div>
-                <div className="paper-meta">
-                  <span className="paper-id">{p.arxiv_id}</span>
-                  {p.primary_category && (
-                    <span
-                      className="paper-cat"
-                      title={p.category_label ? `${p.primary_category} — ${p.category_label}` : p.primary_category}
-                    >
-                      {p.category_label || p.primary_category}
-                    </span>
-                  )}
-                  {p.published && <span className="paper-year">{p.published?.slice(0, 4)}</span>}
-                  {p.cluster_id && <span className="paper-cluster">Cluster: {p.cluster_id}</span>}
-                </div>
-                <div className="paper-abstract">{(p.abstract || '').slice(0, 200)}{(p.abstract || '').length > 200 ? '...' : ''}</div>
-                {p.citing_strategies?.length > 0 && (
-                  <div className="paper-strategies">
-                    Used by {p.citing_strategies.length} strateg{p.citing_strategies.length === 1 ? 'y' : 'ies'}
-                  </div>
-                )}
-              </div>
-            ))}
+          <div className="overflow-x-auto rounded-lg border border-[var(--glass-border)]">
+            <table className="lib-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <thead>
+                <tr style={{ background: 'rgba(255,255,255,0.03)', textAlign: 'left', borderBottom: '1px solid var(--glass-border)' }}>
+                  <th style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>arxiv ID</th>
+                  <th style={{ padding: '10px 14px' }}>Authors</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>Year</th>
+                  <th style={{ padding: '10px 14px' }}>Title</th>
+                  <th style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>Category</th>
+                </tr>
+              </thead>
+              <tbody>
+                {papers.map(p => (
+                  <tr
+                    key={p.arxiv_id}
+                    onClick={() => openPaper(p.arxiv_id)}
+                    style={{ borderBottom: '1px solid var(--glass-border)', cursor: 'pointer' }}
+                    className="hover:bg-[rgba(255,255,255,0.03)]"
+                  >
+                    <td style={{ padding: '8px 14px', fontFamily: 'var(--mono, monospace)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+                      {p.arxiv_id}
+                    </td>
+                    <td style={{ padding: '8px 14px', color: 'var(--text-2)' }} title={Array.isArray(p.authors) ? p.authors.join(', ') : ''}>
+                      {formatAuthors(p.authors)}
+                    </td>
+                    <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: 'var(--mono, monospace)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+                      {p.published ? p.published.slice(0, 4) : '—'}
+                    </td>
+                    <td style={{ padding: '8px 14px', color: 'var(--text-1)' }} title={p.title || p.arxiv_id}>
+                      {truncate(p.title || p.arxiv_id, 80)}
+                    </td>
+                    <td style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
+                      {p.primary_category && (
+                        <span
+                          className="tag tag-muted"
+                          title={p.category_label ? `${p.primary_category} — ${p.category_label}` : p.primary_category}
+                        >
+                          {p.category_label || p.primary_category}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
           {totalPages > 1 && (
             <div className="catalog-pagination">

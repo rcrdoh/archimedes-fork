@@ -45,6 +45,7 @@ async def list_papers(
             {
                 "arxiv_id": r.arxiv_id,
                 "title": r.title,
+                "authors": json.loads(r.authors) if r.authors else [],
                 "primary_category": r.primary_category,
                 "category_label": _category_label(r.primary_category),
                 "categories": json.loads(r.categories) if r.categories else [],
@@ -61,6 +62,7 @@ async def list_papers(
             {
                 "arxiv_id": p.arxiv_id,
                 "title": p.title,
+                "authors": list(getattr(p, "authors", []) or []),
                 "primary_category": p.primary_category,
                 "category_label": _category_label(p.primary_category),
                 "categories": list(p.categories),

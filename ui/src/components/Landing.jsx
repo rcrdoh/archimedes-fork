@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import WalletConnect from './WalletConnect'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -10,7 +11,7 @@ async function apiGet(path) {
   } catch { return null }
 }
 
-export default function Landing({ onNavigate, onConnect, walletAddr }) {
+export default function Landing({ onNavigate, onConnect, onDisconnect, walletAddr }) {
   const [stats, setStats]           = useState(null)
   const [agentStatus, setAgentStatus] = useState(null)
   const [regime, setRegime]         = useState(null)
@@ -48,60 +49,63 @@ export default function Landing({ onNavigate, onConnect, walletAddr }) {
         <div className="flex items-center gap-3">
           <button
             className="btn-secondary !py-2 !px-4 !text-sm"
-            onClick={() => onNavigate('strategies')}
+            onClick={() => onNavigate('library')}
           >
             Strategies
           </button>
           {walletAddr ? (
-            <button className="btn-primary !py-2 !px-4 !text-sm" onClick={() => onNavigate('dashboard')}>
+            <button className="btn-primary !py-2 !px-4 !text-sm" onClick={() => onNavigate('portfolio')}>
               Dashboard →
             </button>
           ) : (
-            <button className="btn-primary !py-2 !px-4 !text-sm" onClick={onConnect}>
-              Connect Wallet
-            </button>
+            <WalletConnect address={walletAddr} onConnect={onConnect} onDisconnect={onDisconnect} />
           )}
         </div>
       </header>
 
       {/* ── Hero ─────────────────────────────────────────────────── */}
-      <section className="pt-28 pb-16 px-4 text-center border-b border-[var(--glass-border)] bg-[var(--canvas)] sm:px-6 sm:pt-32 sm:pb-20 lg:px-12 lg:pt-36 lg:pb-24">
+      <section className="pt-28 pb-16 px-4 text-center border-b border-[var(--glass-border)] bg-[var(--canvas)] sm:px-6 sm:pt-32 sm:pb-20 lg:px-12 lg:pt-40 lg:pb-28">
         <div className="max-w-[760px] mx-auto">
           <span style={{
             display: 'inline-block',
             fontSize: '0.7rem',
             fontWeight: 600,
             textTransform: 'uppercase',
-            letterSpacing: '0.1em',
-            color: '#D4A853',
-            border: '1px solid #D4A853',
+            letterSpacing: '0.12em',
+            color: 'var(--accent)',
+            border: '1px solid var(--accent)',
             borderRadius: '9999px',
             padding: '4px 16px',
-            marginBottom: '24px',
-            opacity: 0.9,
+            marginBottom: '28px',
+            opacity: 0.85,
           }}>
             Agora Agents Hackathon 2026
           </span>
-          <h1 className="font-serif text-[2rem] font-normal leading-[1.15] mb-5 text-[var(--text-1)] sm:text-[2.6rem] lg:text-[3.2rem]">
+          <p className="font-serif italic text-[1rem] text-[var(--text-3)] mb-4 md:text-[1.1rem]">
+            Linus for quantitative finance.
+          </p>
+          <h1 className="font-serif text-[2.1rem] font-normal leading-[1.1] mb-6 text-[var(--text-1)] sm:text-[2.8rem] lg:text-[3.4rem]">
             <span className="text-[var(--accent)]">Paper-Grounded.</span><br />
             On-Chain Verifiable.<br />
             <span className="text-[var(--text-3)]">Autonomously Managed.</span>
           </h1>
-          <p className="text-[0.95rem] leading-[1.7] text-[var(--text-2)] max-w-[600px] mx-auto mb-8 md:text-[1.05rem]">
-            Archimedes turns published quant research into investable strategies.
-            It constructs personalized portfolios of synthetic RWA tokens on Arc
-            — with every decision hashed and verifiable on-chain.
+          <p className="text-[0.98rem] leading-[1.75] text-[var(--text-2)] max-w-[620px] mx-auto mb-10 md:text-[1.08rem]">
+            Archimedes turns peer-reviewed quant research into rigor-gated, investable
+            strategies — generated for your brief, executed in non-custodial vaults
+            on Arc, with every decision hashed and verifiable on-chain.
           </p>
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:justify-center sm:items-center">
-     <button className="btn-primary" onClick={() => onNavigate('generate')}>
+            <button className="btn-primary" onClick={() => onNavigate('generate')}>
               Generate a Strategy →
             </button>
             <button className="btn-secondary" onClick={() => onNavigate('library')}>
               Browse Example Library
             </button>
           </div>
+          <p className="caption mt-5 text-[var(--text-4)]">
+            No wallet needed to generate. Wallet only required to deposit into a vault.
+          </p>
         </div>
-      <div/>
       </section>
 
       {/* ── Live status bar ──────────────────────────────────────── */}
@@ -248,16 +252,17 @@ export default function Landing({ onNavigate, onConnect, walletAddr }) {
           The fulcrum is autonomous AI.<br />
           The world is your portfolio.
         </p>
-        <div className="hero-actions">
+        <div className="hero-actions flex justify-center items-center gap-3">
           {walletAddr ? (
-            <button className="btn-primary" onClick={() => onNavigate('trade')}>
-              Start Trading →
+            <button className="btn-primary" onClick={() => onNavigate('portfolio')}>
+              Open Portfolio →
             </button>
           ) : (
-            <button className="btn-primary" onClick={onConnect}>
-              Connect Wallet
-            </button>
+            <WalletConnect address={walletAddr} onConnect={onConnect} onDisconnect={onDisconnect} />
           )}
+          <button className="btn-secondary" onClick={() => onNavigate('generate')}>
+            Generate a Strategy →
+          </button>
         </div>
         <p className="text-xs text-[var(--text-4)]">
           Powered by{' '}
