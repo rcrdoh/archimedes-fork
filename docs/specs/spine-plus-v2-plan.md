@@ -866,36 +866,109 @@ Phase 6 questions:
 
 ---
 
+# Phase 7 — Consolidation & dedup via t2o2
+
+**Status:** SPEC-READY — 4 judge-grade issues drafted in `docs/specs/`.
+Dan files to GitHub + assigns t2o2; humans review the resulting PRs.
+
+**Why this phase exists:** [`docs/chuan-architecture-survey.md`](../chuan-architecture-survey.md)
+identifies 14 gap clusters in `backend/archimedes/`. Of those, gaps #1, #2,
+#3, #5, #6 are *technical-debt cleanup* — well-bounded, mechanical, with
+clear acceptance criteria. They are the exact shape t2o2 executes well
+(per CLAUDE.md's "agentic issue pipeline" section). Hand-implementing
+them would burn hosted-Claude budget on work t2o2 can do for ~free.
+
+**Phase 7 deliverable: 4 judge-grade issues filed + assigned to t2o2.**
+
+| # | Issue | Survey gap | Spec file | Owner-reviewer |
+|---|---|---|---|---|
+| 7.1 | Fusion-output → backtestable DSL | (the wedge) | [`fusion-to-backtest-t2o2-issue.md`](fusion-to-backtest-t2o2-issue.md) — filed as **#128** | Dan + Daniel R. |
+| 7.2 | Rigor consolidation on `rigor_evaluator.py` | #1 | [`phase7-rigor-consolidation-t2o2-issue.md`](phase7-rigor-consolidation-t2o2-issue.md) | Önder |
+| 7.3 | LLM backend unification on `llm_backend.py` | #3 | [`phase7-llm-backend-unification-t2o2-issue.md`](phase7-llm-backend-unification-t2o2-issue.md) | Daniel R. / Dan |
+| 7.4 | Portfolio constructor retirement | #5 | [`phase7-portfolio-constructor-retirement-t2o2-issue.md`](phase7-portfolio-constructor-retirement-t2o2-issue.md) | Önder |
+| 7.5 | `routes.py` monolith split | #6 | [`phase7-routes-py-split-t2o2-issue.md`](phase7-routes-py-split-t2o2-issue.md) | Chuan / Daniel R. |
+
+**Suggested ordering** (t2o2 PRs land serially to avoid import-path conflicts):
+
+```
+7.1 (#128 fusion-DSL)    — already filed, parallel-OK
+    │
+7.2 (rigor consolidation) — must land before 7.1 PR merges
+    │
+7.3 (LLM backend)         — independent
+    │
+7.4 (constructors)        — depends on 7.2's import path
+    │
+7.5 (routes.py split)     — last; touches the most files; depends on 7.2-7.4 settling
+```
+
+**Survey gaps not covered by Phase 7 (treatment notes):**
+
+- **#2 Regime detector duplication** — spec not yet drafted because the
+  call-site mapping needs Önder's input (which detector is wired to
+  `RegimePanel`?). File as a t2o2 issue once Önder confirms. **Open
+  question for next standup.**
+- **#4 Arxiv intake paths** — three parallel paths (`arxiv_corpus.py`,
+  `corpus_service.py`, `scripts/bulk_ingest_arxiv.py`). Adjacent to the
+  KB pipeline work Dan is iterating on in Linus; consolidate when that
+  stabilizes. **Defer.**
+- **#8 marketplace_service.py seed-data** — Chuan already pruned 607 lines
+  Day-10; the remaining wiring to real strategy data is small. File as
+  a t2o2 issue when Phase 7.5 (routes split) settles, since both touch
+  marketplace surfaces.
+- **#9 Scheduled corpus intake / artifact build** — Phase 3c's `kb_runner.py`
+  is the pattern. When the KB pipeline production body lands, the same
+  pattern extends to `corpus_service.intake_from_arxiv()`. **Fold into
+  Phase 3c completion.**
+- **#10 Operational scripts → Makefile** — quality-of-life, not blocking.
+  File a small t2o2 issue when convenient. Low priority.
+- **#12 `circle_service.py` is judge-oriented** — by design (rubric surface).
+  No action.
+- **#13 `stress_engine.py` not wired to UI** — Phase 4 candidate (Portfolio
+  page would surface the scenario table). Hold for Phase 4.
+
+**Phase 7 acceptance** (when fully filed + merged):
+
+- All four t2o2 PRs merged to `main`.
+- `pytest -q` green (307+ passed, no new flakes).
+- API URL set unchanged (no frontend impact).
+- One Open Questions item resolved per gap; survey doc refreshed.
+
+---
+
 # Time tracking template
 
 Update this table at phase close. No prospective estimates.
 
 | Phase | Started | Completed | Hours actual | Notes |
 |---|---|---|---|---|
-| 0 — Specs | | | | |
-| 1 — Junk | | | | |
-| 2 — Streaming Generate | | | | |
-| 3a — Explore | | | | |
-| 3b — Corpus polish | | | | |
-| 3c — KB integration | | | | |
-| 4 — Vault (PENDING) | | | | |
-| 5 — Real trade (PENDING) | | | | |
-| 6 — Onboarding (PENDING) | | | | |
+| 0 — Specs | 2026-05-22 | 2026-05-22 | ~2.5 | 6 specs · `5fc2eb9` |
+| 1 — Junk | 2026-05-22 | 2026-05-22 | ~2 | `f21ac8d` + `00d8f09` |
+| 2 — Streaming Generate | 2026-05-22 | 2026-05-22 | ~4 | `28dd93a` (+1495/-20) |
+| 3a — Explore | 2026-05-22 | 2026-05-22 | ~1.5 | part of `50edb28` |
+| 3b — Corpus polish | 2026-05-22 | 2026-05-22 | ~0.5 | part of `50edb28` |
+| 3c — KB integration (skeleton) | 2026-05-22 | 2026-05-22 | ~1.5 | part of `50edb28`; production body deferred |
+| Phase 2 follow-ups | 2026-05-22 | 2026-05-22 | ~2 | `7b1c1e3` — cancel/rigor/brief-validation |
+| Phase 7 specs drafted | 2026-05-22 | 2026-05-22 | ~1 | 4 issue specs in `docs/specs/`; #128 filed |
+| 4 — Vault (PENDING) | | | | needs Marten alignment |
+| 5 — Real trade (PENDING) | | | | needs Chuan alignment |
+| 6 — Onboarding (PENDING) | | | | Dan can do solo |
+| 7 — Dedup via t2o2 (PENDING) | | | | Dan files; t2o2 executes |
 
 ---
 
-# Suggested kickoff sequence (post-compaction)
+# Suggested kickoff sequence (post-compaction, 2026-05-23+)
 
 When the next session resumes:
 
-1. Read this doc + [`docs/chuan-architecture-survey.md`](chuan-architecture-survey.md) for context.
-2. Confirm branch hygiene: are we on `dbrowneup/spine-plus-v2`? Was `d4dd465` rebased onto latest main?
-3. Phase 0: draft the 6 spec files (one PR). Lead: Dan; reviewers: Marten + Chuan.
-4. Phase 1: parallel-track junk cleanup (separate PR).
-5. Standup: align on the open questions above; confirm Phase 2-3 owners.
-6. Phase 2: streaming Generate (separate PR).
-7. Phase 3: Explore + corpus + KB (could split into 3a/3b/3c PRs).
-8. Standup: review Phase 4-6 specs with Chuan + Marten, decide kickoff timing.
+1. Read this doc + [`docs/chuan-architecture-survey.md`](../chuan-architecture-survey.md) for context.
+2. Confirm branch hygiene: are we on `dbrowneup/spine-plus-v2`? Rebase onto latest `origin/main` if Chuan has moved it.
+3. **Phase 0-3 + Phase 2 follow-ups are LANDED** (7 commits on the branch). Branch tip is the last commit of the day. `pytest -q` → 307 passed.
+4. **Issue #128 (fusion-to-backtest DSL)** filed + assigned to t2o2 on 2026-05-22. Check PR draft status.
+5. **Phase 7 next**: file the 4 drafted issue specs (`docs/specs/phase7-*-t2o2-issue.md`) as GitHub issues + assign t2o2. Order them as suggested in the Phase 7 section above (7.2 → 7.3 → 7.4 → 7.5; 7.1 = #128 is already in flight).
+6. **Phase 6 (onboarding)** — Dan can solo if there's time.
+7. **Phase 4 + 5** — wait for Marten / Chuan standup alignment.
+8. KB pipeline production wiring waits on Dan's Linus-side iteration to settle.
 
 ---
 

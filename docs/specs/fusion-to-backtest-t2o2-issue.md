@@ -14,6 +14,24 @@
 >
 > This issue closes that gap by making fusion output a structured spec that
 > the existing analytics engine can execute.
+>
+> **2026-05-22 update notes (between draft + filing):** spec aligned with
+> Phase 0–2 work that landed since this was first drafted:
+>   - The canonical rigor module is now **`backend/archimedes/services/rigor_evaluator.py`**
+>     (Önder's lane). The interpreter must integrate with that module's
+>     `compute_dsr` / `compute_pbo` / `compute_oos_sharpe` primitives (NOT the
+>     older `selection_bias.py`, which is queued for retirement under the
+>     Phase 7 dedup pass).
+>   - The streaming Generate pipeline now lives at
+>     `backend/archimedes/services/generation_pipeline.py`. Fusion-backtested
+>     output should land in the same `StrategyRecord` table as architect-path
+>     output (via `models/strategy_store.py::upsert_strategy`), so Library
+>     can render both side by side under the existing Generated tab.
+>   - The strategy lifecycle (Generated → Validated → Deployed → … per
+>     `docs/specs/strategy-lifecycle-spec.md`) applies: fusion-backtested
+>     strategies that pass rigor enter `Validated`; failures enter `Rejected`
+>     (NOT silently dropped). The user wedge depends on rejected-but-honest
+>     reporting.
 
 ---
 
@@ -210,10 +228,13 @@ fixture-based).
   `tests/services/test_strategy_architect.py::test_proposes_with_canned_backend`
   — same shape (canned LLM backend, fixture proposal, asserts on the
   returned structure).
-- For the rigor-gate integration, copy the call shape in
-  `backend/archimedes/services/strategy_provider.py` where seed strategies
-  go through `passes_rigor_gate`. The fusion_evaluator must use the *same*
-  helper, not a parallel implementation.
+- For the rigor-gate integration, use `backend/archimedes/services/rigor_evaluator.py`
+  directly — `compute_dsr(returns, num_trials)` + `compute_pbo({sid: returns})`
+  + `compute_oos_sharpe(returns)` are the canonical entry points. See
+  `backend/archimedes/services/generation_pipeline.py::_rigor_verdict_for`
+  for the working integration shape (the Phase 2 follow-up wired it for
+  agent output; fusion_evaluator should mirror that pattern). Do NOT use
+  `selection_bias.py` (older parallel impl, queued for retirement).
 - For the backtrader integration, copy one of the runnable seed strategies
   in `analytics-engine/strategies/` (e.g., `faber_sma200.py`) — that's the
   shape the interpreter must produce. The DSL→backtrader interpreter
