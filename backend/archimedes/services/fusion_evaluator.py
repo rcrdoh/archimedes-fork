@@ -18,10 +18,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from archimedes.services.dsl_to_backtrader import interpret_spec
+from archimedes.services.dsl_to_backtrader import interpret_spec, interpret_variant
 from archimedes.services.rigor_evaluator import (
     compute_dsr,
     compute_oos_sharpe,
+    compute_pbo,
     compute_sharpe_ci,
 )
 from archimedes.services.strategy_dsl import DSLError, StrategySpec, validate_strategy_spec
@@ -174,27 +175,162 @@ def run_dsl_backtest(
     )
 
 
+def run_dsl_backtest_variants(
+    spec: StrategySpec,
+    *,
+    data_feed: Any = None,
+    data_csv_path: str | Path | None = None,
+    initial_cash: float = _DEFAULT_CASH,
+    tx_cost_bps: int = _DEFAULT_TX_BPS,
+) -> dict[str, BacktestMetrics]:
+    """Run backtests for each cartesian-product point in the parameter grid.
+
+    If ``spec.parameter_variants`` is ``None`` or empty, returns a
+    single-entry dict ``{"base": metrics}`` for the unmodified spec.
+    Otherwise expands the variant grid and runs one backtest per combination.
+
+    Returns:
+        ``{variant_id: BacktestMetrics}`` where variant_id is a
+        dash-separated key like ``"150"`` or ``"150_0.12"``.
+    """
+    if spec.parameter_variants is None or not spec.parameter_variants:
+        metrics = run_dsl_backtest(
+            spec,
+            data_feed=data_feed,
+            data_csv_path=data_csv_path,
+            initial_cash=initial_cash,
+            tx_cost_bps=tx_cost_bps,
+        )
+        return {"base": metrics}
+
+    # Compute the cartesian product of variant values.
+    import itertools
+
+    variant_keys = sorted(spec.parameter_variants.keys())
+    variant_value_lists = [spec.parameter_variants[k] for k in variant_keys]
+
+    results: dict[str, BacktestMetrics] = {}
+    for combo in itertools.product(*variant_value_lists):
+        overrides = {k: int(v) for k, v in zip(variant_keys, combo)}
+        variant_id = "_".join(str(v) for v in combo)
+
+        # Build a spec *without* parameter_variants for the variant run.
+        from archimedes.services.dsl_to_backtrader import interpret_variant
+        strategy_cls = interpret_variant(spec, overrides)
+
+        # Re-run the variant through the same backtest harness.
+        # We call run_dsl_backtest with a spec that produces the variant cls.
+        # Instead of re-validating, we build a variant spec and use interpret_spec.
+        variant_metrics = _run_variant_backtest(
+            strategy_cls,
+            data_feed=data_feed,
+            data_csv_path=data_csv_path,
+            initial_cash=initial_cash,
+            tx_cost_bps=tx_cost_bps,
+        )
+        results[variant_id] = variant_metrics
+
+    return results
+
+
+def _run_variant_backtest(
+    strategy_cls: Any,
+    *,
+    data_feed: Any = None,
+    data_csv_path: str | Path | None = None,
+    initial_cash: float = _DEFAULT_CASH,
+    tx_cost_bps: int = _DEFAULT_TX_BPS,
+) -> BacktestMetrics:
+    """Run a single variant backtest given an already-interpreted strategy class."""
+    import backtrader as bt
+
+    cerebro = bt.Cerebro(stdstats=False)
+    cerebro.addstrategy(strategy_cls)
+
+    if data_feed is None:
+        if data_csv_path is not None:
+            data_feed = _csv_data_feed(Path(data_csv_path))
+        else:
+            data_feed = _synthetic_data()
+
+    cerebro.adddata(data_feed)
+    cerebro.broker.setcash(initial_cash)
+    cerebro.broker.setcommission(commission=tx_cost_bps / 10_000)
+
+    cerebro.addanalyzer(_EquityCurveAnalyzer, _name="equity_curve")
+    cerebro.addanalyzer(_TradeStatsAnalyzer, _name="trade_stats")
+
+    results = cerebro.run()
+    final_value = cerebro.broker.getvalue()
+    initial = initial_cash
+
+    strat = results[0] if results else None
+    equity_curve: list[float]
+    if strat is not None:
+        ec = strat.analyzers.equity_curve.get_analysis()
+        equity_curve = list(ec.get("values", [])) or [initial_cash]
+    else:
+        equity_curve = [initial_cash]
+
+    monthly_returns = _compute_monthly_returns(equity_curve)
+
+    total_return = (final_value - initial) / initial
+    n_bars = len(equity_curve)
+    years = max(n_bars / 252, 0.01)
+    cagr = (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
+
+    daily_returns = [
+        (equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1]
+        for i in range(1, len(equity_curve))
+        if equity_curve[i - 1] > 0
+    ]
+    sharpe = _annualized_sharpe(daily_returns, rf_annual=0.0)
+    sortino = _annualized_sortino(daily_returns, rf_annual=0.0)
+    max_dd = _max_drawdown(equity_curve)
+    calmar = cagr / max_dd if max_dd > 0 else 0.0
+
+    trade_stats = (
+        strat.analyzers.trade_stats.get_analysis()
+        if strat is not None
+        else {"total_trades": 0, "win_rate": 0.0, "avg_holding_period_days": 0.0}
+    )
+
+    return BacktestMetrics(
+        sharpe_ratio=round(sharpe, 4),
+        sortino_ratio=round(sortino, 4),
+        max_drawdown=round(max_dd, 4),
+        cagr=round(cagr, 4),
+        calmar_ratio=round(calmar, 4),
+        win_rate=round(float(trade_stats.get("win_rate", 0.0)), 4),
+        total_trades=int(trade_stats.get("total_trades", 0)),
+        avg_holding_period_days=round(
+            float(trade_stats.get("avg_holding_period_days", 0.0)), 2,
+        ),
+        equity_curve=[round(e, 2) for e in equity_curve],
+        monthly_returns=[round(m, 4) for m in monthly_returns],
+        backtest_start=date(2004, 1, 2) if data_csv_path is None else None,
+        backtest_end=date(2026, 4, 30) if data_csv_path is None else None,
+    )
+
+
 # ── Rigor gate ────────────────────────────────────────────────────────
 
 
 def apply_rigor_gate(
     metrics: BacktestMetrics,
     num_trials: int = 10,
+    variants_metrics: dict[str, BacktestMetrics] | None = None,
 ) -> RigorVerdict:
     """Apply rigor gate to fusion backtest metrics.
 
-    PBO is set to ``None`` (not 0.0) for the single-strategy case. The
-    Bailey/Borwein/López de Prado/Zhu CSCV PBO algorithm formally compares
-    multiple competing strategies against the same return matrix; a single
-    DSL-generated strategy doesn't yield a meaningful PBO without
-    parameter-sweep variants to cross-validate against. Returning 0.0
-    (best-possible score) was misleading — it made every fusion strategy
-    look like it had passed the overfitting test it never ran. Surfacing
-    ``None`` lets the UI render "PBO: n/a (single strategy)" honestly.
+    PBO is set to ``None`` (not 0.0) when there are fewer than 2 variant
+    backtests. The Bailey/Borwein/López de Prado/Zhu CSCV PBO algorithm
+    formally compares multiple competing strategies against the same return
+    matrix; a single DSL-generated strategy doesn't yield a meaningful PBO
+    without parameter-sweep variants to cross-validate against.
 
-    Real CSCV PBO will land when the fusion pipeline emits a small grid of
-    parameter variants per strategy (separate issue) — at that point we
-    invoke ``rigor_evaluator.compute_pbo`` against the variant matrix.
+    When ``variants_metrics`` is provided with >= 2 entries, real CSCV PBO
+    is computed from the variant returns matrix and attached to the verdict.
     """
     daily_returns = [
         (metrics.equity_curve[i] - metrics.equity_curve[i - 1]) / metrics.equity_curve[i - 1]
@@ -205,8 +341,22 @@ def apply_rigor_gate(
     dsr, dsr_p = compute_dsr(daily_returns, num_trials)
     oos_sharpe = compute_oos_sharpe(daily_returns)
 
-    # Single-strategy → no meaningful PBO. See docstring above.
+    # PBO: compute real CSCV PBO when >= 2 variant backtests are available.
     pbo_score: float | None = None
+    if variants_metrics is not None and len(variants_metrics) >= 2:
+        variant_returns: dict[str, list[float]] = {}
+        for vid, vm in variants_metrics.items():
+            curve = vm.equity_curve
+            variant_returns[vid] = [
+                (curve[i] - curve[i - 1]) / curve[i - 1]
+                for i in range(1, len(curve))
+                if curve[i - 1] > 0
+            ]
+        pbo_map = compute_pbo(variant_returns)
+        # All strategies in the matrix get the same PBO score (library-level
+        # metric per Bailey et al. 2014). Pick the first entry's value.
+        first_key = next(iter(pbo_map))
+        pbo_score = pbo_map[first_key]
 
     # Look-ahead is guaranteed by the DSL design (static check in
     # validate_strategy_spec — DSL specs with look_ahead_safe=false are
@@ -224,8 +374,7 @@ def apply_rigor_gate(
         metrics.sharpe_ratio > 0.0
         and dsr_pass
         and look_ahead_clean
-        # NOTE: PBO not in the passing criteria for single-strategy; once
-        # the variant-grid lands, add `and (pbo_score is None or pbo_score < 0.5)`.
+        and (pbo_score is None or pbo_score < 0.5)
     )
 
     return RigorVerdict(
@@ -266,11 +415,22 @@ def evaluate_fusion_spec(
         logger.exception("DSL backtest failed for %s", spec.name)
         return FusionEvalResult(spec=spec, backtest=None, rigor=None, error=str(e))
 
-    rigor = apply_rigor_gate(metrics, num_trials=num_trials)
+    # Run variant grid if parameter_variants is present.
+    variants_metrics: dict[str, BacktestMetrics] | None = None
+    if spec.parameter_variants is not None and len(spec.parameter_variants) >= 1:
+        try:
+            variants_metrics = run_dsl_backtest_variants(spec, data_feed=data_feed)
+        except Exception as e:
+            logger.warning("variant backtest failed for %s: %s", spec.name, e)
+            variants_metrics = None
+
+    rigor = apply_rigor_gate(
+        metrics, num_trials=num_trials, variants_metrics=variants_metrics,
+    )
 
     logger.info(
-        "fusion eval: %s — sharpe=%.3f rigor.passing=%s",
-        spec.name, metrics.sharpe_ratio, rigor.passing,
+        "fusion eval: %s — sharpe=%.3f rigor.passing=%s pbo=%s",
+        spec.name, metrics.sharpe_ratio, rigor.passing, rigor.pbo_score,
     )
 
     return FusionEvalResult(spec=spec, backtest=metrics, rigor=rigor)

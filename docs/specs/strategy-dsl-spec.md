@@ -132,3 +132,69 @@ The fixture CSV is generated from yfinance SPY data and stored at
 `backend/tests/fixtures/spy_ohlcv_2004_2026.csv` — no network calls at test
 time. Metrics are computed using backtrader's `SharpeRatio` and `DrawDown`
 analyzers with `riskfreerate=0.0` (matching the analytics-engine runner).
+
+## Parameter variants
+
+The optional `parameter_variants` field enables CSCV-based overfitting detection
+by specifying a small grid of alternative parameter values for one or more
+indicators. When present, the fusion evaluator runs backtests for each
+cartesian-product point and computes a real Probability of Backtest Overfitting
+(PBO) via the Combinatorially Symmetric Cross-Validation (CSCV) algorithm
+(Bailey, Borwein, Lopez de Prado, Zhu 2014).
+
+### Schema
+
+```json
+{
+  ...standard strategy_spec fields...,
+  "parameter_variants": {
+    "<indicator_alias>": [<value_1>, <value_2>, ..., <value_N>]
+  }
+}
+```
+
+### Rules
+
+1. Keys must reference indicator aliases already present in `entry`/`exit`
+   conditions (e.g., `"sma_200"` for a condition using `sma_200`).
+2. Values must be a list of 2 to 8 numeric entries (int or float).
+3. Unknown keys (not found in the spec's indicator set) are rejected at
+   validation time.
+4. Empty lists or lists with fewer than 2 entries are rejected.
+5. The field is optional; when absent, PBO is reported as `None`.
+
+### Example
+
+```json
+{
+  "name": "SMA-200 Tactical Allocation",
+  "asset_universe": ["SPY"],
+  "rebalance_frequency": "monthly",
+  "entry": {"gt": ["close", "sma_200"]},
+  "exit": {"lt": ["close", "sma_200"]},
+  "position_sizing": {"type": "full_invested_when_in_market"},
+  "source_arxiv_ids": ["0706.1497"],
+  "look_ahead_safe": true,
+  "parameter_variants": {
+    "sma_200": [150, 175, 200, 225, 250]
+  }
+}
+```
+
+### CSCV-PBO connection
+
+When `parameter_variants` is provided with >= 2 variants, the fusion evaluator:
+
+1. Expands the cartesian product of all variant dimensions.
+2. Runs a backtest for each combination via `dsl_to_backtrader.interpret_variant`.
+3. Extracts daily returns from each variant's equity curve.
+4. Calls `rigor_evaluator.compute_pbo` with the variant returns matrix.
+5. Attaches the resulting PBO score to the `RigorVerdict`.
+
+The PBO score is a library-level metric (identical across all variants in the
+grid). A PBO >= 0.5 indicates the in-sample-optimal strategy underperforms the
+out-of-sample median in at least half of the CSCV partitions, suggesting
+overfitting. The rigor gate fails strategies with PBO >= 0.5.
+
+When fewer than 2 variants are available (or `parameter_variants` is absent),
+PBO is honestly reported as `None` rather than the misleading `0.0`.

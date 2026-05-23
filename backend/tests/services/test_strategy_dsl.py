@@ -142,3 +142,69 @@ class TestSpecRoundTrip:
         d = json.loads(j)
         result2 = validate_strategy_spec(d)
         assert result2.name == result.name
+
+
+class TestParameterVariants:
+    """Validation of the optional parameter_variants field."""
+
+    def test_valid_variants(self):
+        spec = {**FABER_2007_SPEC, "parameter_variants": {"sma_200": [150, 175, 200, 225, 250]}}
+        result = validate_strategy_spec(spec)
+        assert result.parameter_variants is not None
+        assert result.parameter_variants["sma_200"] == [150, 175, 200, 225, 250]
+
+    def test_no_variants_is_none(self):
+        result = validate_strategy_spec(FABER_2007_SPEC)
+        assert result.parameter_variants is None
+
+    def test_variant_key_not_in_indicators(self):
+        spec = {**FABER_2007_SPEC, "parameter_variants": {"rsi_14": [10, 14, 20]}}
+        with pytest.raises(DSLError, match="must reference an indicator alias"):
+            validate_strategy_spec(spec)
+
+    def test_variant_values_not_list(self):
+        spec = {**FABER_2007_SPEC, "parameter_variants": {"sma_200": "bad"}}
+        with pytest.raises(DSLError, match="must be a list"):
+            validate_strategy_spec(spec)
+
+    def test_variant_empty_list(self):
+        spec = {**FABER_2007_SPEC, "parameter_variants": {"sma_200": []}}
+        with pytest.raises(DSLError, match="at least 2 entries"):
+            validate_strategy_spec(spec)
+
+    def test_variant_single_entry(self):
+        spec = {**FABER_2007_SPEC, "parameter_variants": {"sma_200": [200]}}
+        with pytest.raises(DSLError, match="at least 2 entries"):
+            validate_strategy_spec(spec)
+
+    def test_variant_too_many_entries(self):
+        spec = {**FABER_2007_SPEC, "parameter_variants": {"sma_200": list(range(9))}}
+        with pytest.raises(DSLError, match="at most 8 entries"):
+            validate_strategy_spec(spec)
+
+    def test_variant_non_numeric_values(self):
+        spec = {**FABER_2007_SPEC, "parameter_variants": {"sma_200": [200, "bad"]}}
+        with pytest.raises(DSLError, match="must be numeric"):
+            validate_strategy_spec(spec)
+
+    def test_variants_not_dict(self):
+        spec = {**FABER_2007_SPEC, "parameter_variants": "bad"}
+        with pytest.raises(DSLError, match="must be a dict"):
+            validate_strategy_spec(spec)
+
+    def test_variants_round_trip(self):
+        import json
+        spec = {**FABER_2007_SPEC, "parameter_variants": {"sma_200": [150, 200, 250]}}
+        result = validate_strategy_spec(spec)
+        d = result.to_dict()
+        assert "parameter_variants" in d
+        assert d["parameter_variants"]["sma_200"] == [150, 200, 250]
+        j = result.to_json()
+        parsed = json.loads(j)
+        result2 = validate_strategy_spec(parsed)
+        assert result2.parameter_variants == result.parameter_variants
+
+    def test_variants_omitted_from_to_dict_when_none(self):
+        result = validate_strategy_spec(FABER_2007_SPEC)
+        d = result.to_dict()
+        assert "parameter_variants" not in d

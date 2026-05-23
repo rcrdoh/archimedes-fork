@@ -177,6 +177,33 @@ def validate_strategy_spec(spec: dict[str, Any]) -> StrategySpec:
     if not spec["look_ahead_safe"]:
         raise DSLError("spec with look_ahead_safe=false is rejected by the interpreter")
 
+    # parameter_variants (optional)
+    pv = spec.get("parameter_variants")
+    if pv is not None:
+        if not isinstance(pv, dict):
+            raise DSLError("parameter_variants must be a dict")
+        for key, values in pv.items():
+            if key not in all_indicators:
+                raise DSLError(
+                    f"parameter_variants key '{key}' must reference an indicator "
+                    f"alias from entry/exit conditions; valid: {sorted(all_indicators)}"
+                )
+            if not isinstance(values, list):
+                raise DSLError(f"parameter_variants['{key}'] must be a list")
+            if len(values) < 2:
+                raise DSLError(
+                    f"parameter_variants['{key}'] must have at least 2 entries, got {len(values)}"
+                )
+            if len(values) > 8:
+                raise DSLError(
+                    f"parameter_variants['{key}'] must have at most 8 entries, got {len(values)}"
+                )
+            for v in values:
+                if not isinstance(v, (int, float)):
+                    raise DSLError(
+                        f"parameter_variants['{key}'] entries must be numeric, got {v!r}"
+                    )
+
     return StrategySpec(
         name=spec["name"],
         asset_universe=universe,
@@ -187,6 +214,7 @@ def validate_strategy_spec(spec: dict[str, Any]) -> StrategySpec:
         source_arxiv_ids=arxiv_ids,
         look_ahead_safe=spec["look_ahead_safe"],
         indicators=sorted(all_indicators),
+        parameter_variants=pv,
     )
 
 
@@ -206,9 +234,10 @@ class StrategySpec:
     source_arxiv_ids: list[str]
     look_ahead_safe: bool
     indicators: list[str] = field(default_factory=list)
+    parameter_variants: dict[str, list[int | float]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "name": self.name,
             "asset_universe": self.asset_universe,
             "rebalance_frequency": self.rebalance_frequency,
@@ -218,6 +247,9 @@ class StrategySpec:
             "source_arxiv_ids": self.source_arxiv_ids,
             "look_ahead_safe": self.look_ahead_safe,
         }
+        if self.parameter_variants is not None:
+            d["parameter_variants"] = self.parameter_variants
+        return d
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=2)

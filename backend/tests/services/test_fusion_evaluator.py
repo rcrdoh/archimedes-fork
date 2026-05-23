@@ -24,6 +24,7 @@ from archimedes.services.fusion_evaluator import (
     apply_rigor_gate,
     evaluate_fusion_spec,
     run_dsl_backtest,
+    run_dsl_backtest_variants,
 )
 
 
@@ -187,3 +188,122 @@ class TestInvalidSpecHandling:
         result = evaluate_fusion_spec(unsafe)
         assert not result.success
         assert "look_ahead_safe" in result.error.lower()
+
+
+class TestFusionWithVariantsComputesRealPbo:
+    """Integration tests for CSCV PBO via parameter-variant grids.
+
+    These tests exercise the full variant backtest pipeline and verify that
+    real PBO values (not None, not 0.0) are produced from the CSCV algorithm.
+    """
+
+    def test_fusion_with_variants_computes_real_pbo(self):
+        """A spec with 5 SMA variants must produce a real float pbo_score in
+        [0.0, 1.0], NOT None and NOT exactly 0.0."""
+        spec_dict = {
+            **FABER_2007_SPEC,
+            "parameter_variants": {"sma_200": [100, 150, 200, 250, 300]},
+        }
+        result = evaluate_fusion_spec(spec_dict)
+        assert result.success, f"evaluation failed: {result.error}"
+        assert result.rigor is not None
+
+        pbo = result.rigor.pbo_score
+        assert pbo is not None, (
+            "PBO must be computed when >= 2 parameter variants are provided"
+        )
+        assert pbo != 0.0, (
+            "PBO of 0.0 is misleading; the CSCV algorithm on 5 SMA variants "
+            "over ~5560 bars should produce a non-zero overfitting probability"
+        )
+        assert 0.0 <= pbo <= 1.0, f"PBO must be in [0.0, 1.0], got {pbo}"
+
+    def test_fusion_without_variants_pbo_stays_none(self):
+        """No parameter_variants → pbo_score is None."""
+        result = evaluate_fusion_spec(FABER_2007_SPEC)
+        assert result.success
+        assert result.rigor is not None
+        assert result.rigor.pbo_score is None, (
+            "PBO must be None when no parameter_variants are provided"
+        )
+
+    def test_fusion_variants_too_few_pbo_stays_none(self):
+        """A single variant entry (< 2) means no meaningful PBO → None."""
+        # 1 variant value is rejected at validation (needs >= 2), so test with
+        # a spec that has parameter_variants but only 1 entry — this should
+        # raise a validation error. Instead, test the apply_rigor_gate path
+        # directly with 1-entry variants_metrics.
+        result = evaluate_fusion_spec(FABER_2007_SPEC)
+        assert result.success
+        metrics = result.backtest
+
+        single_variant = {"base": metrics}
+        verdict = apply_rigor_gate(metrics, variants_metrics=single_variant)
+        assert verdict.pbo_score is None, (
+            "PBO must be None when fewer than 2 variant backtests are provided"
+        )
+
+    def test_fusion_high_pbo_fails_rigor_gate(self):
+        """A synthetic overfit grid where PBO > 0.5 must cause passing=False.
+
+        Constructs two equity curves with dramatically different profiles: one
+        that surges early and fades, another that fades early then surges. This
+        creates the IS/OOS reversal pattern that CSCV detects as overfitting.
+        """
+        import math
+
+        n = 5000
+
+        # Strategy A: strong early returns, weak late returns.
+        curve_a = [100_000.0]
+        for i in range(n):
+            half = n / 2
+            daily_ret = 0.003 if i < half else -0.001
+            curve_a.append(curve_a[-1] * (1.0 + daily_ret))
+
+        # Strategy B: weak early returns, strong late returns.
+        curve_b = [100_000.0]
+        for i in range(n):
+            half = n / 2
+            daily_ret = -0.001 if i < half else 0.003
+            curve_b.append(curve_b[-1] * (1.0 + daily_ret))
+
+        metrics_a = BacktestMetrics(
+            sharpe_ratio=1.0,
+            sortino_ratio=1.0,
+            max_drawdown=0.2,
+            cagr=0.1,
+            calmar_ratio=0.5,
+            win_rate=0.55,
+            total_trades=50,
+            avg_holding_period_days=10.0,
+            equity_curve=curve_a,
+            monthly_returns=[],
+            backtest_start=None,
+            backtest_end=None,
+        )
+        metrics_b = BacktestMetrics(
+            sharpe_ratio=1.0,
+            sortino_ratio=1.0,
+            max_drawdown=0.2,
+            cagr=0.1,
+            calmar_ratio=0.5,
+            win_rate=0.55,
+            total_trades=50,
+            avg_holding_period_days=10.0,
+            equity_curve=curve_b,
+            monthly_returns=[],
+            backtest_start=None,
+            backtest_end=None,
+        )
+
+        variants = {"strategy_a": metrics_a, "strategy_b": metrics_b}
+        verdict = apply_rigor_gate(metrics_a, variants_metrics=variants)
+
+        assert verdict.pbo_score is not None, "PBO must be computed for 2 variants"
+        assert verdict.pbo_score > 0.5, (
+            f"Expected high PBO (> 0.5) for IS/OOS reversal pattern, got {verdict.pbo_score}"
+        )
+        assert verdict.passing is False, (
+            f"Rigor gate must fail when PBO > 0.5, but passing={verdict.passing}"
+        )

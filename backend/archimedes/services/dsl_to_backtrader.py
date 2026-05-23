@@ -195,3 +195,88 @@ def interpret_spec(spec: StrategySpec) -> type[bt.Strategy]:
     DSLStrategy.__name__ = f"DSL_{spec.name.replace(' ', '_').replace('-', '_')}"
     DSLStrategy.__qualname__ = DSLStrategy.__name__
     return DSLStrategy
+
+
+def interpret_variant(
+    spec: StrategySpec,
+    indicator_overrides: dict[str, int],
+) -> type[bt.Strategy]:
+    """Interpret spec with one variant of its parameter grid applied.
+
+    Deep-copies the spec, overlays period overrides onto the indicator
+    list and condition tree, and delegates to ``interpret_spec``.
+
+    Args:
+        spec: A validated StrategySpec (may carry parameter_variants).
+        indicator_overrides: Mapping from indicator alias (e.g. ``"sma_200"``)
+            to the variant period (e.g. ``150``). Keys must already appear in
+            ``spec.indicators``.
+
+    Returns:
+        A backtrader.Strategy subclass configured with the overridden periods.
+    """
+    import copy
+
+    # Build a new indicator list with overridden periods.
+    new_indicators = list(spec.indicators)
+    for alias, new_period in indicator_overrides.items():
+        parts = alias.rsplit("_", 1)
+        if len(parts) != 2:
+            continue
+        base_name = parts[0]
+        new_alias = f"{base_name}_{new_period}"
+        if alias in new_indicators:
+            idx = new_indicators.index(alias)
+            new_indicators[idx] = new_alias
+
+    # Deep-copy condition trees and replace old alias with new alias.
+    new_entry = _rewrite_indicator_aliases(spec.entry, indicator_overrides)
+    new_exit = _rewrite_indicator_aliases(spec.exit, indicator_overrides)
+
+    variant_spec = StrategySpec(
+        name=f"{spec.name}_v{'_'.join(str(v) for v in indicator_overrides.values())}",
+        asset_universe=list(spec.asset_universe),
+        rebalance_frequency=spec.rebalance_frequency,
+        entry=new_entry,
+        exit=new_exit,
+        position_sizing=copy.deepcopy(spec.position_sizing),
+        source_arxiv_ids=list(spec.source_arxiv_ids),
+        look_ahead_safe=spec.look_ahead_safe,
+        indicators=new_indicators,
+        parameter_variants=None,
+    )
+
+    return interpret_spec(variant_spec)
+
+
+def _rewrite_indicator_aliases(
+    cond: dict[str, Any],
+    overrides: dict[str, int],
+) -> dict[str, Any]:
+    """Deep-copy a condition tree, replacing indicator aliases per overrides."""
+    import copy
+
+    cond = copy.deepcopy(cond)
+    _rewrite_aliases_in_place(cond, overrides)
+    return cond
+
+
+def _rewrite_aliases_in_place(
+    cond: dict[str, Any],
+    overrides: dict[str, int],
+) -> None:
+    """Mutate a condition tree, replacing overridden indicator aliases."""
+    op = next(iter(cond))
+    args = cond[op]
+
+    if op in ("and", "or"):
+        for child in args:
+            _rewrite_aliases_in_place(child, overrides)
+    elif op == "not":
+        _rewrite_aliases_in_place(args, overrides)
+    elif op in ("gt", "lt", "gte", "lte"):
+        for i, arg in enumerate(args):
+            if isinstance(arg, str) and arg in overrides:
+                parts = arg.rsplit("_", 1)
+                if len(parts) == 2:
+                    args[i] = f"{parts[0]}_{overrides[arg]}"

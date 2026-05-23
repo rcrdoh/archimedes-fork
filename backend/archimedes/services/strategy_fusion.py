@@ -414,7 +414,8 @@ literature>",
     "position_sizing": {"type": "full_invested_when_in_market"},
     "source_arxiv_ids": ["<from source_arxiv_ids above>"],
     "look_ahead_safe": true,
-    "indicators": ["sma_200"]
+    "indicators": ["sma_200"],
+    "parameter_variants": {"sma_200": [150, 175, 200, 225, 250]}
   }
 }
 
@@ -423,7 +424,10 @@ using the Archimedes DSL (closed-enum vocabulary). Valid rebalance_frequency val
 daily, weekly, monthly. Valid indicators: sma_N, ema_N, rsi_N, momentum_N (replace \
 N with an integer period). Entry/exit conditions use comparison ops (gt, lt, gte, lte) \
 or logic ops (and, or, not). Position sizing types: full_invested_when_in_market, \
-equal_weight, volatility_target (needs annual_pct). look_ahead_safe MUST be true."""
+equal_weight, volatility_target (needs annual_pct). look_ahead_safe MUST be true. \
+parameter_variants is OPTIONAL: a dict mapping indicator aliases to 2-8 numeric \
+values for CSCV overfitting detection (e.g. {"sma_200": [150, 175, 200, 225, 250]}). \
+Keys must reference indicators used in entry/exit conditions."""
 
 
 def _build_user_prompt(brief: FusionBrief, candidates: list[CorpusPaper]) -> str:

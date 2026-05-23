@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from archimedes.services.strategy_dsl import DSLError, FABER_2007_SPEC, validate_strategy_spec
-from archimedes.services.dsl_to_backtrader import interpret_spec, _eval_condition
+from archimedes.services.dsl_to_backtrader import interpret_spec, interpret_variant, _eval_condition
 
 
 class TestInterpretsReferenceExamples:
@@ -85,3 +85,34 @@ def _get_bt_strategy_class():
     """Import backtrader and return the Strategy base class."""
     import backtrader as bt
     return bt.Strategy
+
+
+class TestInterpretVariant:
+    """interpret_variant produces distinct strategy classes per override."""
+
+    @pytest.fixture
+    def faber_spec(self):
+        return validate_strategy_spec(FABER_2007_SPEC)
+
+    def test_variant_produces_strategy_class(self, faber_spec):
+        cls = interpret_variant(faber_spec, {"sma_200": 150})
+        assert cls is not None
+        assert issubclass(cls, _get_bt_strategy_class())
+
+    def test_variants_produce_distinct_classes(self, faber_spec):
+        cls_150 = interpret_variant(faber_spec, {"sma_200": 150})
+        cls_250 = interpret_variant(faber_spec, {"sma_200": 250})
+        assert cls_150 is not cls_250
+        assert cls_150.__name__ != cls_250.__name__
+
+    def test_variant_class_name_reflects_override(self, faber_spec):
+        cls = interpret_variant(faber_spec, {"sma_200": 150})
+        assert "150" in cls.__name__
+
+    def test_variant_rewrites_condition_tree(self, faber_spec):
+        """The variant strategy uses the overridden period in conditions."""
+        cls = interpret_variant(faber_spec, {"sma_200": 50})
+        params_dict = dict(cls.params._getitems())
+        spec = params_dict["dsl_spec"]
+        assert "sma_50" in str(spec["entry"])
+        assert "sma_50" in str(spec["exit"])
