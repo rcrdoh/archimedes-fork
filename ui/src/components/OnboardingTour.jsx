@@ -214,11 +214,16 @@ export default function OnboardingTour({ open, onClose, setPage }) {
   const handleCta = useCallback(() => {
     if (card.cta.target) {
       setPage(card.cta.target)
-      finish()
+      // Advance the tour rather than closing it — the user can see the destination
+      // page behind the modal and still finish the walkthrough. Closing on CTA
+      // strands users (especially on Landing, where there's no topbar "?" to
+      // reopen the tour).
+      if (isLast) finish()
+      else setCardIndex(i => i + 1)
     } else {
       handleContinue()
     }
-  }, [card, setPage, finish, handleContinue])
+  }, [card, setPage, isLast, finish, handleContinue])
 
   // Keyboard support — Esc closes, ArrowRight advances, ArrowLeft goes back.
   useEffect(() => {
@@ -237,7 +242,7 @@ export default function OnboardingTour({ open, onClose, setPage }) {
   return createPortal(
     <div
       className="fixed inset-0 flex items-center justify-center z-[1000]"
-      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
+      style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)' }}
       onClick={finish}
       role="dialog"
       aria-modal="true"
@@ -246,6 +251,7 @@ export default function OnboardingTour({ open, onClose, setPage }) {
       <div
         className="card-elevated p-6 max-w-[460px] w-[90vw]"
         onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--surface-1)', opacity: 1 }}
       >
         <div className="caption mb-2 text-[var(--text-4)] uppercase tracking-wider">
           Welcome · {cardIndex + 1} of {CARDS.length}

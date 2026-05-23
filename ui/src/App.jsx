@@ -135,7 +135,6 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
-      case 'landing':      return <Landing onNavigate={navigateToPage} onConnect={() => {/* topbar handles modal */}} walletAddr={walletAddr} />
       case 'explore':      return <Explore onNavigate={navigateToPage} />
       case 'generate':     return <Generate onNavigate={navigateToPage} />
       case 'library':      return <Strategies highlightStrategyId={highlightStrategyId} />
@@ -144,14 +143,19 @@ export default function App() {
       case 'reasoning':    return <Reasoning onNavigate={navigateToPage} />
       case 'learnings':    return <Learnings onNavigate={navigateToPage} />
       case 'vault-detail': return <VaultDetail address={selectedVault} onBack={backToPortfolio} />
-      default:             return <Landing onNavigate={navigateToPage} onConnect={() => {}} walletAddr={walletAddr} />
+      default:             return <NotFound page={page} onNavigate={navigateToPage} />
     }
   }
 
   if (page === 'landing') {
     return (
       <>
-        <Landing onNavigate={navigateToPage} onConnect={handleConnect} walletAddr={walletAddr} />
+        <Landing
+          onNavigate={navigateToPage}
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
+          walletAddr={walletAddr}
+        />
         <OnboardingTour open={tourOpen} onClose={() => setTourOpen(false)} setPage={navigateToPage} />
       </>
     )
@@ -171,5 +175,22 @@ export default function App() {
       </Layout>
       <OnboardingTour open={tourOpen} onClose={() => setTourOpen(false)} setPage={navigateToPage} />
     </>
+  )
+}
+
+function NotFound({ page, onNavigate }) {
+  return (
+    <div className="max-w-[640px]">
+      <h2 className="font-serif text-[2rem] mb-3">Page not found</h2>
+      <p className="body mb-4">
+        We don't have a page at <code>{String(page)}</code>. The spine has six destinations:
+        Explore, Generate, Library, Corpus, Portfolio, and Reasoning. Use the sidebar
+        on the left, or jump back to the landing page.
+      </p>
+      <div className="flex gap-3">
+        <button className="btn-primary" onClick={() => onNavigate('landing')}>← Home</button>
+        <button className="btn-secondary" onClick={() => onNavigate('generate')}>Generate a Strategy</button>
+      </div>
+    </div>
   )
 }

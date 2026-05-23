@@ -30,7 +30,6 @@ function shortAddr(a) {
 export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) {
   const [userVaults, setUserVaults] = useState([])
   const [agentStatus, setAgentStatus] = useState(null)
-  const [regime, setRegime] = useState(null)
   const [recentTraces, setRecentTraces] = useState([])
   const [tracesLoading, setTracesLoading] = useState(false)
   const [vaultsLoading, setVaultsLoading] = useState(false)
@@ -67,10 +66,7 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
       const r = await fetch(`${API_BASE}/api/agent/status`)
       if (r.ok) setAgentStatus(await r.json())
     } catch {}
-    try {
-      const r = await fetch(`${API_BASE}/api/regime/current`)
-      if (r.ok) setRegime(await r.json())
-    } catch {}
+    // Regime is loaded + rendered by <RegimePanel /> above, not duplicated here.
   }, [])
 
   const loadTraces = useCallback(async () => {
@@ -115,8 +111,9 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
       {/* Regime sidebar — top of portfolio page */}
       <RegimePanel />
 
-      {/* Status strip — agent + regime are real (Redis-backed) regardless of wallet */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      {/* Status strip — agent state is Redis-backed (regardless of wallet); regime
+          lives in the RegimePanel block above to avoid duplication. */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         <div className="card-flat p-4">
           <div className="label mb-2">Your Vaults</div>
           <div className="text-[1.8rem] font-bold">{walletAddr ? userVaults.length : '—'}</div>
@@ -139,15 +136,6 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
           </div>
           <div className="caption mt-1.5">
             Last heartbeat: {agentStatus?.last_heartbeat ? timeAgo(agentStatus.last_heartbeat) : '—'}
-          </div>
-        </div>
-        <div className="card-flat p-4">
-          <div className="label mb-2">Market Regime</div>
-          <div className="text-[1.4rem] font-bold capitalize">
-            {regime?.regime?.replace('_', ' ') || '—'}
-          </div>
-          <div className="caption mt-1.5">
-            {regime?.confidence != null ? `${(regime.confidence * 100).toFixed(0)}% confidence` : 'no data'}
           </div>
         </div>
       </div>
@@ -236,8 +224,10 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
                   {t.vault_address && <span>vault {shortAddr(t.vault_address)}</span>}
                   {t.trace_hash && <span className="mono">{t.trace_hash.slice(0, 10)}…</span>}
                   {t.is_verified
-                    ? <span className="flex items-center gap-1 text-[var(--positive)]"><span className="i-lucide-check-circle w-3.5 h-3.5" /> anchored</span>
-                    : <span>off-chain only</span>
+                    ? <span className="flex items-center gap-1 text-[var(--positive)]"><span className="i-lucide-check-circle w-3.5 h-3.5" /> anchored on Arc</span>
+                    : <span className="flex items-center gap-1 text-[var(--text-3)]" title="Trace hashed + persisted off-chain; on-chain anchor pending (registry write didn't complete yet — usually transient).">
+                        <span className="i-lucide-clock w-3.5 h-3.5" /> anchor pending
+                      </span>
                   }
                 </div>
               </div>
