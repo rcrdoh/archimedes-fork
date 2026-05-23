@@ -7,6 +7,7 @@ import json
 from fastapi import APIRouter, Query
 
 from archimedes.db import get_session
+from archimedes.services.corpus_categories import label_for as _category_label
 
 papers_router = APIRouter(prefix="/api/papers", tags=["papers"])
 
@@ -45,6 +46,7 @@ async def list_papers(
                 "arxiv_id": r.arxiv_id,
                 "title": r.title,
                 "primary_category": r.primary_category,
+                "category_label": _category_label(r.primary_category),
                 "categories": json.loads(r.categories) if r.categories else [],
                 "published": r.published,
                 "abstract": r.abstract[:200] + "..." if len(r.abstract) > 200 else r.abstract,
@@ -60,6 +62,7 @@ async def list_papers(
                 "arxiv_id": p.arxiv_id,
                 "title": p.title,
                 "primary_category": p.primary_category,
+                "category_label": _category_label(p.primary_category),
                 "categories": list(p.categories),
                 "published": p.published,
                 "abstract": p.abstract[:200] + "..." if len(p.abstract) > 200 else p.abstract,
@@ -100,6 +103,7 @@ async def get_paper(arxiv_id: str):
             "title": record.title,
             "authors": json.loads(record.authors) if record.authors else [],
             "primary_category": record.primary_category,
+            "category_label": _category_label(record.primary_category),
             "categories": json.loads(record.categories) if record.categories else [],
             "published": record.published,
             "abstract": record.abstract,
@@ -129,6 +133,7 @@ async def get_paper(arxiv_id: str):
         "arxiv_id": paper.arxiv_id,
         "title": paper.title,
         "primary_category": paper.primary_category,
+        "category_label": _category_label(paper.primary_category),
         "categories": list(paper.categories),
         "published": paper.published,
         "abstract": paper.abstract,
@@ -175,7 +180,10 @@ async def get_corpus_overview():
             return {
                 "total_papers": total,
                 "source": "database",
-                "categories": [{"name": cat, "count": cnt} for cat, cnt in category_counts.most_common(20)],
+                "categories": [
+                    {"name": cat, "label": _category_label(cat), "count": cnt}
+                    for cat, cnt in category_counts.most_common(20)
+                ],
                 "year_distribution": [{"year": yr, "count": cnt} for yr, cnt in year_dist],
             }
 
@@ -199,7 +207,10 @@ async def get_corpus_overview():
     return {
         "total_papers": len(corpus),
         "source": "file",
-        "categories": [{"name": cat, "count": cnt} for cat, cnt in top_categories],
+        "categories": [
+            {"name": cat, "label": _category_label(cat), "count": cnt}
+            for cat, cnt in top_categories
+        ],
         "year_distribution": [{"year": yr, "count": cnt} for yr, cnt in year_dist],
     }
 
