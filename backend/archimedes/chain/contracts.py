@@ -65,6 +65,10 @@ class ContractLoader:
         return self._contract(self.settings.reasoning_trace_registry_address, "ReasoningTraceRegistry")
 
     @property
+    def strategy_registry(self) -> AsyncContract:
+        return self._contract(self.settings.strategy_registry_address, "StrategyRegistry")
+
+    @property
     def asset_registry(self) -> AsyncContract:
         return self._contract(self.settings.asset_registry_address, "AssetRegistry")
 

@@ -53,6 +53,10 @@ class StrategyRecord(Base):
     rigor_verdict = Column(Text, nullable=True)  # JSON: DSR/PBO/walk-forward results
     is_example = Column(Boolean, nullable=False, default=False)  # hand-curated static strategies
 
+    # On-chain registration (populated when strategy passes rigor gate)
+    on_chain_registration_tx = Column(String(66), nullable=True)  # 0x-prefixed tx hash
+    on_chain_registration_block = Column(String(32), nullable=True)  # block number as string
+
     # Lineage
     parent_id = Column(String(64), nullable=True)
 
@@ -85,6 +89,8 @@ class StrategyRecord(Base):
             "rigor_verdict": json.loads(self.rigor_verdict) if self.rigor_verdict else None,
             "is_example": self.is_example,
             "parent_id": self.parent_id,
+            "on_chain_registration_tx": self.on_chain_registration_tx,
+            "on_chain_registration_block": self.on_chain_registration_block,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

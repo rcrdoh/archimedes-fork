@@ -39,6 +39,7 @@ class ChainSettings(BaseSettings):
     vault_factory_address: str = ""
     reasoning_trace_registry_address: str = ""
     asset_registry_address: str = ""
+    strategy_registry_address: str = ""
 
     # Individual synthetic token addresses (defaults = deployed Arc testnet contracts)
     stsla_address: str = "0xd514cd27baf762c650536765cde9b61c876abacd"
