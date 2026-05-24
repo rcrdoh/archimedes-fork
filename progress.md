@@ -1,14 +1,15 @@
 # Progress
 
 ## Status
-In Progress — Issue #174 (AMM health endpoint + agent_runner VaultFactory poll) complete. Deployed to main.
+In Progress — Issue #150 (DepositFlow stepper modal) complete. Deployed to main.
 
 ## Tasks
 
 ### Completed (this session)
-- **#174** — `/api/health/amm` endpoint reporting per-pool AMM liquidity (symbol, status, liquidity_usdc, oracle_price, reserves). `agent_runner._discover_new_vaults()` polls VaultFactory.getAllVaults() each tick to auto-discover user-created vaults. 3 new tests.
+- **#150** — DepositFlow stepper modal: 3-step USDC.approve → vault.deposit → setTargetAllocations with per-step status (pending/waiting/confirming/done/failed), retry on error, arcscan tx links, localStorage progress persistence for resume. USDC_ABI added to config.js. Wired into CreateVaultModal replacing the Phase 4.5 placeholder.
 
 ### Completed (prior sessions)
+- **#174** — `/api/health/amm` endpoint + agent_runner VaultFactory poll
 - **#172** — WelcomeProfileModal + personalized header
 - **#167** — Generate page single input + backend auto-route
 - **#177** — Nginx security headers
@@ -19,15 +20,17 @@ In Progress — Issue #174 (AMM health endpoint + agent_runner VaultFactory poll
 - **#171** — Portfolio traces honesty
 - **#173** — Agents subpackage refactor
 
-## Files Changed (this session — Issue #174)
-- `backend/archimedes/api/schemas.py` — Added `AMMPoolHealth` + `AMMHealthResponse` Pydantic models
-- `backend/archimedes/api/agent_routes.py` — Added `GET /api/agent/health/amm` endpoint
-- `backend/archimedes/chain/agent_runner.py` — Added `_known_vaults` set + `_discover_new_vaults()` method for VaultFactory polling
-- `backend/tests/test_api_routes.py` — Added 3 tests: amm_health_endpoint, amm_health_returns_all_synth_pools, amm_health_pool_status_values
+## Files Changed (this session — Issue #150)
+- `ui/src/components/DepositFlow.jsx` — NEW: 366-line 3-step stepper modal component
+- `ui/src/components/CreateVaultModal.jsx` — Wired DepositFlow to replace Phase 4.5 placeholder; on vault deploy success, renders DepositFlow instead of closing
+- `ui/src/config.js` — Added `USDC_ABI` minimal export (approve + allowance fragments)
 
 ## Validation
-- `pytest -q -k "amm or health or Agent"` → 7 passed
-- `pytest -q -k "not user_profile_privacy and not test_user_routes"` → 378 passed, 0 failures
-- AC: `grep -n "VaultFactory.*getAllVaults\|_discover_new_vaults" backend/archimedes/chain/agent_runner.py` → 4 matches
-- AC: `grep -n "/health/amm" backend/archimedes/api/agent_routes.py` → 1 match
-- AC: Schema includes `["last_update","liquidity_usdc","oracle_price","symbol","status","reserve_token","reserve_usdc"]`
+- Frontend build: `npm run build` → clean (no new warnings)
+- Backend tests: `pytest -q -k "not user_profile_privacy and not test_user_routes"` → 378 passed, 0 failures
+- AC: `grep -c "DepositFlow" ui/src/components/CreateVaultModal.jsx` → 6 matches
+- AC: `grep -c "writeContract" ui/src/components/DepositFlow.jsx` → 3 (one per step)
+- AC: `grep -c "USDC_ABI" ui/src/config.js` → 1 (export exists)
+- AC: `grep -c "arcscan.app" ui/src/components/DepositFlow.jsx` → 1 (tx explorer links)
+- AC: `grep -c "Retry" ui/src/components/DepositFlow.jsx` → 1 (retry button on error)
+- AC: `grep -c "localStorage" ui/src/components/DepositFlow.jsx` → 4 (progress persistence)
