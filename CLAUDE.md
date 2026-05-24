@@ -186,6 +186,19 @@ The repo carries three git submodules at [`submodules/`](submodules/):
     - `samples/arc-p2p-payments/` — Paymaster + USDC patterns
   Refresh upstream with `git submodule update --remote submodules/context-arc` or
   `arc-canteen context sync` (drops into `~/.arc-canteen/context/`).
+
+  **Sticky submodule config — one-time, per clone:** after `git clone`, run this
+  to make git auto-recurse into submodules on every checkout/pull/rebase. Without
+  this, working trees drift out of sync with main's recorded pins (we hit this
+  several times during the hackathon — every session had to manually re-sync):
+  ```bash
+  git config submodule.recurse true   # auto-recurse on git ops
+  git config diff.submodule log       # nicer diff display
+  git submodule update --init --recursive  # one-shot sync to recorded pins
+  ```
+  Linus has its OWN nested submodule (`submodules/Linus/modules/KnowledgeBase`)
+  which is the most common source of "modified content" noise in `git status`.
+  The `--recursive` flag handles it.
 - **[`submodules/KnowledgeBase/`](submodules/KnowledgeBase/)** — Dan's scientific-
   paper analysis pipeline (PyMuPDF extract + SPECTER2 embeddings + HDBSCAN/BERTopic
   clustering + REBEL/SciSpacy knowledge graph). For Archimedes, **don't port wholesale**
