@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import WalletConnect from './WalletConnect'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -11,7 +10,7 @@ async function apiGet(path) {
   } catch { return null }
 }
 
-export default function Landing({ onNavigate, onConnect, onDisconnect, walletAddr }) {
+export default function Landing({ onNavigate }) {
   const [stats, setStats]           = useState(null)
   const [agentStatus, setAgentStatus] = useState(null)
   const [regime, setRegime]         = useState(null)
@@ -37,34 +36,8 @@ export default function Landing({ onNavigate, onConnect, onDisconnect, walletAdd
   return (
     <div className="min-h-screen bg-[var(--canvas)] overflow-x-hidden font-[var(--sans)]">
 
-      {/* ── Fixed minimal header ─────────────────────────────────── */}
-      <header className="fixed top-0 inset-x-0 z-50 flex items-center justify-between px-5 md:px-8 h-14 bg-[rgba(9,9,11,0.88)] backdrop-blur-[16px] border-b border-[var(--glass-border)]">
-        <div className="flex items-center gap-2.5">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" className="w-7 h-7 flex-shrink-0" aria-hidden="true">
-            <rect width="32" height="32" rx="4" fill="#0a0a0b"/>
-            <text x="16" y="23" textAnchor="middle" fontFamily="serif" fontSize="22" fill="#e0a64f">Λ</text>
-          </svg>
-          <span className="font-bold text-[1rem] tracking-tight text-[var(--text-1)]">Archimedes</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            className="btn-secondary !py-2 !px-4 !text-sm"
-            onClick={() => onNavigate('library')}
-          >
-            Strategies
-          </button>
-          {walletAddr ? (
-            <button className="btn-primary !py-2 !px-4 !text-sm" onClick={() => onNavigate('portfolio')}>
-              Dashboard →
-            </button>
-          ) : (
-            <WalletConnect address={walletAddr} onConnect={onConnect} onDisconnect={onDisconnect} />
-          )}
-        </div>
-      </header>
-
       {/* ── Hero ─────────────────────────────────────────────────── */}
-      <section className="pt-28 pb-16 px-4 text-center border-b border-[var(--glass-border)] bg-[var(--canvas)] sm:px-6 sm:pt-32 sm:pb-20 lg:px-12 lg:pt-40 lg:pb-28">
+      <section className="pt-8 pb-16 px-4 text-center border-b border-[var(--glass-border)] bg-[var(--canvas)] sm:px-6 sm:pb-20 lg:px-12 lg:pb-28">
         <div className="max-w-[760px] mx-auto">
           <span style={{
             display: 'inline-block',
@@ -98,7 +71,7 @@ export default function Landing({ onNavigate, onConnect, onDisconnect, walletAdd
             <button className="btn-primary" onClick={() => onNavigate('generate')}>
               Generate a Strategy →
             </button>
-            <button className="btn-secondary" onClick={() => onNavigate('library')}>
+            <button className="btn-secondary" onClick={() => onNavigate('library', { tab: 'examples' })}>
               Browse Example Library
             </button>
           </div>
@@ -253,15 +226,11 @@ export default function Landing({ onNavigate, onConnect, onDisconnect, walletAdd
           The world is your portfolio.
         </p>
         <div className="hero-actions flex justify-center items-center gap-3">
-          {walletAddr ? (
-            <button className="btn-primary" onClick={() => onNavigate('portfolio')}>
-              Open Portfolio →
-            </button>
-          ) : (
-            <WalletConnect address={walletAddr} onConnect={onConnect} onDisconnect={onDisconnect} />
-          )}
-          <button className="btn-secondary" onClick={() => onNavigate('generate')}>
+          <button className="btn-primary" onClick={() => onNavigate('generate')}>
             Generate a Strategy →
+          </button>
+          <button className="btn-secondary" onClick={() => onNavigate('portfolio')}>
+            Open Portfolio
           </button>
         </div>
         <p className="mt-8 text-xs text-[var(--text-4)]">

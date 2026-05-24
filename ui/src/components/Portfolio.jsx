@@ -232,8 +232,10 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
           <div className="card" style={{ padding: 18 }}>
             <p className="body" style={{ marginBottom: 6 }}>No agent activity yet.</p>
             <p className="caption">
-              The agent runner persists a reasoning trace every time it makes a decision.
-              Construction traces from the Generate page also appear here.
+              Deploy a vault to see agent decisions here, or{' '}
+              <a onClick={() => onSelectTrace?.(undefined)} style={{ color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}>
+                browse all traces on the Reasoning page
+              </a>.
             </p>
           </div>
         )}
@@ -245,6 +247,7 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
                 className="trace-card vault-card-clickable"
                 onClick={() => onSelectTrace?.(t.id)}
                 style={{ cursor: 'pointer' }}
+                title={`Click to view trace ${t.id}`}
               >
                 <div className="flex justify-between items-center gap-3 flex-wrap">
                   <div>

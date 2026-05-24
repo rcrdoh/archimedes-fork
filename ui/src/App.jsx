@@ -37,39 +37,45 @@ const PATH_TO_PAGE = Object.fromEntries(
 function resolveRoute(pathname = '/', search = '') {
   const params = new URLSearchParams(search)
   const highlight = params.get('highlight')
+  const traceId = params.get('trace_id')
+  const tab = params.get('tab')
 
   if (PATH_TO_PAGE[pathname]) {
-    return { page: PATH_TO_PAGE[pathname], vaultAddress: null, traceId: null, strategyId: null, highlight, matched: true }
+    return { page: PATH_TO_PAGE[pathname], vaultAddress: null, traceId, strategyId: null, highlight, tab, matched: true }
   }
 
   if (pathname.startsWith('/portfolio/vaults/')) {
     const rawAddress = pathname.replace('/portfolio/vaults/', '')
-    if (rawAddress) return { page: 'vault-detail', vaultAddress: rawAddress, traceId: null, strategyId: null, highlight, matched: true }
+    if (rawAddress) return { page: 'vault-detail', vaultAddress: rawAddress, traceId: null, strategyId: null, highlight, tab: null, matched: true }
   }
 
   if (pathname.startsWith('/reasoning/')) {
     const id = pathname.replace('/reasoning/', '')
-    if (id) return { page: 'reasoning', vaultAddress: null, traceId: id, strategyId: null, highlight, matched: true }
+    if (id) return { page: 'reasoning', vaultAddress: null, traceId: id, strategyId: null, highlight, tab: null, matched: true }
   }
 
   if (pathname.startsWith('/strategy/')) {
     const id = pathname.replace('/strategy/', '')
-    if (id) return { page: 'strategy', vaultAddress: null, traceId: null, strategyId: id, highlight, matched: true }
+    if (id) return { page: 'strategy', vaultAddress: null, traceId: null, strategyId: id, highlight, tab: null, matched: true }
   }
 
   // Legacy paths still in the wild — funnel them to the spine.
   const vaultAddress = params.get('vault')
-  if (vaultAddress) return { page: 'vault-detail', vaultAddress, traceId: null, strategyId: null, highlight, matched: true }
+  if (vaultAddress) return { page: 'vault-detail', vaultAddress, traceId: null, strategyId: null, highlight, tab: null, matched: true }
 
-  return { page: 'landing', vaultAddress: null, traceId: null, strategyId: null, highlight: null, matched: false }
+  return { page: 'landing', vaultAddress: null, traceId: null, strategyId: null, highlight: null, tab: null, matched: false }
 }
 
-function pageToPath(page, selectedVault = null, highlight = null, strategyId = null) {
+function pageToPath(page, selectedVault = null, highlight = null, strategyId = null, traceId = null, tab = null) {
   if (page === 'vault-detail' && selectedVault) return `/portfolio/vaults/${selectedVault}`
   if (page === 'strategy' && strategyId) return `/strategy/${encodeURIComponent(strategyId)}`
   const base = PAGE_TO_PATH[page] ?? '/'
-  if (highlight && page === 'library') return `${base}?highlight=${encodeURIComponent(highlight)}`
-  return base
+  const params = new URLSearchParams()
+  if (highlight && page === 'library') params.set('highlight', highlight)
+  if (traceId && page === 'reasoning') params.set('trace_id', traceId)
+  if (tab && page === 'library') params.set('tab', tab)
+  const qs = params.toString()
+  return qs ? `${base}?${qs}` : base
 }
 
 // ─── Main App ────────────────────────────────────────────────
@@ -83,6 +89,7 @@ export default function App() {
   const [selectedStrategy, setSelectedStrategy] = useState(initialRoute.strategyId)
   const [tourOpen, setTourOpen] = useState(() => !hasCompletedOnboarding())
   const [highlightStrategyId, setHighlightStrategyId] = useState(initialRoute.highlight)
+  const [defaultTab, setDefaultTab] = useState(initialRoute.tab)
 
   // Reconnect a previously connected wallet on mount (silent — uses eth_accounts,
   // no popup). The wallet-changed event keeps state in sync if the user changes
@@ -110,7 +117,13 @@ export default function App() {
     const nextHighlight = Object.prototype.hasOwnProperty.call(opts, 'highlight')
       ? opts.highlight
       : (nextPage === 'library' ? highlightStrategyId : null)
-    const nextPath = pageToPath(nextPage, nextVault, nextHighlight, nextStrategy)
+    const nextTraceId = Object.prototype.hasOwnProperty.call(opts, 'traceId')
+      ? opts.traceId
+      : null
+    const nextTab = Object.prototype.hasOwnProperty.call(opts, 'tab')
+      ? opts.tab
+      : null
+    const nextPath = pageToPath(nextPage, nextVault, nextHighlight, nextStrategy, nextTraceId, nextTab)
     const method = opts.replace ? 'replaceState' : 'pushState'
 
     if (window.location.pathname + window.location.search !== nextPath) {
@@ -129,11 +142,12 @@ export default function App() {
       setSelectedStrategy(null)
     }
     setHighlightStrategyId(nextPage === 'library' ? nextHighlight : null)
+    setDefaultTab(nextPage === 'library' ? nextTab : null)
   }, [selectedVault, selectedStrategy, highlightStrategyId])
 
   const selectVault = (addr) => navigateToPage('vault-detail', { vaultAddress: addr })
   const backToPortfolio = () => navigateToPage('portfolio', { vaultAddress: null })
-  const selectTrace = (_id) => navigateToPage('reasoning')
+  const selectTrace = (id) => navigateToPage('reasoning', { replace: false, traceId: id })
 
   useEffect(() => {
     if (!initialRoute.matched) {
@@ -145,6 +159,7 @@ export default function App() {
       setSelectedVault(route.vaultAddress)
       setSelectedStrategy(route.strategyId)
       setHighlightStrategyId(route.highlight)
+      setDefaultTab(route.tab)
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
@@ -152,9 +167,10 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
+      case 'landing':     return <Landing onNavigate={navigateToPage} />
       case 'explore':      return <Explore onNavigate={navigateToPage} />
       case 'generate':     return <Generate onNavigate={navigateToPage} />
-      case 'library':      return <Strategies highlightStrategyId={highlightStrategyId} onNavigate={navigateToPage} />
+      case 'library':      return <Strategies highlightStrategyId={highlightStrategyId} defaultTab={defaultTab} onNavigate={navigateToPage} />
       case 'strategy':     return <StrategyPassport strategyId={selectedStrategy} onNavigate={navigateToPage} walletAddr={walletAddr} />
       case 'corpus':       return <CorpusExplorer />
       case 'portfolio':    return <Portfolio walletAddr={walletAddr} onSelectVault={selectVault} onSelectTrace={selectTrace} />
@@ -163,20 +179,6 @@ export default function App() {
       case 'vault-detail': return <VaultDetail address={selectedVault} onBack={backToPortfolio} />
       default:             return <NotFound page={page} onNavigate={navigateToPage} />
     }
-  }
-
-  if (page === 'landing') {
-    return (
-      <>
-        <Landing
-          onNavigate={navigateToPage}
-          onConnect={handleConnect}
-          onDisconnect={handleDisconnect}
-          walletAddr={walletAddr}
-        />
-        <OnboardingTour open={tourOpen} onClose={() => setTourOpen(false)} setPage={navigateToPage} />
-      </>
-    )
   }
 
   return (

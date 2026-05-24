@@ -622,14 +622,14 @@ function coerceGenerated(row) {
   }
 }
 
-export default function Strategies({ highlightStrategyId, onNavigate }) {
+export default function Strategies({ highlightStrategyId, defaultTab, onNavigate }) {
   const [examples, setExamples] = useState([])
   const [generated, setGenerated] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   // 'generated' is the first-class tab per product feedback — pushes user
   // toward Generate when empty.
-  const [activeTab, setActiveTab] = useState('generated')
+  const [activeTab, setActiveTab] = useState(() => defaultTab || 'generated')
   // Page-level rigor explainer modal, opened from any row expansion's "?"
   // affordance. Single modal instance per page keeps state simple.
   const [rigorModalOpen, setRigorModalOpen] = useState(false)

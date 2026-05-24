@@ -1166,6 +1166,16 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--glass);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.trace-card:hover {
+  border-color: var(--accent);
+}
+
+/* Highlighted trace — applied for ~3s after deep-link navigation */
+.trace-highlighted {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent), 0 0 20px rgba(99, 102, 241, 0.25) !important;
 }
 .trace-id { font-weight: 700; color: var(--accent); font-size: 1.1rem; min-width: 40px; }
 .trace-detail { font-size: 0.8rem; line-height: 1.5; }
