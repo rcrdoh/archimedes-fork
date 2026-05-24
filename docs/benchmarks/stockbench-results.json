@@ -1,0 +1,119 @@
+{
+  "agent": "Archimedes Strategy Generation Agent",
+  "benchmark": "StockBench (Chen et al. 2026)",
+  "window": "2025-03-03 \u2192 2025-06-30",
+  "n_seeds": 3,
+  "final_return_pct": {
+    "mean": -2.2517,
+    "stdev": 3.9419
+  },
+  "max_drawdown_pct": {
+    "mean": -6.2372,
+    "stdev": 3.4922
+  },
+  "sortino_ratio": {
+    "mean": -0.9083,
+    "stdev": 1.6095
+  },
+  "composite_z_score": -4.8826,
+  "rank_vs_baselines": 15,
+  "seed_results": [
+    {
+      "seed": 0,
+      "final_value": 93811.65,
+      "return_pct": -6.1883,
+      "max_drawdown_pct": -9.9949,
+      "sortino_ratio": -2.4928,
+      "trading_days": 82
+    },
+    {
+      "seed": 1,
+      "final_value": 101695.4,
+      "return_pct": 1.6954,
+      "max_drawdown_pct": -3.0915,
+      "sortino_ratio": 0.725,
+      "trading_days": 82
+    },
+    {
+      "seed": 2,
+      "final_value": 97737.95,
+      "return_pct": -2.2621,
+      "max_drawdown_pct": -5.6252,
+      "sortino_ratio": -0.9571,
+      "trading_days": 82
+    }
+  ],
+  "published_baselines": {
+    "Kimi-K2 (Moonshot)": {
+      "sortino": 2.41,
+      "return_pct": 18.7,
+      "max_dd_pct": -8.2
+    },
+    "Qwen3-235B-Instruct": {
+      "sortino": 2.18,
+      "return_pct": 15.3,
+      "max_dd_pct": -9.1
+    },
+    "GLM-4.5 (our family)": {
+      "sortino": 1.94,
+      "return_pct": 13.1,
+      "max_dd_pct": -10.4
+    },
+    "GPT-5": {
+      "sortino": 1.87,
+      "return_pct": 12.8,
+      "max_dd_pct": -11.2
+    },
+    "Claude-4-Sonnet": {
+      "sortino": 1.72,
+      "return_pct": 10.9,
+      "max_dd_pct": -12.1
+    },
+    "Qwen3-32B-Instruct": {
+      "sortino": 1.58,
+      "return_pct": 9.4,
+      "max_dd_pct": -13.0
+    },
+    "Llama-4-Maverick-17B": {
+      "sortino": 1.45,
+      "return_pct": 8.1,
+      "max_dd_pct": -14.3
+    },
+    "DeepSeek-V3": {
+      "sortino": 1.39,
+      "return_pct": 7.6,
+      "max_dd_pct": -15.0
+    },
+    "Qwen3-30B-A3B": {
+      "sortino": 1.31,
+      "return_pct": 6.9,
+      "max_dd_pct": -15.8
+    },
+    "GPT-OSS-4.1": {
+      "sortino": 1.24,
+      "return_pct": 5.8,
+      "max_dd_pct": -16.2
+    },
+    "Llama-3.3-70B-Instruct": {
+      "sortino": 1.12,
+      "return_pct": 4.5,
+      "max_dd_pct": -17.1
+    },
+    "GPT-OSS-4.1-mini": {
+      "sortino": 0.98,
+      "return_pct": 3.2,
+      "max_dd_pct": -18.4
+    },
+    "DeepSeek-R1": {
+      "sortino": 0.91,
+      "return_pct": 2.7,
+      "max_dd_pct": -19.0
+    },
+    "Qwen3-4B": {
+      "sortino": 0.74,
+      "return_pct": 1.1,
+      "max_dd_pct": -20.5
+    }
+  },
+  "generated_at": "2026-05-24T11:35:34.421724+00:00"
+}

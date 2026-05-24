@@ -106,14 +106,20 @@ class PortfolioState:
     peak_value: float = STARTING_CASH
 
     @property
+    def final_value(self) -> float:
+        """Last recorded mark-to-market value."""
+        if self.net_values:
+            return self.net_values[-1]
+        return self.current_value
+
+    @property
     def current_value(self) -> float:
-        """Mark-to-market value of holdings at last known prices."""
-        # In the adapter, holdings are shares. When prices aren't available
-        # (e.g. before first execute), holdings are empty.
         return self.cash + sum(self.holdings.values())
 
     @property
     def total_return_pct(self) -> float:
+        if self.net_values:
+            return ((self.net_values[-1] / STARTING_CASH) - 1.0) * 100.0
         return ((self.current_value / STARTING_CASH) - 1.0) * 100.0
 
     @property
@@ -391,38 +397,55 @@ class ArchimedesStockBenchAdapter:
     ) -> None:
         """Rebalance portfolio to match decision allocations.
 
-        Holdings are tracked as SHARES, not dollar values, so that
-        mark-to-market between rebalances captures real P&L.
+        Holdings are tracked as SHARES (ticker → float).  Before each
+        rebalance we mark-to-market using today's prices so that the
+        portfolio value reflects real P&L since the last rebalance.
         """
-        total_value = self.portfolio.current_value
+        # Step 1: Mark existing holdings to market at today's prices
+        total_value = self._mark_to_market(prices, day)
 
-        # Convert target weights → share counts
+        # Step 2: Rebalance — convert target weights → share counts
         new_holdings: dict[str, float] = {}  # ticker → shares
         for ticker, weight in decision.allocations.items():
             if ticker in prices and prices[ticker][day] > 0:
-                target_value = total_value * weight
-                shares = target_value / prices[ticker][day]
+                target_dollars = total_value * weight
+                shares = target_dollars / prices[ticker][day]
                 new_holdings[ticker] = shares
 
         self.portfolio.cash = total_value * decision.cash_weight
         self.portfolio.holdings = new_holdings
 
-        # Mark-to-market: revalue holdings at today's prices
-        portfolio_value = self.portfolio.cash
+        # Step 3: Record the post-rebalance mark-to-market value
+        post_value = self.portfolio.cash
         for ticker, shares in self.portfolio.holdings.items():
             if ticker in prices and day < len(prices[ticker]):
-                portfolio_value += shares * prices[ticker][day]
-            else:
-                portfolio_value += shares  # fallback
-
-        self.portfolio.net_values.append(portfolio_value)
+                post_value += shares * prices[ticker][day]
+        self.portfolio.net_values.append(post_value)
 
         if len(self.portfolio.net_values) > 1:
             prev = self.portfolio.net_values[-2]
-            daily_ret = (portfolio_value / prev) - 1.0 if prev > 0 else 0.0
+            daily_ret = (post_value / prev) - 1.0 if prev > 0 else 0.0
             self.portfolio.daily_returns.append(daily_ret)
 
-        self.portfolio.peak_value = max(self.portfolio.peak_value, portfolio_value)
+        self.portfolio.peak_value = max(self.portfolio.peak_value, post_value)
+
+    def _mark_to_market(
+        self,
+        prices: dict[str, list[float]],
+        day: int,
+    ) -> float:
+        """Revalue current holdings at today's prices, return total."""
+        if not self.portfolio.holdings:
+            return self.portfolio.cash
+
+        value = self.portfolio.cash
+        for ticker, shares in self.portfolio.holdings.items():
+            if ticker in prices and day < len(prices[ticker]):
+                value += shares * prices[ticker][day]
+            else:
+                # Fallback: estimate from last known allocation
+                value += shares * 100  # rough estimate
+        return value
 
     # ── Main loop ────────────────────────────────────────────────
 
@@ -455,7 +478,7 @@ class ArchimedesStockBenchAdapter:
 
         return BenchmarkResult(
             seed=self.seed,
-            final_value=self.portfolio.current_value,
+            final_value=self.portfolio.final_value,
             return_pct=self.portfolio.total_return_pct,
             max_drawdown_pct=self.portfolio.max_drawdown_pct,
             sortino_ratio=self.portfolio.sortino_ratio,
