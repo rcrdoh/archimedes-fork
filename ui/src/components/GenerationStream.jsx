@@ -132,12 +132,12 @@ export default function GenerationStream({ jobId, onDone, onReset }) {
           <div className="label">Generating — job {jobId.slice(0, 10)}…</div>
           {terminal === 'done' && (
             <div className="positive caption" style={{ marginTop: 4 }}>
-              ✓ Strategy persisted{strategyId ? ` as ${strategyId}` : ''}
+              <span className="i-lucide-check w-3.5 h-3.5 mr-1" /> Strategy persisted{strategyId ? ` as ${strategyId}` : ''}
             </div>
           )}
           {terminal === 'error' && (
             <div className="negative caption" style={{ marginTop: 4 }}>
-              ✗ {errorMsg}
+              <span className="i-lucide-x w-3.5 h-3.5 mr-1" /> {errorMsg}
             </div>
           )}
           {!terminal && (

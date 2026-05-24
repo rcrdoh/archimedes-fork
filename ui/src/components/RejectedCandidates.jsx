@@ -83,7 +83,7 @@ export default function RejectedCandidates({ jobId, onClose }) {
                     {c.rigor_verdict.pbo != null && <span>PBO: <strong>{c.rigor_verdict.pbo}</strong></span>}
                     {c.rigor_verdict.oos_sharpe != null && <span>OOS Sharpe: <strong>{c.rigor_verdict.oos_sharpe}</strong></span>}
                     {c.rigor_verdict.lookahead_audit_passed != null && (
-                      <span>Lookahead: <strong>{c.rigor_verdict.lookahead_audit_passed ? '✓' : '✗'}</strong></span>
+                      <span>Lookahead: <span className={`${c.rigor_verdict.lookahead_audit_passed ? 'i-lucide-check text-[var(--positive)]' : 'i-lucide-x text-[var(--negative)]'} w-3 h-3`} /></span>
                     )}
                   </div>
                 )}

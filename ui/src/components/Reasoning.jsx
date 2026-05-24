@@ -247,7 +247,7 @@ function OnChainTraces({ onNavigate }) {
 export default function Reasoning({ onNavigate }) {
   return (
     <div>
-      <div className="fade-up fade-up-1 max-w-[720px] mb-7">
+      <div className="max-w-[720px] mb-7">
         <h2 className="font-serif text-[2rem] mb-2.5">Reasoning</h2>
         <p className="body">
           Every autonomous agent decision is anchored on-chain by hash. Browse the

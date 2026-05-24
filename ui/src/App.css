@@ -1182,18 +1182,6 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
 ::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-4); }
 
-/* --- Animations --- */
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: none; }
-}
-.fade-up { animation: fadeUp 0.5s ease forwards; }
-.fade-up-1 { animation-delay: 0.05s; opacity: 0; }
-.fade-up-2 { animation-delay: 0.1s; opacity: 0; }
-.fade-up-3 { animation-delay: 0.15s; opacity: 0; }
-.fade-up-4 { animation-delay: 0.2s; opacity: 0; }
-.fade-up-5 { animation-delay: 0.25s; opacity: 0; }
-
 /* --- Responsive (desktop guard — drawer handles < 1024px) --- */
 @media (max-width: 1023px) {
   .main-area { margin-left: 0; }
@@ -1897,12 +1885,6 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  animation: modalFadeIn 0.2s ease;
-}
-
-@keyframes modalFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 @keyframes fusion-progress {
@@ -1918,18 +1900,6 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
-  animation: modalSlideUp 0.3s ease;
-}
-
-@keyframes modalSlideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .strategy-modal-header {
@@ -2439,3 +2409,20 @@ button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
   .lg-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
+
+/* --- Onboarding spotlight tour --- */
+/* Centered fallback backdrop (no anchor / element not measurable). */
+.tour-overlay {
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(6px);
+}
+/* Glowing ring traced around the spotlighted nav element. Decorative only —
+   pointer-events:none is set inline so clicks fall through to the element. */
+.tour-ring {
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px rgba(212, 168, 83, 0.25), 0 0 18px 3px rgba(212, 168, 83, 0.45);
+}
+.tour-tooltip {
+  border: 1px solid var(--glass-border);
+}

@@ -30,7 +30,7 @@ export default function FusionResult({ result, onNavigate }) {
   const rejected = status && status !== 'ok' && !strategy_name
   if (rejected) {
     return (
-      <div className="card p-5 fade-up fade-up-2">
+      <div className="card p-5">
         <div className="label mb-2 text-[var(--negative)]">Fusion rejected</div>
         <p className="body">{message || 'The fusion engine did not produce an actionable strategy for this brief.'}</p>
         <p className="caption mt-3">Try a different brief, broader asset classes, or a different risk profile.</p>
@@ -43,7 +43,7 @@ export default function FusionResult({ result, onNavigate }) {
   const rigorPassing = hasRigor && rigor.passing === true
 
   return (
-    <div className="fade-up fade-up-2 flex flex-col gap-4">
+    <div className="flex flex-col gap-4">
       {/* Headline — strategy name + thesis */}
       <div className="card p-5">
         <div className="caption mb-1 uppercase tracking-wider text-[var(--text-4)]">Fusion proposal</div>
@@ -103,7 +103,9 @@ export default function FusionResult({ result, onNavigate }) {
           <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
             <div className="label">Rigor verdict</div>
             <span className={`tag ${rigorPassing ? 'tag-positive' : 'tag-muted'}`}>
-              {rigorPassing ? '✓ rigor gate passed' : '✗ rigor gate failed'}
+              {rigorPassing
+                ? <><span className="i-lucide-check w-3 h-3 mr-1" /> rigor gate passed</>
+                : <><span className="i-lucide-x w-3 h-3 mr-1" /> rigor gate failed</>}
             </span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

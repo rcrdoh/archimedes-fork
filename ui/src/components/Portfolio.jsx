@@ -92,7 +92,7 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
 
   return (
     <div>
-      <div className="fade-up fade-up-1 max-w-[720px] mb-6">
+      <div className="max-w-[720px] mb-6">
         <h2 className="serif text-[2rem] mb-2.5">Portfolio</h2>
         <p className="body">
           What you own, how the agent is managing it, and what it's been doing recently.

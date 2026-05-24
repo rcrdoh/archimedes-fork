@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 
 const STORAGE_KEY = 'archimedes.onboarding.v1'
@@ -6,6 +6,9 @@ const STORAGE_KEY = 'archimedes.onboarding.v1'
 // Card content — kept here, not in a separate JSON, so contributors can
 // edit the copy alongside the visuals. Order matches the user journey:
 // understand → browse → generate → inspect → deploy → monitor.
+//
+// `anchor` is a nav id (see Layout.jsx `data-tour`). When set, the step
+// spotlights that real nav button; when null the step is a centered card.
 const CARDS = [
   {
     id: 'what',
@@ -18,7 +21,7 @@ const CARDS = [
         them through selection-bias rigor before any execution.
       </>
     ),
-    cta: { label: 'Tell me more', target: null },
+    anchor: null,
     illustration: 'archimedes',
   },
   {
@@ -32,7 +35,7 @@ const CARDS = [
         so the provenance is visible end-to-end.
       </>
     ),
-    cta: { label: 'Open Corpus', target: 'corpus' },
+    anchor: 'corpus',
     illustration: 'corpus',
   },
   {
@@ -46,7 +49,7 @@ const CARDS = [
         Each iteration streams live so you can see the deliberation.
       </>
     ),
-    cta: { label: 'Open Generate', target: 'generate' },
+    anchor: 'generate',
     illustration: 'generate',
   },
   {
@@ -60,7 +63,7 @@ const CARDS = [
         the trace back to the strategy and the source paper.
       </>
     ),
-    cta: { label: 'Open Reasoning', target: 'reasoning' },
+    anchor: 'reasoning',
     illustration: 'reasoning',
   },
   {
@@ -74,7 +77,7 @@ const CARDS = [
         the agent has rebalance authority only.
       </>
     ),
-    cta: { label: 'Open Portfolio', target: 'portfolio' },
+    anchor: 'portfolio',
     illustration: 'vault',
   },
   {
@@ -82,12 +85,12 @@ const CARDS = [
     title: 'Watch the agent work',
     body: (
       <>
-        After deployment, the Portfolio page shows live performance, the agent's
-        decisions over time, and on-chain reasoning traces for every action. The
-        Learnings page accumulates lessons across your strategies as they age.
+        The <strong>Learnings</strong> page accumulates lessons across your strategies
+        as they age, while Portfolio shows live performance, the agent's decisions
+        over time, and on-chain reasoning traces for every action.
       </>
     ),
-    cta: { label: 'Open Portfolio', target: 'portfolio' },
+    anchor: 'learnings',
     illustration: 'watch',
   },
 ]
@@ -181,8 +184,17 @@ export function hasCompletedOnboarding() {
   }
 }
 
+// Spotlight geometry constants.
+const HOLE_PAD = 6        // px of breathing room around the highlighted element
+const TIP_W = 340         // tooltip width
+const TIP_GAP = 16        // gap between hole and tooltip
+const TIP_EST_H = 380     // height estimate used only to keep the tooltip on-screen
+
 export default function OnboardingTour({ open, onClose, setPage }) {
   const [cardIndex, setCardIndex] = useState(0)
+  // Bounding rect of the spotlighted element, in viewport coords. `null`
+  // means "no anchor / element not measurable" → render a centered card.
+  const [rect, setRect] = useState(null)
 
   // Reset to first card every time the tour is opened, so the "?" reopen
   // affordance always starts the user at card 1.
@@ -192,6 +204,45 @@ export default function OnboardingTour({ open, onClose, setPage }) {
 
   const card = CARDS[cardIndex]
   const isLast = cardIndex === CARDS.length - 1
+
+  // Measure the current step's anchor element. Falls back to `null` (centered
+  // card) when there's no anchor, the element is absent, or it's hidden
+  // (mobile drawer closed, collapsed sidebar → zero-size rect).
+  const measure = useCallback(() => {
+    const c = CARDS[cardIndex]
+    if (!c.anchor) { setRect(null); return }
+    const el = document.querySelector(`[data-tour="${c.anchor}"]`)
+    if (!el) { setRect(null); return }
+    const r = el.getBoundingClientRect()
+    if (r.width === 0 || r.height === 0) { setRect(null); return }
+    setRect({ top: r.top, left: r.left, width: r.width, height: r.height })
+  }, [cardIndex])
+
+  // Re-measure on open, step change, resize, and scroll. `scroll` is captured
+  // (true) so it fires for scrolling inside the sidebar/main, not just window.
+  useLayoutEffect(() => {
+    if (!open) return
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [open, measure])
+
+  // Drive the app into view when a step's anchor isn't mounted yet. The most
+  // common case: the tour auto-opens on the Landing page, which renders without
+  // the sidebar — so the nav anchors don't exist. Navigating to the step's page
+  // mounts the Layout shell (sidebar + nav), then we re-measure once it paints.
+  // Guarded by `rect === null` so it fires at most once per step.
+  useEffect(() => {
+    if (!open || rect !== null || !card.anchor) return
+    setPage(card.anchor)
+    // Sidebar mounts on the next render; re-measure after it paints.
+    const id = setTimeout(measure, 60)
+    return () => clearTimeout(id)
+  }, [open, rect, card, setPage, measure])
 
   const finish = useCallback(() => {
     try {
@@ -204,26 +255,9 @@ export default function OnboardingTour({ open, onClose, setPage }) {
   }, [onClose])
 
   const handleContinue = useCallback(() => {
-    if (isLast) {
-      finish()
-    } else {
-      setCardIndex(i => i + 1)
-    }
+    if (isLast) finish()
+    else setCardIndex(i => i + 1)
   }, [isLast, finish])
-
-  const handleCta = useCallback(() => {
-    if (card.cta.target) {
-      setPage(card.cta.target)
-      // Advance the tour rather than closing it — the user can see the destination
-      // page behind the modal and still finish the walkthrough. Closing on CTA
-      // strands users (especially on Landing, where there's no topbar "?" to
-      // reopen the tour).
-      if (isLast) finish()
-      else setCardIndex(i => i + 1)
-    } else {
-      handleContinue()
-    }
-  }, [card, setPage, isLast, finish, handleContinue])
 
   // Keyboard support — Esc closes, ArrowRight advances, ArrowLeft goes back.
   useEffect(() => {
@@ -239,75 +273,141 @@ export default function OnboardingTour({ open, onClose, setPage }) {
 
   if (!open) return null
 
-  return createPortal(
-    <div
-      className="fixed inset-0 flex items-center justify-center z-[1000]"
-      style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)' }}
-      onClick={finish}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="onboarding-title"
-    >
-      <div
-        className="card-elevated p-6 max-w-[460px] w-[90vw]"
-        onClick={e => e.stopPropagation()}
-        style={{ background: 'var(--surface-1)', opacity: 1 }}
-      >
-        <div className="caption mb-2 text-[var(--text-4)] uppercase tracking-wider">
-          Welcome · {cardIndex + 1} of {CARDS.length}
-        </div>
+  // Shared panel content (counter, hero, copy, dots, actions). Rendered either
+  // as a centered card or as a tooltip beside the spotlight hole.
+  const panel = (
+    <>
+      <div className="caption mb-2 text-[var(--text-4)] uppercase tracking-wider">
+        Welcome · {cardIndex + 1} of {CARDS.length}
+      </div>
 
-        <Illustration name={card.illustration} />
+      <Illustration name={card.illustration} />
 
-        <h3 id="onboarding-title" className="font-serif text-[1.4rem] mt-4 mb-2">
-          {card.title}
-        </h3>
+      <h3 id="onboarding-title" className="font-serif text-[1.4rem] mt-4 mb-2">
+        {card.title}
+      </h3>
 
-        <p className="body leading-relaxed mb-5">
-          {card.body}
-        </p>
+      <p className="body leading-relaxed mb-5">
+        {card.body}
+      </p>
 
-        {/* Pagination dots */}
-        <div className="flex gap-1.5 justify-center mb-5" role="tablist" aria-label="Tour progress">
-          {CARDS.map((c, i) => (
-            <button
-              key={c.id}
-              type="button"
-              role="tab"
-              aria-selected={i === cardIndex}
-              aria-label={`Card ${i + 1}: ${c.title}`}
-              onClick={() => setCardIndex(i)}
-              className="w-2 h-2 rounded-full border-none cursor-pointer"
-              style={{
-                background: i === cardIndex ? 'var(--accent)' : 'var(--text-4)',
-                opacity: i === cardIndex ? 1 : 0.4,
-                padding: 0,
-              }}
-            />
-          ))}
-        </div>
+      {/* Pagination dots */}
+      <div className="flex gap-1.5 justify-center mb-5" role="tablist" aria-label="Tour progress">
+        {CARDS.map((c, i) => (
+          <button
+            key={c.id}
+            type="button"
+            role="tab"
+            aria-selected={i === cardIndex}
+            aria-label={`Card ${i + 1}: ${c.title}`}
+            onClick={() => setCardIndex(i)}
+            className="w-2 h-2 rounded-full border-none cursor-pointer"
+            style={{
+              background: i === cardIndex ? 'var(--accent)' : 'var(--text-4)',
+              opacity: i === cardIndex ? 1 : 0.4,
+              padding: 0,
+            }}
+          />
+        ))}
+      </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 justify-between">
-          <button type="button" className="btn btn-outline btn-sm" onClick={finish}>
-            Skip
-          </button>
-          <div className="flex gap-2">
-            {cardIndex > 0 && (
-              <button type="button" className="btn btn-outline btn-sm" onClick={() => setCardIndex(i => i - 1)}>
-                Back
-              </button>
-            )}
-            {card.cta.target && (
-              <button type="button" className="btn btn-outline btn-sm" onClick={handleCta}>
-                {card.cta.label}
-              </button>
-            )}
-            <button type="button" className="btn btn-primary btn-sm" onClick={handleContinue}>
-              {isLast ? 'Done' : 'Continue'}
+      {/* Actions */}
+      <div className="flex items-center gap-2 justify-between flex-nowrap">
+        <button type="button" className="btn btn-outline btn-sm" onClick={finish}>
+          Skip
+        </button>
+        <div className="flex gap-2 flex-nowrap">
+          {cardIndex > 0 && (
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => setCardIndex(i => i - 1)}>
+              Back
             </button>
-          </div>
+          )}
+          <button type="button" className="btn btn-primary btn-sm" onClick={handleContinue}>
+            {isLast ? 'Done' : 'Continue'}
+          </button>
         </div>
+      </div>
+    </>
+  )
+
+  // ── Centered card (no anchor, or element not measurable) ───────────────
+  if (!rect) {
+    return createPortal(
+      <div
+        className="tour-overlay fixed inset-0 flex items-center justify-center z-[1000]"
+        onClick={finish}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="onboarding-title"
+      >
+        <div
+          className="card-elevated p-6 max-w-[460px] w-[90vw]"
+          onClick={e => e.stopPropagation()}
+          style={{ background: 'var(--surface-1)', opacity: 1 }}
+        >
+          {panel}
+        </div>
+      </div>,
+      document.body,
+    )
+  }
+
+  // ── Spotlight: 4 dim panels frame a transparent hole over the element ──
+  const hole = {
+    top: rect.top - HOLE_PAD,
+    left: rect.left - HOLE_PAD,
+    width: rect.width + HOLE_PAD * 2,
+    height: rect.height + HOLE_PAD * 2,
+  }
+  const holeRight = hole.left + hole.width
+  const holeBottom = hole.top + hole.height
+
+  // Place the tooltip to the right of the hole (sidebar lives on the left).
+  // If it would overflow the right edge, flip to the left of the hole. Clamp
+  // the top so the tooltip stays fully on-screen.
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const placeRight = holeRight + TIP_GAP + TIP_W <= vw
+  const tipLeft = placeRight ? holeRight + TIP_GAP : Math.max(TIP_GAP, hole.left - TIP_GAP - TIP_W)
+  const tipTop = Math.min(Math.max(TIP_GAP, hole.top), Math.max(TIP_GAP, vh - TIP_EST_H))
+
+  // pointer-events on each dim panel catch stray clicks (→ finish); the hole
+  // between them has no element, so clicks reach the live nav button.
+  const dim = 'rgba(0,0,0,0.78)'
+  const panelStyle = { position: 'fixed', background: dim, zIndex: 1000 }
+
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+      {/* Top */}
+      <div style={{ ...panelStyle, top: 0, left: 0, width: '100vw', height: Math.max(0, hole.top) }} onClick={finish} aria-hidden="true" />
+      {/* Bottom */}
+      <div style={{ ...panelStyle, top: holeBottom, left: 0, width: '100vw', bottom: 0 }} onClick={finish} aria-hidden="true" />
+      {/* Left */}
+      <div style={{ ...panelStyle, top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height }} onClick={finish} aria-hidden="true" />
+      {/* Right */}
+      <div style={{ ...panelStyle, top: hole.top, left: holeRight, right: 0, height: hole.height }} onClick={finish} aria-hidden="true" />
+
+      {/* Highlight ring around the hole — purely decorative, clicks pass through */}
+      <div
+        className="tour-ring"
+        style={{
+          position: 'fixed',
+          top: hole.top, left: hole.left, width: hole.width, height: hole.height,
+          zIndex: 1001, pointerEvents: 'none',
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Tooltip */}
+      <div
+        className="card-elevated tour-tooltip p-5"
+        style={{
+          position: 'fixed', top: tipTop, left: tipLeft, width: TIP_W, maxWidth: '90vw',
+          zIndex: 1002, background: 'var(--surface-1)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {panel}
       </div>
     </div>,
     document.body,

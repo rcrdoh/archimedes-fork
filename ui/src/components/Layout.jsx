@@ -85,6 +85,7 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
                 <button
                   key={item.id}
                   type="button"
+                  data-tour={item.id}
                   className={`nav-link${page === item.id || (item.id === 'portfolio' && page === 'vault-detail') ? ' active' : ''}`}
                   onClick={() => handleNav(item.id)}
                   aria-label={item.label}

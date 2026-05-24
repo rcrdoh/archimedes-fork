@@ -10,7 +10,7 @@ export default function Learnings({ onNavigate }) {
   }
   return (
     <div>
-      <div className="fade-up fade-up-1 max-w-[720px] mb-7">
+      <div className="max-w-[720px] mb-7">
         <h2 className="serif text-[2rem] mb-2.5">Learnings</h2>
         <p className="body mb-2.5">
           Strategies you've deployed — winners and losers, both first-class — with the

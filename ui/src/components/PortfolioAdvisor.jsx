@@ -111,7 +111,7 @@ export default function PortfolioAdvisor() {
   return (
     <div>
       {/* Header */}
-      <div className="fade-up fade-up-1" style={{ maxWidth: 640, marginBottom: 28 }}>
+      <div style={{ maxWidth: 640, marginBottom: 28 }}>
         <h2 className="serif" style={{ fontSize: '2rem', marginBottom: 10 }}>Portfolio Advisor</h2>
         <p className="body">
           Kelly Criterion + risk-parity allocation recommendations based on the active strategy
@@ -120,7 +120,7 @@ export default function PortfolioAdvisor() {
       </div>
 
       {/* Risk Profile selector */}
-      <div className="card-elevated mb-6 fade-up fade-up-2" style={{ padding: 24 }}>
+      <div className="card-elevated mb-6" style={{ padding: 24 }}>
         <div className="label mb-3">Risk Profile</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {RISK_PROFILES.map(rp => (
@@ -142,9 +142,9 @@ export default function PortfolioAdvisor() {
         </div>
       </div>
 
-      {loading && <div className="caption fade-up fade-up-3">Computing allocation…</div>}
+      {loading && <div className="caption">Computing allocation…</div>}
       {error && (
-        <div className="info-box warning fade-up fade-up-3">
+        <div className="info-box warning">
           {error.includes('No strategies') ? (
             <>No strategies with real backtest data are available yet. Run the analytics engine to generate backtest results.</>
           ) : (
@@ -156,7 +156,7 @@ export default function PortfolioAdvisor() {
       {data && !error && (
         <>
           {/* Regime banner */}
-          <div className="card-flat fade-up fade-up-3" style={{ padding: 20, marginBottom: 20 }}>
+          <div className="card-flat" style={{ padding: 20, marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 10, height: 10, borderRadius: '50%', background: rColor, display: 'inline-block' }} />
@@ -174,7 +174,7 @@ export default function PortfolioAdvisor() {
           </div>
 
           {/* Allocation breakdown */}
-          <div className="card-elevated fade-up fade-up-4" style={{ padding: 24, marginBottom: 20 }}>
+          <div className="card-elevated" style={{ padding: 24, marginBottom: 20 }}>
             <div className="label mb-4">Recommended Allocation</div>
 
             {/* USDC floor */}
@@ -205,7 +205,7 @@ export default function PortfolioAdvisor() {
 
           {/* Expected portfolio metrics */}
           {data.expected_portfolio && (
-            <div className="card-flat fade-up fade-up-5" style={{ padding: 20, marginBottom: 20 }}>
+            <div className="card-flat" style={{ padding: 20, marginBottom: 20 }}>
               <div className="label mb-3">Expected Portfolio Metrics</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
                 <div>
@@ -236,7 +236,7 @@ export default function PortfolioAdvisor() {
 
           {/* Agent thesis (LLM-generated) */}
           {data.agent?.used && data.agent?.thesis && (
-            <div className="card-flat fade-up fade-up-5" style={{ padding: 20, marginBottom: 20, borderLeft: '3px solid var(--accent)' }}>
+            <div className="card-flat" style={{ padding: 20, marginBottom: 20, borderLeft: '3px solid var(--accent)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
                 <div className="label">Agent Thesis</div>
                 <div className="caption" style={{ color: 'var(--text-4)' }}>
@@ -261,7 +261,7 @@ export default function PortfolioAdvisor() {
 
           {/* Rigor summary — make the wedge visible */}
           {data.rigor_summary && data.rigor_summary.total_picks > 0 && (
-            <div className="card-flat fade-up fade-up-5" style={{ padding: 20, marginBottom: 20 }}>
+            <div className="card-flat" style={{ padding: 20, marginBottom: 20 }}>
               <div className="label mb-3">Selection-Bias Rigor (Tier-1 Gate)</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                 <div>
@@ -300,7 +300,7 @@ export default function PortfolioAdvisor() {
 
           {/* Stress test matrix */}
           {data.stress_tests?.length > 0 && (
-            <div className="card-flat fade-up fade-up-5" style={{ padding: 20, marginBottom: 20 }}>
+            <div className="card-flat" style={{ padding: 20, marginBottom: 20 }}>
               <div className="label mb-3">Stress Tests (instantaneous P&amp;L vs scenario)</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
                 {data.stress_tests.map(s => {
@@ -335,7 +335,7 @@ export default function PortfolioAdvisor() {
 
           {/* Risk decomposition + correlation pairs */}
           {(data.risk_decomposition?.length > 0 || data.correlation_pairs?.length > 0) && (
-            <div className="card-flat fade-up fade-up-5" style={{ padding: 20, marginBottom: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <div className="card-flat" style={{ padding: 20, marginBottom: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
               {data.risk_decomposition?.length > 0 && (
                 <div>
                   <div className="label mb-3">Variance Decomposition</div>
@@ -384,7 +384,7 @@ export default function PortfolioAdvisor() {
 
           {/* Reasoning trace anchor */}
           {data.reasoning_trace?.trace_hash && (
-            <div className="card-flat fade-up fade-up-5" style={{ padding: 16, marginBottom: 20 }}>
+            <div className="card-flat" style={{ padding: 16, marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
                 <span className="label" style={{ margin: 0 }}>Reasoning Trace</span>
                 {data.reasoning_trace.anchored_on_chain ? (
@@ -393,7 +393,7 @@ export default function PortfolioAdvisor() {
                     background: 'rgba(16,185,129,0.12)', color: 'var(--positive)',
                     border: '1px solid rgba(16,185,129,0.3)',
                   }}>
-                    ✓ On-chain
+                    <span className="i-lucide-check w-3 h-3 mr-0.5" /> On-chain
                   </span>
                 ) : (
                   <span className="caption" style={{ color: 'var(--text-4)' }}>off-chain (anchored at vault deploy)</span>
@@ -416,7 +416,7 @@ export default function PortfolioAdvisor() {
 
           {/* Per-pick detail table */}
           {data.allocations?.length > 0 && (
-            <div className="fade-up fade-up-5">
+            <div>
               <div className="label mb-3">Per-Pick Breakdown</div>
               <div className="table-container">
                 <table>

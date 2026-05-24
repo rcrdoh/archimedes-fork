@@ -55,6 +55,8 @@ export default defineConfig({
     'i-lucide-scroll-text',
     'i-lucide-arrow-left-right',
     'i-lucide-zap',
+    'i-lucide-radio',
+    'i-lucide-flask-conical',
     'i-lucide-layers',
     'i-lucide-check',
     'i-lucide-check-circle',

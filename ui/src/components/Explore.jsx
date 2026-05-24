@@ -77,7 +77,7 @@ export default function Explore({ onNavigate }) {
 
   return (
     <div>
-      <div className="fade-up fade-up-1" style={{ maxWidth: 720, marginBottom: 24 }}>
+      <div style={{ maxWidth: 720, marginBottom: 24 }}>
         <h2 className="serif" style={{ fontSize: '2rem', marginBottom: 10 }}>Explore</h2>
         <p className="body" style={{ marginBottom: 8 }}>
           The universe of synthetic assets you can trade on Arc. Prices come from the on-chain
@@ -90,7 +90,7 @@ export default function Explore({ onNavigate }) {
         </p>
       </div>
 
-      <div className="strat-filter-bar fade-up fade-up-2" style={{ marginBottom: 16 }}>
+      <div className="strat-filter-bar" style={{ marginBottom: 16 }}>
         {classes.map(c => (
           <span
             key={c}

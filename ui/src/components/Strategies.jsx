@@ -663,7 +663,7 @@ export default function Strategies({ highlightStrategyId }) {
 
   return (
     <div>
-      <div className="fade-up fade-up-1 mb-[18px]">
+      <div className="mb-[18px]">
         <h2 className="serif text-[2rem] mb-2.5">Library</h2>
         <p className="body mb-1.5">
           Your strategies, plus a clearly-separated set of example strategies
@@ -671,7 +671,7 @@ export default function Strategies({ highlightStrategyId }) {
         </p>
       </div>
 
-      <div className="strat-filter-bar fade-up fade-up-2 mb-4">
+      <div className="strat-filter-bar mb-4">
         <span
           className={`tag ${activeTab === 'generated' ? 'tag-accent' : 'tag-muted'}`}
           onClick={() => setActiveTab('generated')}
@@ -748,7 +748,7 @@ export default function Strategies({ highlightStrategyId }) {
 
       {/* Page-level analytics panels — moved from Reasoning per page-roles-spec.
           CorrelationMatrix highlights the deep-linked row when present. */}
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="mt-8 flex flex-col gap-4">
         <EfficientFrontier />
         <CorrelationMatrix selectedStrategyId={highlightStrategyId || null} />
       </div>

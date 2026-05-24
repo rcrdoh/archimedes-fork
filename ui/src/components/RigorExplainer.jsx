@@ -11,7 +11,7 @@
 export default function RigorExplainer() {
   return (
     <div style={{ maxWidth: 760, margin: '0 auto', padding: '32px 24px' }}>
-      <div className="fade-up fade-up-1">
+      <div>
         <h1 style={{ fontSize: '1.6rem', marginBottom: 8, fontFamily: 'var(--serif)' }}>
           The Rigor Gate
         </h1>
@@ -23,7 +23,7 @@ export default function RigorExplainer() {
       </div>
 
       {/* Primitive 1 — DSR */}
-      <div className="card-elevated mb-6 fade-up fade-up-2">
+      <div className="card-elevated mb-6">
         <div className="flex items-center gap-3 mb-4">
           <div style={{
             width: 32, height: 32, borderRadius: '50%', background: 'rgba(99,102,241,0.15)',
@@ -80,7 +80,7 @@ export default function RigorExplainer() {
       </div>
 
       {/* Primitive 2 — PBO */}
-      <div className="card-elevated mb-6 fade-up fade-up-3">
+      <div className="card-elevated mb-6">
         <div className="flex items-center gap-3 mb-4">
           <div style={{
             width: 32, height: 32, borderRadius: '50%', background: 'rgba(99,102,241,0.15)',
@@ -136,7 +136,7 @@ export default function RigorExplainer() {
       </div>
 
       {/* Primitive 3 — OOS Sharpe */}
-      <div className="card-elevated mb-6 fade-up fade-up-4">
+      <div className="card-elevated mb-6">
         <div className="flex items-center gap-3 mb-4">
           <div style={{
             width: 32, height: 32, borderRadius: '50%', background: 'rgba(99,102,241,0.15)',
@@ -180,7 +180,7 @@ export default function RigorExplainer() {
       </div>
 
       {/* Primitive 4 — Look-ahead audit */}
-      <div className="card-elevated mb-6 fade-up fade-up-5">
+      <div className="card-elevated mb-6">
         <div className="flex items-center gap-3 mb-4">
           <div style={{
             width: 32, height: 32, borderRadius: '50%', background: 'rgba(99,102,241,0.15)',
@@ -227,7 +227,7 @@ export default function RigorExplainer() {
       </div>
 
       {/* Summary table */}
-      <div className="card-flat fade-up fade-up-5" style={{ padding: 20, marginBottom: 8 }}>
+      <div className="card-flat" style={{ padding: 20, marginBottom: 8 }}>
         <div className="label mb-3">Gate Summary — Current Library</div>
         <div className="table-container">
           <table>

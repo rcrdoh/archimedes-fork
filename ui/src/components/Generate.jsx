@@ -196,7 +196,7 @@ export default function Generate({ onNavigate }) {
 
   return (
     <div>
-      <div className="fade-up fade-up-1 max-w-[720px] mb-7">
+      <div className="max-w-[720px] mb-7">
         <h2 className="serif text-[2rem] mb-2.5">Generate a Strategy</h2>
         <p className="body mb-2">
           Describe what you want in plain English. The agent picks and weights
@@ -209,32 +209,32 @@ export default function Generate({ onNavigate }) {
       </div>
 
       {/* Mode toggle */}
-      <div className="strat-filter-bar fade-up fade-up-2 mb-4">
+      <div className="strat-filter-bar mb-4">
         <span
           className={`tag ${mode === 'agent' ? 'tag-accent' : 'tag-muted'} cursor-pointer`}
           onClick={() => setMode('agent')}
           title="Live streaming agent — each iteration appears as it runs"
         >
-          🔴 Streaming agent
+          <span className="i-lucide-radio w-3.5 h-3.5 mr-1 text-[var(--negative)]" /> Streaming agent
         </span>
         <span
           className={`tag ${mode === 'architect' ? 'tag-accent' : 'tag-muted'} cursor-pointer`}
           onClick={() => setMode('architect')}
           title="Skip the fusion engine and let the architect pick from the curated library — faster but less novel"
         >
-          ⚡ Architect (fast preview)
+          <span className="i-lucide-zap w-3.5 h-3.5 mr-1" /> Architect (fast preview)
         </span>
         <span
           className={`tag ${mode === 'fusion' ? 'tag-accent' : 'tag-muted'} cursor-pointer`}
           onClick={() => setMode('fusion')}
           title="Multi-paper synthesis through the fusion engine — novel hypotheses, rigor-gated"
         >
-          🧪 Fusion (novel)
+          <span className="i-lucide-flask-conical w-3.5 h-3.5 mr-1" /> Fusion (novel)
         </span>
       </div>
 
       {mode === 'agent' && (
-        <div className="fade-up fade-up-2">
+        <div>
           {!jobId && (
             <div className="card p-5 mb-4">
               <div className="label mb-2">What would you like?</div>
@@ -304,7 +304,7 @@ export default function Generate({ onNavigate }) {
       )}
 
       {mode === 'architect' && (
-        <div className="fade-up fade-up-2">
+        <div>
           <div className="info-box mb-4">
             <strong>Architect path</strong> — Claude selects + weights from the curated
             library synchronously. No streaming, no novel synthesis; useful when you just
@@ -321,7 +321,7 @@ export default function Generate({ onNavigate }) {
       )}
 
       {mode === 'fusion' && (
-        <div className="fade-up fade-up-2">
+        <div>
           <div className="info-box mb-4">
             <strong>Fusion path</strong> — multi-paper synthesis through the fusion engine.
             The agent picks N papers from the corpus, fuses their methodologies into a

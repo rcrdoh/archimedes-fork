@@ -264,7 +264,7 @@ export default function Landing({ onNavigate, onConnect, onDisconnect, walletAdd
             Generate a Strategy →
           </button>
         </div>
-        <p className="text-xs text-[var(--text-4)]">
+        <p className="mt-8 text-xs text-[var(--text-4)]">
           Powered by{' '}
           <strong className="text-[var(--text-2)]">Arc</strong>
           {' × '}
