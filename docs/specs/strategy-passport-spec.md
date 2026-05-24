@@ -504,7 +504,7 @@ The passport's value is fully realized in the UI. Post-Track-E shipped component
 
 ## Estimated lift
 
-Current Track E spec IDs from [`docs/specs/launch-execution-plan-2026-05-23.md`](launch-execution-plan-2026-05-23.md) §§ 4-Track E.
+Current Track E spec IDs from [`docs/archive/launch-execution-plan-2026-05-23.md`](../archive/launch-execution-plan-2026-05-23.md) §§ 4-Track E.
 
 | Component                                                   | Spec ID  | Owner    | Days |
 | ----------------------------------------------------------- | -------- | -------- | ---- |

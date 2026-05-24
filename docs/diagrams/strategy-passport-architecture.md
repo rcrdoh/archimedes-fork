@@ -419,4 +419,4 @@ The Strategy Passport answers every one of these. **It is the artifact that make
 
 ---
 
-*Last revised 2026-05-23 alongside Track E launch plan landing. Cross-references: `docs/specs/strategy-passport-spec.md` (implementation contract), `docs/specs/launch-execution-plan-2026-05-23.md` §§ 4-Track E (build specs), `docs/specs/selection-bias-corrections-spec.md` (rigor gate detail), Xia et al. 2026 arxiv 2605.19337 (academic backstop), Chen et al. 2026 arxiv 2510.02209 (StockBench bear-market finding that motivates Layer 1-3 of the bear-strategy architecture).*
+*Last revised 2026-05-23 alongside Track E launch plan landing. Cross-references: `docs/specs/strategy-passport-spec.md` (implementation contract), `docs/archive/launch-execution-plan-2026-05-23.md` §§ 4-Track E (build specs), `docs/specs/selection-bias-corrections-spec.md` (rigor gate detail), Xia et al. 2026 arxiv 2605.19337 (academic backstop), Chen et al. 2026 arxiv 2510.02209 (StockBench bear-market finding that motivates Layer 1-3 of the bear-strategy architecture).*

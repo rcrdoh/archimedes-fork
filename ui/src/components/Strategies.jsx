@@ -721,10 +721,8 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
                   appear here once they've been backtested + cleared the rigor gate.
                 </p>
                 <p className="caption" style={{ color: 'var(--text-3)' }}>
-                  Until the fusion-to-backtest pipeline ships
-                  (<code>docs/specs/fusion-to-backtest-t2o2-issue.md</code>), fusion outputs
-                  are pre-backtest hypotheses — they appear in the agent activity feed on
-                  Portfolio/Reasoning but not in this table.
+                  Generations in flight show in the agent activity feed on Portfolio and
+                  Reasoning. They land in this table once the rigor gate clears.
                 </p>
               </div>
             }
