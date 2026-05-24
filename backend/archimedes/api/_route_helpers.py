@@ -14,7 +14,7 @@ from archimedes.services.asset_service import AssetService
 from archimedes.services.vault_service import VaultService
 from archimedes.services.config_service import ConfigService
 from archimedes.services.strategy_provider import default_provider
-from archimedes.services.strategy_architect import default_architect
+from archimedes.agents.strategy_architect import default_architect
 from archimedes.chain.oracle_updater import OracleUpdater
 
 _logger = logging.getLogger(__name__)

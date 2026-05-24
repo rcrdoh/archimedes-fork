@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from archimedes.api.generate_schemas import GenerateBrief
-from archimedes.services.generation_pipeline import run_generation
+from archimedes.agents.generation_pipeline import run_generation
 
 
 @pytest.fixture(autouse=True)
@@ -90,7 +90,7 @@ def test_rigor_adapter_computes_dsr_and_oos_sharpe_on_synthetic_series():
     frontend RejectedCandidates view expect — all four fields present,
     `passing` is a bool, numeric fields are floats.
     """
-    from archimedes.services.generation_pipeline import (
+    from archimedes.agents.generation_pipeline import (
         _portfolio_return_series, _rigor_verdict_for,
     )
 
@@ -124,7 +124,7 @@ def test_rigor_adapter_computes_dsr_and_oos_sharpe_on_synthetic_series():
 
 def test_rigor_adapter_handles_empty_series():
     """Short series should produce None metrics + non-passing verdict."""
-    from archimedes.services.generation_pipeline import _rigor_verdict_for
+    from archimedes.agents.generation_pipeline import _rigor_verdict_for
 
     verdict = _rigor_verdict_for([], num_trials=1)
     assert verdict["dsr"] is None

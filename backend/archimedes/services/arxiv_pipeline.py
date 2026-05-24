@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Callable
 
 from archimedes.services.llm_backend import LLMBackend
-from archimedes.services.strategy_architect import (
+from archimedes.agents.strategy_architect import (
     default_backend,
     extract_json,
 )

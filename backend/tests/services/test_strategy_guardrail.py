@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from archimedes.services.strategy_architect import ArchitectProposal, StrategySelection
+from archimedes.agents.strategy_architect import ArchitectProposal, StrategySelection
 from archimedes.services.strategy_guardrail import (
     DEFAULT_MAX_STRATEGY_WEIGHT,
     GuardrailResult,

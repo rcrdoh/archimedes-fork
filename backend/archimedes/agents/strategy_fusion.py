@@ -44,7 +44,7 @@ from typing import Any
 
 from archimedes.models.portfolio import RISK_PROFILE_PARAMS, RiskProfile
 from archimedes.services.llm_backend import LLMBackend, make_llm_backend
-from archimedes.services.strategy_architect import extract_json
+from archimedes.agents.strategy_architect import extract_json
 
 logger = logging.getLogger(__name__)
 

@@ -25,7 +25,7 @@ import uuid
 
 from archimedes.models.trace import DecisionType, ReasoningTrace
 from archimedes.services.strategy_guardrail import GuardrailResult
-from archimedes.services.strategy_architect import ArchitectProposal
+from archimedes.agents.strategy_architect import ArchitectProposal
 
 # No vault exists yet when a user is *designing* a portfolio pre-deposit.
 # A sentinel keeps the trace well-formed and self-describing; the real vault

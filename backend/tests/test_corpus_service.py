@@ -241,7 +241,7 @@ class TestCorpusMeta:
 
 class TestLoadCorpusDBFallback:
     def test_db_takes_priority_over_file(self, session, tmp_path, monkeypatch):
-        from archimedes.services.strategy_fusion import load_corpus
+        from archimedes.agents.strategy_fusion import load_corpus
         from archimedes.services import corpus_service
 
         # Seed DB
@@ -260,7 +260,7 @@ class TestLoadCorpusDBFallback:
         assert corpus[0].title == "DB Paper"
 
     def test_file_fallback_when_db_empty(self, tmp_path, monkeypatch):
-        from archimedes.services.strategy_fusion import load_corpus
+        from archimedes.agents.strategy_fusion import load_corpus
         from archimedes.services import corpus_service
 
         # Create a file manifest

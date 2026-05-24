@@ -56,7 +56,7 @@ async def list_papers(
         ]
 
     if total == 0 and not category and not search:
-        from archimedes.services.strategy_fusion import load_corpus
+        from archimedes.agents.strategy_fusion import load_corpus
         corpus = load_corpus()
         all_papers = [
             {
@@ -114,7 +114,7 @@ async def get_paper(arxiv_id: str):
             "citing_strategies": citing_strategies,
         }
 
-    from archimedes.services.strategy_fusion import load_corpus
+    from archimedes.agents.strategy_fusion import load_corpus
     corpus = load_corpus()
     paper = next((p for p in corpus if p.arxiv_id == arxiv_id), None)
     if paper is None:
@@ -189,7 +189,7 @@ async def get_corpus_overview():
                 "year_distribution": [{"year": yr, "count": cnt} for yr, cnt in year_dist],
             }
 
-    from archimedes.services.strategy_fusion import load_corpus
+    from archimedes.agents.strategy_fusion import load_corpus
 
     corpus = load_corpus()
     category_counts: Counter = Counter()

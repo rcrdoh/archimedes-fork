@@ -22,17 +22,18 @@ import pytest
 
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2] / "archimedes" / "services"
+_AGENTS_DIR = Path(__file__).resolve().parents[2] / "archimedes" / "agents"
 _LLM_BACKEND_FILE = _BACKEND_DIR / "llm_backend.py"
 
 # Modules that previously held duplicate Protocol declarations. Even if a future
 # refactor moves them, the rule stays the same: nobody else declares LLMBackend.
 _HISTORICAL_DUPLICATES = (
-    _BACKEND_DIR / "strategy_architect.py",
-    _BACKEND_DIR / "strategy_fusion.py",
+    _AGENTS_DIR / "strategy_architect.py",
+    _AGENTS_DIR / "strategy_fusion.py",
 )
 
-# Any backend service file (full sweep — catches new files too).
-_ALL_BACKEND_FILES = sorted(_BACKEND_DIR.rglob("*.py"))
+# Any backend service file AND agents file (full sweep — catches new files too).
+_ALL_BACKEND_FILES = sorted(_BACKEND_DIR.rglob("*.py")) + sorted(_AGENTS_DIR.rglob("*.py"))
 
 
 def _grep_class_definitions(path: Path, class_names: tuple[str, ...]) -> list[str]:
@@ -124,7 +125,7 @@ def test_no_claude_backend_class_anywhere():
 
 def test_strategy_architect_imports_canonical_llm_backend():
     """``strategy_architect`` must import LLMBackend from the canonical module."""
-    text = (_BACKEND_DIR / "strategy_architect.py").read_text(encoding="utf-8")
+    text = (_AGENTS_DIR / "strategy_architect.py").read_text(encoding="utf-8")
     assert "from archimedes.services.llm_backend import" in text, (
         "strategy_architect.py must import from archimedes.services.llm_backend"
     )
@@ -133,7 +134,7 @@ def test_strategy_architect_imports_canonical_llm_backend():
 
 def test_strategy_fusion_imports_canonical_llm_backend():
     """``strategy_fusion`` must import LLMBackend from the canonical module."""
-    text = (_BACKEND_DIR / "strategy_fusion.py").read_text(encoding="utf-8")
+    text = (_AGENTS_DIR / "strategy_fusion.py").read_text(encoding="utf-8")
     assert "from archimedes.services.llm_backend import" in text, (
         "strategy_fusion.py must import from archimedes.services.llm_backend"
     )

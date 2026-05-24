@@ -519,7 +519,7 @@ class TestFusionEvaluatorIntegration:
         casualty during an earlier iteration of this fix).
         """
         import json as _json
-        from archimedes.services.strategy_fusion import FusionProposal, FusionBrief
+        from archimedes.agents.strategy_fusion import FusionProposal, FusionBrief
         from archimedes.models.portfolio import RiskProfile
         from archimedes.models.strategy_store import StrategyRecord
         from archimedes.services.strategy_dsl import FABER_2007_SPEC
@@ -602,7 +602,7 @@ class TestFusionEvaluatorIntegration:
         ``async def`` for the same reason as the with-spec test above —
         pytest-asyncio owns the loop.
         """
-        from archimedes.services.strategy_fusion import FusionProposal, FusionBrief
+        from archimedes.agents.strategy_fusion import FusionProposal, FusionBrief
         from archimedes.models.portfolio import RiskProfile
         from archimedes.models.strategy_store import StrategyRecord
         from archimedes.api.strategies_routes import _run_fusion_job

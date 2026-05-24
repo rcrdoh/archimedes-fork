@@ -141,7 +141,7 @@ async def health():
     Reports corpus state so silent degradation is visible.
     """
     from archimedes.chain.client import chain_client
-    from archimedes.services.strategy_fusion import fusion_enabled, load_corpus
+    from archimedes.agents.strategy_fusion import fusion_enabled, load_corpus
     from archimedes.services.llm_backend import make_llm_backend
     from archimedes.services.corpus_service import get_paper_count, get_corpus_meta
     import os

@@ -120,7 +120,7 @@ class TestIsExampleFlag:
 
 class TestFusionBriefMarketContext:
     def test_brief_carries_market_context(self):
-        from archimedes.services.strategy_fusion import FusionBrief
+        from archimedes.agents.strategy_fusion import FusionBrief
         from archimedes.models.portfolio import RiskProfile
 
         ctx = {
@@ -136,13 +136,13 @@ class TestFusionBriefMarketContext:
         assert brief.market_context == ctx
 
     def test_brief_default_empty_context(self):
-        from archimedes.services.strategy_fusion import FusionBrief
+        from archimedes.agents.strategy_fusion import FusionBrief
 
         brief = FusionBrief()
         assert brief.market_context == {}
 
     def test_market_context_in_user_prompt(self):
-        from archimedes.services.strategy_fusion import (
+        from archimedes.agents.strategy_fusion import (
             FusionBrief,
             CorpusPaper,
             _build_user_prompt,
@@ -164,7 +164,7 @@ class TestFusionBriefMarketContext:
         assert parsed["market_context"]["regime"] == "risk_off"
 
     def test_no_market_context_omitted_from_prompt(self):
-        from archimedes.services.strategy_fusion import (
+        from archimedes.agents.strategy_fusion import (
             FusionBrief,
             CorpusPaper,
             _build_user_prompt,
@@ -301,7 +301,7 @@ class TestJobStore:
 
 class TestCorpusOverview:
     def test_overview_from_corpus(self):
-        from archimedes.services.strategy_fusion import CorpusPaper
+        from archimedes.agents.strategy_fusion import CorpusPaper
 
         papers = [
             CorpusPaper("2401.001", "Paper A", "Abstract", "q-fin.PM", ("q-fin.PM",), "2024-01-15"),

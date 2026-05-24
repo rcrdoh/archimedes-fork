@@ -49,7 +49,7 @@ def _llm_available() -> bool:
     if os.getenv("GENERATION_PIPELINE_FIXTURE", "").lower() in ("1", "true"):
         return False
     try:
-        from archimedes.services.portfolio_agent import get_portfolio_agent
+        from archimedes.agents.portfolio_agent import get_portfolio_agent
         return get_portfolio_agent().available
     except Exception:
         return False
@@ -345,7 +345,7 @@ async def _run_live_candidate(
     a sync emit shim that schedules the async ``Emitter.emit`` back onto the
     main event loop — this keeps the agent unchanged while still streaming.
     """
-    from archimedes.services.portfolio_agent import get_portfolio_agent
+    from archimedes.agents.portfolio_agent import get_portfolio_agent
     from archimedes.services.strategy_provider import default_provider
     from archimedes.services.strategy_signal_evaluator import (
         DEFAULT_SCAN_UNIVERSE, _fetch_price_histories, strategy_evaluator,

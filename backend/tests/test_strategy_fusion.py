@@ -22,7 +22,7 @@ import json
 import pytest
 
 from archimedes.models.portfolio import RiskProfile
-from archimedes.services.strategy_fusion import (
+from archimedes.agents.strategy_fusion import (
     MIN_PAPERS,
     FusionCannedBackend,
     FusionBrief,

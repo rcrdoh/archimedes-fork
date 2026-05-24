@@ -31,7 +31,7 @@ from archimedes.api.generate_schemas import (
     JobsListResponse,
     JobSummary,
 )
-from archimedes.services.generation_pipeline import run_generation
+from archimedes.agents.generation_pipeline import run_generation
 from archimedes.services.job_queue import EVENT_LOG_TTL, get_job_store
 
 logger = logging.getLogger(__name__)

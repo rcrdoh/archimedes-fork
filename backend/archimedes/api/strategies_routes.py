@@ -329,7 +329,7 @@ async def get_portfolio_advisor(
         GLOBAL_ASSETS,
         _fetch_price_histories,
     )
-    from archimedes.services.portfolio_agent import get_portfolio_agent
+    from archimedes.agents.portfolio_agent import get_portfolio_agent
 
     try:
         price_histories = await asyncio.wait_for(
@@ -1046,7 +1046,7 @@ async def generate_strategy(
     from fastapi import HTTPException
     from archimedes.models.portfolio import RiskProfile
     from archimedes.services.job_queue import JobStore
-    from archimedes.services.strategy_fusion import fusion_enabled, load_corpus
+    from archimedes.agents.strategy_fusion import fusion_enabled, load_corpus
 
     if mode == "fast":
         try:
@@ -1153,7 +1153,7 @@ async def _run_fusion_job(job_id: str) -> None:
     """Background worker: runs fusion and updates job status."""
     from archimedes.models.portfolio import RiskProfile
     from archimedes.services.job_queue import JobStore
-    from archimedes.services.strategy_fusion import StrategyFusion, FusionBrief, default_fusion
+    from archimedes.agents.strategy_fusion import StrategyFusion, FusionBrief, default_fusion
     from archimedes.models.strategy_store import upsert_strategy
     from archimedes.db import get_session
 
