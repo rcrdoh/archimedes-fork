@@ -81,13 +81,21 @@ jobs:
           ruff format --check . > /tmp/ruff_fmt.txt 2>&1 || true
           python3 - <<'EOF'
           import json, os, re
+          # 1) Lint-error count from JSON output (real ruff check . errors).
           try:
               errors = len(json.load(open("/tmp/ruff.json")))
           except Exception:
               errors = 0
+          # 2) Format-error count: WOULD-BE-REFORMATTED files only.
+          #    Earlier version used /(\d+) file/ which matched BOTH "X files
+          #    would be reformatted" AND "X files already formatted". When all
+          #    files are formatted, ruff outputs only the latter line and the
+          #    old regex counted clean files as errors (false 196 on PR #204).
           try:
-              m = re.search(r"(\d+) file", open("/tmp/ruff_fmt.txt").read())
-              errors += int(m.group(1)) if m else 0
+              fmt_text = open("/tmp/ruff_fmt.txt").read()
+              m = re.search(r"(\d+) files? would be reformatted", fmt_text)
+              if m:
+                  errors += int(m.group(1))
           except Exception:
               pass
           out = open(os.environ["GITHUB_OUTPUT"], "a")
