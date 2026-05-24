@@ -36,10 +36,9 @@ jobs:
 
   ruff-gate:
     # Blocking gate for formatting + the critical lint rule families that
-    # catch real bugs (syntax errors, undefined modules). Reads root ruff.toml.
-    # The broader `ruff check` set is still informational in lint-report.
-    # Add more rules to --select as the codebase converges (next add: F82
-    # after the agent_runner consulted_hashes bug is fixed in the PR-4 cluster).
+    # catch real bugs (syntax errors, undefined names/modules). Reads root
+    # ruff.toml. The broader `ruff check` set is still informational in
+    # lint-report. Add more rules to --select as the codebase converges.
     name: Ruff — format + critical lint rules
     runs-on: ubuntu-latest
     steps:
@@ -51,7 +50,7 @@ jobs:
       - name: ruff format --check
         run: ruff format --check .
       - name: ruff check (critical rules only)
-        run: ruff check --select E9,F63,F7,F40 .
+        run: ruff check --select E9,F63,F7,F40,F82 .
 
   lint-report:
     name: Lint — report table

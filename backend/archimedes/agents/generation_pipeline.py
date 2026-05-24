@@ -93,7 +93,7 @@ def _pick_pipeline(
     try:
         from archimedes.services.strategy_provider import default_provider
 
-        lib = default_provider.list_strategies()
+        lib = default_provider().list_strategies()
         if len(lib) >= 3:
             return "architect", (f"curated library has {len(lib)} strategies; fast preview available")
     except Exception:
@@ -424,7 +424,7 @@ async def _run_live_candidate(*, candidate_id: str, brief: GenerateBrief, emit: 
         timeout=30.0,
     )
     market_ranking = strategy_evaluator.rank_market(price_histories, lookback_days=90, top_n=20)
-    strategies = default_provider.list_strategies()
+    strategies = default_provider().list_strategies()
 
     agent = get_portfolio_agent()
     portfolio = await asyncio.wait_for(
@@ -558,7 +558,7 @@ async def run_generation(
         try:
             from archimedes.services.strategy_provider import default_provider
 
-            lib = default_provider.list_strategies()
+            lib = default_provider().list_strategies()
             arxiv_ids = [s.paper_arxiv_id for s in lib if getattr(s, "paper_arxiv_id", None)]
         except Exception:
             arxiv_ids = []

@@ -138,6 +138,29 @@ def test_rigor_adapter_handles_empty_series():
     assert verdict["passing"] is False
 
 
+def test_pick_pipeline_architect_branch_calls_provider_factory(monkeypatch):
+    # `default_provider` is a factory function. The architect-check branch
+    # of _pick_pipeline previously called `default_provider.list_strategies()`
+    # without the `()`, raising AttributeError that the broad `except
+    # Exception` swallowed silently — collapsing the pipeline to "agent" on
+    # every call. This test forces the architect path (fusion disabled) and
+    # asserts it actually selects "architect" — which can only happen if
+    # `.list_strategies()` succeeds.
+    from archimedes.agents import generation_pipeline as gp
+    from archimedes.api.generate_schemas import GenerateBrief
+
+    # Force fusion off so we exit the fusion branch and hit architect.
+    monkeypatch.setattr(
+        "archimedes.agents.strategy_fusion.fusion_enabled",
+        lambda: False,
+    )
+
+    brief = GenerateBrief(intent="trend-following", risk_appetite="moderate")
+    pipeline, reason = gp._pick_pipeline(brief)
+    assert pipeline == "architect", f"expected architect, got {pipeline!r} (reason={reason!r})"
+    assert "strategies" in reason
+
+
 @pytest.mark.asyncio
 async def test_pipeline_emits_cancellation_event_when_task_cancelled():
     """CancelledError path emits a CANCELLED error event + flips status."""
