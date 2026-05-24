@@ -158,8 +158,13 @@ a strategy** (no wallet required).
 
 **Surfaces:** the natural-language brief input + optional structured inputs (asset
 class, risk, horizon) + the 3-input fusion preview ("what fusion will see") + the
-result card (strategy spec, citations, rigor verdict, deploy CTA). See Prompt 3 in
-[`claude-design-prompts.md`](claude-design-prompts.md) for the screen design.
+result card (strategy spec, citations, rigor verdict, deploy CTA) + the
+**Portfolio Advisor preview banner** (rendered after a candidate completes — shows
+Kelly + risk-parity allocation, DSR/PBO/walk-forward OOS rigor counters, six-scenario
+stress matrix, variance decomposition, correlation pairs, and the keccak reasoning-trace
+hash for the proposed portfolio — all *before* the user commits any funds). See
+Prompt 3 in [`claude-design-prompts.md`](claude-design-prompts.md) for the screen
+design.
 
 ### `/portfolio` My Portfolio (consolidates current Trade + Vaults + personalized Risk view)
 

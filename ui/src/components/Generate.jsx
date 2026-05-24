@@ -3,6 +3,7 @@ import { StrategyArchitect } from './Strategies'
 import GenerationStream from './GenerationStream'
 import GenerationStatus from './GenerationStatus'
 import FusionResult from './FusionResult'
+import PortfolioAdvisor from './PortfolioAdvisor'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -288,12 +289,28 @@ export default function Generate({ onNavigate }) {
             </div>
           )}
           {!libLoading && !libError && <StrategyArchitect strategies={strategies} />}
+          {/* Preview-before-deploy: same advisor on the architect path so
+              users get the rigor-gate + Kelly sizing + stress + correlation
+              view before any commit. Issue #210. */}
+          {!libLoading && !libError && (
+            <div className="mt-6">
+              <PortfolioAdvisor initialRiskProfile={riskAppetite} />
+            </div>
+          )}
         </div>
       )}
 
       {pipelineFromEvent === 'fusion' && fusionResult && (
         <>
           <FusionResult result={fusionResult} onNavigate={onNavigate} />
+          {/* Preview-before-deploy: show the user what the Portfolio
+              Construction Agent would allocate for the same brief BEFORE
+              they commit funds. Same risk profile they just selected;
+              they can flip profiles in the advisor's own selector if
+              they want to compare. Issue #210. */}
+          <div className="mt-6">
+            <PortfolioAdvisor initialRiskProfile={riskAppetite} />
+          </div>
           <div className="mt-4">
             <button className="btn btn-outline btn-sm" onClick={resetFusion}>
               Fuse another →

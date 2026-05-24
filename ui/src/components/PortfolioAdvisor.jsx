@@ -79,8 +79,13 @@ function AllocationBar({ label, weight, isUsdc, kelly, rigorPassed, isCandidate 
   )
 }
 
-export default function PortfolioAdvisor() {
-  const [selectedProfile, setSelectedProfile] = useState('moderate')
+export default function PortfolioAdvisor({ initialRiskProfile = 'moderate' } = {}) {
+  // initialRiskProfile lets a parent page (e.g. /generate's preview banner)
+  // pre-select the profile from the brief the user already typed, so the
+  // preview reflects "what would the agent allocate me for the brief I
+  // submitted" without forcing the user to re-pick. The user can still
+  // switch profiles in the existing selector below.
+  const [selectedProfile, setSelectedProfile] = useState(initialRiskProfile)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
