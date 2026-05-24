@@ -29,6 +29,9 @@ export default function StressScenarioPanel({ allocations, usdcWeight, portfolio
 
   const hasAllocations = allocations && allocations.length > 0
   const usdc = usdcWeight != null ? usdcWeight : 0
+  // Stringified for stable dep comparison — arrays from the parent are a
+  // new identity on every render even when the contents are unchanged.
+  const allocationsKey = JSON.stringify(allocations)
 
   useEffect(() => {
     if (!hasAllocations) return undefined
@@ -57,7 +60,9 @@ export default function StressScenarioPanel({ allocations, usdcWeight, portfolio
     }
     run()
     return () => { cancelled = true }
-  }, [JSON.stringify(allocations), usdc, hasAllocations])
+    // allocations intentionally excluded — covered by `allocationsKey` (stable identity).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allocationsKey, usdc, hasAllocations])
 
   return (
     <div className="card p-5">

@@ -64,14 +64,18 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
         const data = await r.json()
         setAllVaults(data.vaults || [])
       }
-    } catch {}
+    } catch {
+      // Network blip — leave prior allVaults intact; next 30s poll retries.
+    }
   }, [])
 
   const loadAgentAndRegime = useCallback(async () => {
     try {
       const r = await fetch(`${API_BASE}/api/agent/status`)
       if (r.ok) setAgentStatus(await r.json())
-    } catch {}
+    } catch {
+      // Network blip — leave prior agentStatus intact; next poll retries.
+    }
     // Regime is loaded + rendered by <RegimePanel /> above, not duplicated here.
   }, [])
 
@@ -83,7 +87,9 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
         const data = await r.json()
         setRecentTraces(data.traces || [])
       }
-    } catch {}
+    } catch {
+      // Network blip — leave prior recentTraces intact; next poll retries.
+    }
     setTracesLoading(false)
   }, [])
 
