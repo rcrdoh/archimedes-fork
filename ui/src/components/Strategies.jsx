@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import CustomSelect from './CustomSelect'
 import EfficientFrontier from './EfficientFrontier'
-import CorrelationMatrix from './CorrelationMatrix'
 import RigorExplainer from './RigorExplainer'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
@@ -759,11 +758,9 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
         </div>
       )}
 
-      {/* Page-level analytics panels — moved from Reasoning per page-roles-spec.
-          CorrelationMatrix highlights the deep-linked row when present. */}
+      {/* Page-level analytics panels — moved from Reasoning per page-roles-spec. */}
       <div className="mt-8 flex flex-col gap-4">
         <EfficientFrontier />
-        <CorrelationMatrix selectedStrategyId={highlightStrategyId || null} />
       </div>
 
       {/* Rigor Explainer modal (portal-rendered, page-level) */}
