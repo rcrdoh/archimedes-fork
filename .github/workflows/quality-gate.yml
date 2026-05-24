@@ -50,41 +50,68 @@ jobs:
           cache-dependency-path: ui/package-lock.json
       - run: cd ui && npm ci --quiet
 
-      - name: ruff check
+      - name: ruff
         id: ruff
         run: |
-          if ruff check backend/archimedes && ruff format --check backend/archimedes; then
+          set +e
+          check_out=$(ruff check backend/archimedes 2>&1)
+          check_exit=$?
+          fmt_out=$(ruff format --check backend/archimedes 2>&1)
+          fmt_exit=$?
+
+          errors=$(echo "$check_out" | grep -oP 'Found \K\d+(?= error)' || true)
+          [ -z "$errors" ] && errors=0
+          fmt_issues=$(echo "$fmt_out" | grep -oP '\d+(?= file)' || true)
+          [ -z "$fmt_issues" ] && fmt_issues=0
+          total=$((errors + fmt_issues))
+
+          if [ $check_exit -eq 0 ] && [ $fmt_exit -eq 0 ]; then
             echo "result=passed" >> "$GITHUB_OUTPUT"
           else
             echo "result=not passed" >> "$GITHUB_OUTPUT"
           fi
+          echo "errors=$total" >> "$GITHUB_OUTPUT"
 
       - name: eslint
         id: eslint
         run: |
-          if cd ui && npm run lint --silent; then
+          set +e
+          output=$(cd ui && npm run lint 2>&1)
+          lint_exit=$?
+
+          errors=$(echo "$output" | grep -oP '\d+(?= error)' | tail -1 || true)
+          warnings=$(echo "$output" | grep -oP '\d+(?= warning)' | tail -1 || true)
+          [ -z "$errors" ] && errors=0
+          [ -z "$warnings" ] && warnings=0
+
+          if [ $lint_exit -eq 0 ]; then
             echo "result=passed" >> "$GITHUB_OUTPUT"
           else
             echo "result=not passed" >> "$GITHUB_OUTPUT"
           fi
+          echo "errors=$errors" >> "$GITHUB_OUTPUT"
+          echo "warnings=$warnings" >> "$GITHUB_OUTPUT"
 
       - name: Post or update PR comment
         uses: actions/github-script@v7
         with:
           script: |
             const fmt = r => r === 'passed' ? '✅ passed' : '❌ not passed';
-            const ruff   = fmt('${{ steps.ruff.outputs.result }}');
-            const eslint = fmt('${{ steps.eslint.outputs.result }}');
+            const ruff        = fmt('${{ steps.ruff.outputs.result }}');
+            const ruffErrors  = '${{ steps.ruff.outputs.errors }}' || '0';
+            const eslint      = fmt('${{ steps.eslint.outputs.result }}');
+            const eslintErr   = '${{ steps.eslint.outputs.errors }}' || '0';
+            const eslintWarn  = '${{ steps.eslint.outputs.warnings }}' || '0';
 
             const marker = '<!-- quality-gate-v1 -->';
             const body = [
               marker,
               '## Quality Gate',
               '',
-              '| Check | Status |',
-              '|---|---|',
-              `| ruff linter (python) | ${ruff} |`,
-              `| eslint (frontend) | ${eslint} |`,
+              '| Check | Status | Errors | Warnings |',
+              '|---|---|---|---|',
+              `| ruff linter (python) | ${ruff} | ${ruffErrors} | — |`,
+              `| eslint (frontend) | ${eslint} | ${eslintErr} | ${eslintWarn} |`,
             ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
