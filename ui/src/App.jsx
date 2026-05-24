@@ -7,6 +7,7 @@ import Generate from './components/Generate'
 import Portfolio from './components/Portfolio'
 import Learnings from './components/Learnings'
 import Strategies from './components/Strategies'   // serves /library route ("Example Library")
+import StrategyPassport from './components/StrategyPassport'
 import CorpusExplorer from './components/CorpusExplorer'
 import Reasoning from './components/Reasoning'
 import VaultDetail from './components/VaultDetail'
@@ -38,28 +39,34 @@ function resolveRoute(pathname = '/', search = '') {
   const highlight = params.get('highlight')
 
   if (PATH_TO_PAGE[pathname]) {
-    return { page: PATH_TO_PAGE[pathname], vaultAddress: null, traceId: null, highlight, matched: true }
+    return { page: PATH_TO_PAGE[pathname], vaultAddress: null, traceId: null, strategyId: null, highlight, matched: true }
   }
 
   if (pathname.startsWith('/portfolio/vaults/')) {
     const rawAddress = pathname.replace('/portfolio/vaults/', '')
-    if (rawAddress) return { page: 'vault-detail', vaultAddress: rawAddress, traceId: null, highlight, matched: true }
+    if (rawAddress) return { page: 'vault-detail', vaultAddress: rawAddress, traceId: null, strategyId: null, highlight, matched: true }
   }
 
   if (pathname.startsWith('/reasoning/')) {
     const id = pathname.replace('/reasoning/', '')
-    if (id) return { page: 'reasoning', vaultAddress: null, traceId: id, highlight, matched: true }
+    if (id) return { page: 'reasoning', vaultAddress: null, traceId: id, strategyId: null, highlight, matched: true }
+  }
+
+  if (pathname.startsWith('/strategy/')) {
+    const id = pathname.replace('/strategy/', '')
+    if (id) return { page: 'strategy', vaultAddress: null, traceId: null, strategyId: id, highlight, matched: true }
   }
 
   // Legacy paths still in the wild — funnel them to the spine.
   const vaultAddress = params.get('vault')
-  if (vaultAddress) return { page: 'vault-detail', vaultAddress, traceId: null, highlight, matched: true }
+  if (vaultAddress) return { page: 'vault-detail', vaultAddress, traceId: null, strategyId: null, highlight, matched: true }
 
-  return { page: 'landing', vaultAddress: null, traceId: null, highlight: null, matched: false }
+  return { page: 'landing', vaultAddress: null, traceId: null, strategyId: null, highlight: null, matched: false }
 }
 
-function pageToPath(page, selectedVault = null, highlight = null) {
+function pageToPath(page, selectedVault = null, highlight = null, strategyId = null) {
   if (page === 'vault-detail' && selectedVault) return `/portfolio/vaults/${selectedVault}`
+  if (page === 'strategy' && strategyId) return `/strategy/${encodeURIComponent(strategyId)}`
   const base = PAGE_TO_PATH[page] ?? '/'
   if (highlight && page === 'library') return `${base}?highlight=${encodeURIComponent(highlight)}`
   return base
@@ -73,6 +80,7 @@ export default function App() {
   const [page, setPage] = useState(initialRoute.page)
   const [walletAddr, setWalletAddr] = useState(null)
   const [selectedVault, setSelectedVault] = useState(initialRoute.vaultAddress)
+  const [selectedStrategy, setSelectedStrategy] = useState(initialRoute.strategyId)
   const [tourOpen, setTourOpen] = useState(() => !hasCompletedOnboarding())
   const [highlightStrategyId, setHighlightStrategyId] = useState(initialRoute.highlight)
 
@@ -96,10 +104,13 @@ export default function App() {
 
   const navigateToPage = useCallback((nextPage, opts = {}) => {
     const nextVault = opts.vaultAddress ?? selectedVault
+    const nextStrategy = Object.prototype.hasOwnProperty.call(opts, 'strategyId')
+      ? opts.strategyId
+      : (nextPage === 'strategy' ? selectedStrategy : null)
     const nextHighlight = Object.prototype.hasOwnProperty.call(opts, 'highlight')
       ? opts.highlight
       : (nextPage === 'library' ? highlightStrategyId : null)
-    const nextPath = pageToPath(nextPage, nextVault, nextHighlight)
+    const nextPath = pageToPath(nextPage, nextVault, nextHighlight, nextStrategy)
     const method = opts.replace ? 'replaceState' : 'pushState'
 
     if (window.location.pathname + window.location.search !== nextPath) {
@@ -112,8 +123,13 @@ export default function App() {
     } else if (nextPage !== 'vault-detail') {
       setSelectedVault(null)
     }
+    if (Object.prototype.hasOwnProperty.call(opts, 'strategyId')) {
+      setSelectedStrategy(opts.strategyId)
+    } else if (nextPage !== 'strategy') {
+      setSelectedStrategy(null)
+    }
     setHighlightStrategyId(nextPage === 'library' ? nextHighlight : null)
-  }, [selectedVault, highlightStrategyId])
+  }, [selectedVault, selectedStrategy, highlightStrategyId])
 
   const selectVault = (addr) => navigateToPage('vault-detail', { vaultAddress: addr })
   const backToPortfolio = () => navigateToPage('portfolio', { vaultAddress: null })
@@ -127,6 +143,7 @@ export default function App() {
       const route = resolveRoute(window.location.pathname, window.location.search)
       setPage(route.page)
       setSelectedVault(route.vaultAddress)
+      setSelectedStrategy(route.strategyId)
       setHighlightStrategyId(route.highlight)
     }
     window.addEventListener('popstate', onPopState)
@@ -137,7 +154,8 @@ export default function App() {
     switch (page) {
       case 'explore':      return <Explore onNavigate={navigateToPage} />
       case 'generate':     return <Generate onNavigate={navigateToPage} />
-      case 'library':      return <Strategies highlightStrategyId={highlightStrategyId} />
+      case 'library':      return <Strategies highlightStrategyId={highlightStrategyId} onNavigate={navigateToPage} />
+      case 'strategy':     return <StrategyPassport strategyId={selectedStrategy} onNavigate={navigateToPage} walletAddr={walletAddr} />
       case 'corpus':       return <CorpusExplorer />
       case 'portfolio':    return <Portfolio walletAddr={walletAddr} onSelectVault={selectVault} onSelectTrace={selectTrace} />
       case 'reasoning':    return <Reasoning onNavigate={navigateToPage} />

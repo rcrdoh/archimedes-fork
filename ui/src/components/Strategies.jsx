@@ -382,7 +382,7 @@ export function StrategyArchitect({ strategies }) {
 // + rigor metrics). One row per strategy; no visual hierarchy by status (the
 // STATUS column does that job).
 
-function StrategyRow({ s, isHighlighted, onOpenRigorExplainer }) {
+function StrategyRow({ s, isHighlighted, onOpenRigorExplainer, onOpenPassport }) {
   const [open, setOpen] = useState(isHighlighted)
   const rowRef = useRef(null)
   const years = periodInYears(s.backtest_start, s.backtest_end)
@@ -520,6 +520,15 @@ function StrategyRow({ s, isHighlighted, onOpenRigorExplainer }) {
               </div>
             </div>
             <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {onOpenPassport && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={(e) => { e.stopPropagation(); onOpenPassport(s.id) }}
+                  title="Open the full strategy passport"
+                >
+                  Open Passport →
+                </button>
+              )}
               <button
                 className="btn btn-outline btn-sm"
                 onClick={(e) => { e.stopPropagation(); downloadStrategy(s, 'json') }}
@@ -542,7 +551,7 @@ function StrategyRow({ s, isHighlighted, onOpenRigorExplainer }) {
   )
 }
 
-function StrategyTable({ strategies, emptyState, highlightStrategyId, onOpenRigorExplainer }) {
+function StrategyTable({ strategies, emptyState, highlightStrategyId, onOpenRigorExplainer, onOpenPassport }) {
   if (!strategies.length) return emptyState
   return (
     <div className="overflow-x-auto rounded-lg border border-[var(--glass-border)]">
@@ -566,6 +575,7 @@ function StrategyTable({ strategies, emptyState, highlightStrategyId, onOpenRigo
               s={s}
               isHighlighted={highlightStrategyId && s.id === highlightStrategyId}
               onOpenRigorExplainer={onOpenRigorExplainer}
+              onOpenPassport={onOpenPassport}
             />
           ))}
         </tbody>
@@ -612,7 +622,7 @@ function coerceGenerated(row) {
   }
 }
 
-export default function Strategies({ highlightStrategyId }) {
+export default function Strategies({ highlightStrategyId, onNavigate }) {
   const [examples, setExamples] = useState([])
   const [generated, setGenerated] = useState([])
   const [loading, setLoading] = useState(true)
@@ -624,6 +634,12 @@ export default function Strategies({ highlightStrategyId }) {
   // affordance. Single modal instance per page keeps state simple.
   const [rigorModalOpen, setRigorModalOpen] = useState(false)
   const openRigorExplainer = useCallback(() => setRigorModalOpen(true), [])
+
+  // Deep-link to the strategy passport route — added in Phase 4.
+  const openPassport = useCallback(
+    (strategyId) => { if (onNavigate) onNavigate('strategy', { strategyId }) },
+    [onNavigate]
+  )
 
   // If we arrived via ?highlight=<id> and the strategy is only in Examples,
   // auto-switch to the Examples tab so the scrollIntoView lands a real row.
@@ -698,6 +714,7 @@ export default function Strategies({ highlightStrategyId }) {
             strategies={generated}
             highlightStrategyId={highlightStrategyId}
             onOpenRigorExplainer={openRigorExplainer}
+            onOpenPassport={openPassport}
             emptyState={
               <div className="card" style={{ padding: 22 }}>
                 <div className="label mb-2">No generated strategies yet</div>
@@ -733,6 +750,7 @@ export default function Strategies({ highlightStrategyId }) {
               strategies={examples}
               highlightStrategyId={highlightStrategyId}
               onOpenRigorExplainer={openRigorExplainer}
+              onOpenPassport={openPassport}
               emptyState={<p className="caption">No example strategies loaded.</p>}
             />
           )}

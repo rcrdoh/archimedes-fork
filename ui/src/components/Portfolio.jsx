@@ -5,6 +5,7 @@ import {
 } from '../config'
 import PortfolioAdvisor from './PortfolioAdvisor'
 import RegimePanel from './RegimePanel'
+import StressScenarioPanel from './StressScenarioPanel'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -184,6 +185,12 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
           <span className="label" style={{ margin: 0 }}>Allocation Advisor</span>
         </button>
         {advisorOpen && <PortfolioAdvisor />}
+      </div>
+
+      {/* Stress scenarios — six historical shocks per stress_engine.py.
+          Closes Day-10 survey gap #13. */}
+      <div className="mb-7">
+        <StressScenarioPanel />
       </div>
 
       {/* Agent activity feed — real traces from /api/traces */}
