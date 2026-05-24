@@ -115,6 +115,12 @@ class Strategy:
     paper_claimed_cagr: float | None = None
     paper_claimed_max_dd: float | None = None
 
+    # ── Regime suitability ──────────────────────────────────
+    # Tag indicating which market regime this strategy is suited for.
+    # "bull" = trending/up, "bear" = defensive/vol-managed,
+    # "regime_neutral" = regime-agnostic.
+    regime_tag: str = "regime_neutral"
+
     # ── Placeholder backtest stubs (pre-analytics-engine-run) ──
     # Sourced from BACKTEST_* constants in strategy files.
     # Replaced by real BacktestResult when IBacktestEvaluator runs.

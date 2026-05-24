@@ -17,6 +17,7 @@ from archimedes.models.backtest_store import BacktestResultRecord  # noqa: F401
 from archimedes.models.strategy_store import StrategyRecord  # noqa: F401
 from archimedes.models.corpus_store import PaperRecord, CorpusMetaRecord  # noqa: F401
 from archimedes.models.user_profile import UserProfile  # noqa: F401
+from archimedes.models.strategy_proposal import StrategyProposal  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

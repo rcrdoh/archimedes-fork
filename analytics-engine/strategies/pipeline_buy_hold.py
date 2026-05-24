@@ -16,6 +16,9 @@ PAPER_CLAIMED_SHARPE = None
 PAPER_CLAIMED_CAGR = None
 PAPER_CLAIMED_MAX_DD = None
 
+# Regime suitability: buy-and-hold baseline (long-only, bull-biased).
+REGIME_TAG: str = "bull"
+
 STATUS = "live"
 
 # Backtest results — REAL (run via scripts/regen_buy_hold_fixture.py, 2004-01-02 → 2026-04-30)

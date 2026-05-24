@@ -20,6 +20,9 @@ PAPER_YEAR = 2017
 PAPER_DOI = "10.1111/jofi.12513"
 PAPER_CITATION_COUNT = 1100  # Snapshot 2026-05; verify via Semantic Scholar.
 
+# Regime suitability: vol-managed strategies outperform in bear/high-vol regimes.
+REGIME_TAG: str = "bear"
+
 METHODOLOGY_SUMMARY = (
     "Stay long the asset; scale exposure inversely to a rolling estimate "
     "of realized volatility so the portfolio targets a fixed annualized "

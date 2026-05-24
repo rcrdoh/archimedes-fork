@@ -69,6 +69,7 @@ _METADATA_KEYS: tuple[str, ...] = (
     "EXTRACTION_LLM",
     # Lifecycle status
     "STATUS",
+    "REGIME_TAG",
 )
 
 
@@ -230,6 +231,16 @@ def _to_strategy(path: Path, metadata: dict[str, Any], code_hash: str, fixture: 
     kelly_fraction = fx.get("kelly_fraction")
     n_obs_daily = fx.get("n_obs_daily")
 
+    # Validate regime_tag — required per issue #162 anti-goals.
+    regime_tag_raw = str(metadata.get("REGIME_TAG") or "").strip().lower()
+    _VALID_REGIME_TAGS = {"bull", "bear", "regime_neutral"}
+    if not regime_tag_raw or regime_tag_raw not in _VALID_REGIME_TAGS:
+        raise ValueError(
+            f"Invalid or missing REGIME_TAG={regime_tag_raw!r} in {path}. "
+            f"Must be one of {_VALID_REGIME_TAGS}."
+        )
+    regime_tag = regime_tag_raw
+
     # Compute Lo (2002) Sharpe 95% CI when real Sharpe and n_obs are available
     sharpe_ci_lower = sharpe_ci_upper = None
     if real_sharpe is not None and n_obs_daily is not None:
@@ -300,6 +311,7 @@ def _to_strategy(path: Path, metadata: dict[str, Any], code_hash: str, fixture: 
         sharpe_ci_lower=round(sharpe_ci_lower, 4) if sharpe_ci_lower is not None else None,
         sharpe_ci_upper=round(sharpe_ci_upper, 4) if sharpe_ci_upper is not None else None,
         n_obs_daily=int(n_obs_daily) if n_obs_daily is not None else None,
+        regime_tag=regime_tag,
     )
 
 

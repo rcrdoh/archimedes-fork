@@ -24,6 +24,9 @@ PAPER_YEAR = 2012
 PAPER_DOI = "10.1016/j.jfineco.2011.11.003"
 PAPER_CITATION_COUNT = 3200  # Snapshot 2026-05; verify via Semantic Scholar.
 
+# Regime suitability: momentum strategies biased to bull markets.
+REGIME_TAG: str = "bull"
+
 METHODOLOGY_SUMMARY = (
     "Trend-following: for each asset, compute the trailing 12-month total "
     "return; hold a long position when positive, flat when negative; "

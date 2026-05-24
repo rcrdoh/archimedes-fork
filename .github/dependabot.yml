@@ -1,0 +1,70 @@
+# Dependabot configuration — weekly dependency bumps.
+# Docs: https://docs.github.com/en/code-security/dependabot/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+
+updates:
+  # Frontend — npm (React + Vite + viem)
+  - package-ecosystem: npm
+    directory: /ui
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - frontend
+    commit-message:
+      prefix: "[deps][frontend]"
+
+  # Backend — pip (FastAPI + Python deps)
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - backend
+    commit-message:
+      prefix: "[deps][backend]"
+
+  # Analytics engine — pip
+  - package-ecosystem: pip
+    directory: /analytics-engine
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - analytics
+    commit-message:
+      prefix: "[deps][analytics]"
+
+  # Docker images
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - infra
+    commit-message:
+      prefix: "[deps][docker]"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "[deps][ci]"

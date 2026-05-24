@@ -24,6 +24,9 @@ PAPER_YEAR = 2026
 PAPER_DOI = None
 PAPER_CITATION_COUNT = None
 
+# Regime suitability: defensive baseline, works in any regime.
+REGIME_TAG: str = "regime_neutral"
+
 METHODOLOGY_SUMMARY = (
     "Hold short-duration US Treasuries (BIL proxy / USYC on-chain) as the "
     "core position. Minimal drawdown; yield close to the risk-free rate. "

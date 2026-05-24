@@ -202,6 +202,9 @@ class StrategyResponse(BaseModel):
     # Equity curve for charting
     equity_curve: list[PricePoint] = []
 
+    # Regime suitability
+    regime_tag: str = "regime_neutral"  # "bull" | "bear" | "regime_neutral"
+
 
 class StrategyListResponse(BaseModel):
     strategies: list[StrategyResponse]

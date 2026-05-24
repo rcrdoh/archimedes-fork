@@ -624,6 +624,27 @@ async def run_generation(
             redirect_url=f"/library?highlight={strategy_id}",
         )
 
+        # ── Persist all candidates to episodic memory (T-PE.8) ──
+        try:
+            from archimedes.services.strategy_memory import persist_proposal
+            for cand in candidates:
+                persist_proposal(
+                    generation_id=job_id,
+                    agent="agent",
+                    intent=brief.intent,
+                    strategy_spec={
+                        "strategy_name": cand.strategy_name,
+                        "thesis": cand.thesis,
+                        "weights": cand.weights,
+                        "asset_universe": cand.asset_universe,
+                    },
+                    papers=[p.get("arxiv_id", "") for p in cand.source_papers],
+                    rigor_verdict=cand.rigor_verdict,
+                    extra={"candidate_id": cand.candidate_id, "selected": cand is best},
+                )
+        except Exception:
+            pass  # Non-blocking per spec
+
         # Stash the full candidate list on the job for /candidates retrieval.
         await store.update_status(
             job_id,

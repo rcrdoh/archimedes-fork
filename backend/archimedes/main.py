@@ -41,6 +41,7 @@ from archimedes.api.marketplace_routes import marketplace_router
 from archimedes.api.risk_routes import risk_router
 from archimedes.api.selection_bias_routes import selection_bias_router
 from archimedes.api.user_routes import user_router
+from archimedes.api.proposals_routes import proposals_router
 from archimedes.db import init_db
 
 app = FastAPI(
@@ -174,6 +175,7 @@ app.include_router(risk_router)
 app.include_router(selection_bias_router)
 app.include_router(papers_router)
 app.include_router(user_router)
+app.include_router(proposals_router)
 
 
 @app.get("/health")

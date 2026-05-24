@@ -24,6 +24,9 @@ PAPER_YEAR = 2004
 PAPER_DOI = "10.1111/j.1540-6261.2004.00695.x"
 PAPER_CITATION_COUNT = 1650  # Snapshot 2026-05; verify via Semantic Scholar.
 
+# Regime suitability: 52-week-high momentum biased to bull markets.
+REGIME_TAG: str = "bull"
+
 METHODOLOGY_SUMMARY = (
     "Hold a long position when the current price is within 10% of the "
     "trailing 52-week high; otherwise hold cash. The signal captures the "

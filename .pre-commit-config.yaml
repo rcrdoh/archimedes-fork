@@ -1,0 +1,36 @@
+# Pre-commit hooks — run before every commit to catch issues early.
+# Install:  pip install pre-commit && pre-commit install
+# Run all:  pre-commit run --all-files
+# Docs:     https://pre-commit.com
+
+repos:
+  # Secret detection — catches leaked API keys, tokens, certs before they hit history.
+  # Baseline generated with: detect-secrets scan > .secrets.baseline
+  # Update baseline after intentional changes: detect-secrets scan --update .secrets.baseline
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package-lock\.json$
+
+  # Python linting + formatting (mirrors ruff — same tool CI uses)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.10
+    hooks:
+      - id: ruff
+        args: ['--check']
+      - id: ruff-format
+        args: ['--check']
+
+  # Trailing whitespace + YAML/JSON hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--unsafe']
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key

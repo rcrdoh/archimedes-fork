@@ -18,6 +18,9 @@ PAPER_YEAR = 2007
 PAPER_DOI = "10.3905/jwm.2007.674809"
 PAPER_CITATION_COUNT = 850  # Snapshot 2026-05; verify via Semantic Scholar.
 
+# Regime suitability: works in trending markets (bull).
+REGIME_TAG: str = "bull"
+
 METHODOLOGY_SUMMARY = (
     "Hold a long position in the asset when its monthly close is above the "
     "10-month simple moving average; otherwise hold cash. A simple binary "

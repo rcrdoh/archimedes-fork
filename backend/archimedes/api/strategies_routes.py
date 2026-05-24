@@ -82,6 +82,7 @@ def _to_strategy_response(s: Strategy) -> StrategyResponse:
             s.real_backtest_end if has_real and s.real_backtest_end
             else (bt.backtest_end.isoformat() if bt and bt.backtest_end else None)
         ),
+        regime_tag=s.regime_tag,
     )
 
 
@@ -1341,6 +1342,29 @@ async def _run_fusion_job(job_id: str) -> None:
                 job_result["eval_error"] = eval_result.error
 
         await store.update_status(job_id, "done", result=job_result)
+
+        # ── Persist fusion proposal to episodic memory (T-PE.8) ──
+        try:
+            from archimedes.services.strategy_memory import persist_proposal
+            persist_proposal(
+                generation_id=job_id,
+                agent="fusion",
+                intent=brief.strategic_direction or brief.asset_classes_text(),
+                strategy_spec={
+                    "strategy_name": result.strategy_name,
+                    "thesis": result.thesis,
+                    "source_arxiv_ids": result.source_arxiv_ids,
+                },
+                papers=result.source_arxiv_ids,
+                rigor_verdict=rigor_verdict_dict,
+                extra={
+                    "model": result.model,
+                    "fusion_reasoning": result.fusion_reasoning,
+                    "novelty_rationale": result.novelty_rationale,
+                },
+            )
+        except Exception:
+            pass  # Non-blocking per spec
     except Exception as exc:
         try:
             await store.update_status(job_id, "failed", error=str(exc))
@@ -1372,6 +1396,29 @@ async def construct_strategy(req: StrategyConstructionRequest):
     trace = build_construction_trace(proposal, guardrail)
 
     await persist_trace_off_chain(trace)
+
+    # Persist architect proposal to episodic memory (T-PE.8)
+    try:
+        from archimedes.services.strategy_memory import persist_proposal
+        import uuid as _uuid
+        persist_proposal(
+            generation_id=_uuid.uuid4().hex[:16],
+            agent="architect",
+            intent=req.intent,
+            strategy_spec={
+                "strategy_ids": [s.strategy_id for s in proposal.selected],
+                "weights": guardrail.strategy_weights,
+                "overall_reasoning": proposal.overall_reasoning,
+            },
+            papers=[s.paper_citation for s in proposal.selected if s.paper_citation],
+            extra={
+                "model_id": proposal.model_id,
+                "risk_notes": proposal.risk_notes,
+                "regime": proposal.regime,
+            },
+        )
+    except Exception:
+        pass  # Non-blocking per spec
 
     by_id = {s.strategy_id: s for s in proposal.selected}
     selected = []
