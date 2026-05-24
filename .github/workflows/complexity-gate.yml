@@ -13,9 +13,9 @@
 #   CC 16+    🔴 critical  → blocks merge
 #   Nesting ≥ 3 ⚠️         (flagged, no block)
 #
-# Container image is built and pushed to GHCR on every push to main (deploy.yml).
-# The analysis script is pure Python — no git subprocess — so distroless works.
-# Baseline comparison is handled by checking out main into a separate directory.
+# lizard is installed via pip (cached). The GHCR image built by deploy.yml
+# exists for local/manual use but is not pulled here — avoids the bootstrap
+# problem where the image doesn't exist until after the first merge to main.
 
 name: Complexity Gate
 
@@ -31,30 +31,31 @@ on:
 
 permissions:
   pull-requests: write
-  packages: read
 
 jobs:
   complexity:
     name: Complexity analysis
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/${{ github.repository_owner }}/archimedes-complexity-gate:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      # PR HEAD — checked out into the default workspace
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Main baseline — checked out into a sibling directory so the script
-      # can compare files without needing git inside the container
+      # Main baseline — separate directory so the script can diff without git
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.base_ref }}
           path: .baseline
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/docker/complexity-gate/Dockerfile
+
+      - name: Install lizard
+        run: pip install --quiet lizard
 
       - name: Get changed files
         id: changed
