@@ -299,7 +299,6 @@ export default function RigorExplainer() {
       </div>
 
       <div className="caption" style={{ color: 'var(--text-4)', fontSize: '0.72rem', lineHeight: 1.6 }}>
-        Spec: docs/specs/selection-bias-corrections-spec.md ·
         Bailey & López de Prado (2014) "The Deflated Sharpe Ratio" ·
         Bailey, Borwein, López de Prado & Zhu (2014) "The Probability of Backtest Overfitting"
       </div>

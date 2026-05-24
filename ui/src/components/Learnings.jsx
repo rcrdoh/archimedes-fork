@@ -59,8 +59,7 @@ export default function Learnings({ onNavigate }) {
           On time-bound strategies: each Generate result captures the live regime + signals
           as its frame of reference. Deploy windows enforce that a strategy keyed to
           Tuesday's market context can't be executed on Friday — if you miss the window,
-          regenerate. Server-side enforcement of expiry is on the roadmap
-          (<code>docs/specs/strategy-expiry-spec.md</code>, to be drafted).
+          regenerate. Server-side enforcement of expiry is on the roadmap.
         </p>
         <p className="caption mt-2 text-[var(--text-4)]">
           Roadmap layout: two columns — currently-profitable strategies on the left,

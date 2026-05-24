@@ -233,7 +233,7 @@ flowchart TB
   SM_D -.feeds.-> LE_CB
 ```
 
-The custody + authority boundary — agents have rebalance authority only; users sign all 4 binding deployment transactions — is what makes Archimedes non-custodial in the strong sense. See [`docs/specs/launch-execution-plan-2026-05-23.md` § 3.3.1](specs/launch-execution-plan-2026-05-23.md#331-who-does-what--agent--user-interaction-model) for the sequence-diagram detail.
+The custody + authority boundary — agents have rebalance authority only; users sign all 4 binding deployment transactions — is what makes Archimedes non-custodial in the strong sense. See [`docs/archive/launch-execution-plan-2026-05-23.md` § 3.3.1](archive/launch-execution-plan-2026-05-23.md#331-who-does-what--agent--user-interaction-model) for the sequence-diagram detail.
 
 ## The three layers, named explicitly
 

@@ -20,7 +20,7 @@ Usage:
   python -m archimedes.scripts.verify_arc_e2e --dry-run
   python -m archimedes.scripts.verify_arc_e2e --execute --wallet <private_key>
 
-Based on docs/specs/phase5-execution-runbook.md.
+Based on docs/archive/phase5-execution-runbook.md.
 Pattern follows scripts/bootstrap_vaults.py.
 """
 

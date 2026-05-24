@@ -56,17 +56,17 @@ Durable implementation contracts. Spec-only items are tracked under their respec
 |---|---|---|
 | [`specs/spine-plus-v2-plan.md`](specs/spine-plus-v2-plan.md) | active — Phases 0–3 shipped + Phase 6 (onboarding tour) merged; Phase 7 all shipped via t2o2; Phases 4 & 5 in-flight | The master plan for the spine-plus-v2 effort. |
 
-## Specs — t2o2 issue specs (all six closed; spec files retained as the spec source-of-truth)
+## Specs — t2o2 issue specs (all closed and archived)
 
-All six issues below shipped on `main` between 2026-05-23 01:48 UTC and 2026-05-24. The spec files are kept as documentation of the intent + acceptance shape that the bot executed against.
+The five spec files below shipped on `main` between 2026-05-23 and 2026-05-24 and were moved to [`archive/`](archive/) as historical artifacts. They are kept for traceability of intent + acceptance shape that the bot executed against, but are not load-bearing for current architecture.
 
 | Spec file | Status | Issue |
 |---|---|---|
-| [`specs/fusion-to-backtest-t2o2-issue.md`](specs/fusion-to-backtest-t2o2-issue.md) | ✓ closed — foundation `bd6935b` + wiring `2f7f871` | [#128](https://github.com/a-apin/archimedes-arcadia/issues/128) |
-| [`specs/phase7-rigor-consolidation-t2o2-issue.md`](specs/phase7-rigor-consolidation-t2o2-issue.md) | ✓ closed — shipped `e030ee4` | [#129](https://github.com/a-apin/archimedes-arcadia/issues/129) |
-| [`specs/phase7-llm-backend-unification-t2o2-issue.md`](specs/phase7-llm-backend-unification-t2o2-issue.md) | ✓ closed — shipped `dc91b43` | [#130](https://github.com/a-apin/archimedes-arcadia/issues/130) |
-| [`specs/phase7-portfolio-constructor-retirement-t2o2-issue.md`](specs/phase7-portfolio-constructor-retirement-t2o2-issue.md) | ✓ closed — shipped `a4a09fb` | [#131](https://github.com/a-apin/archimedes-arcadia/issues/131) |
-| [`specs/phase7-routes-py-split-t2o2-issue.md`](specs/phase7-routes-py-split-t2o2-issue.md) | ✓ closed — shipped `be9260b` | [#132](https://github.com/a-apin/archimedes-arcadia/issues/132) |
+| [`archive/fusion-to-backtest-t2o2-issue.md`](archive/fusion-to-backtest-t2o2-issue.md) | ✓ closed — foundation `bd6935b` + wiring `2f7f871` | [#128](https://github.com/a-apin/archimedes-arcadia/issues/128) |
+| [`archive/phase7-rigor-consolidation-t2o2-issue.md`](archive/phase7-rigor-consolidation-t2o2-issue.md) | ✓ closed — shipped `e030ee4` | [#129](https://github.com/a-apin/archimedes-arcadia/issues/129) |
+| [`archive/phase7-llm-backend-unification-t2o2-issue.md`](archive/phase7-llm-backend-unification-t2o2-issue.md) | ✓ closed — shipped `dc91b43` | [#130](https://github.com/a-apin/archimedes-arcadia/issues/130) |
+| [`archive/phase7-portfolio-constructor-retirement-t2o2-issue.md`](archive/phase7-portfolio-constructor-retirement-t2o2-issue.md) | ✓ closed — shipped `a4a09fb` | [#131](https://github.com/a-apin/archimedes-arcadia/issues/131) |
+| [`archive/phase7-routes-py-split-t2o2-issue.md`](archive/phase7-routes-py-split-t2o2-issue.md) | ✓ closed — shipped `be9260b` | [#132](https://github.com/a-apin/archimedes-arcadia/issues/132) |
 | (no file — drafted inline as fast-follow to #128) | ✓ closed — shipped `2f7f871` | [#133](https://github.com/a-apin/archimedes-arcadia/issues/133) |
 
 ## Strategy + launch + marketing
@@ -109,6 +109,18 @@ Docs that were authoritative at an earlier phase and have since been superseded.
 | [`archive/rfb-alignment.md`](archive/rfb-alignment.md) | [`arc-alignment.md`](arc-alignment.md) + [`demo-script-pitch-deck-outline.md`](demo-script-pitch-deck-outline.md) |
 | [`archive/qfin-paper-corpus-seed.md`](archive/qfin-paper-corpus-seed.md) | [`corpus-architecture.md`](corpus-architecture.md) |
 | [`archive/agora_project_analysis.md`](archive/agora_project_analysis.md) | [`architectural-principles.md`](architectural-principles.md) + [`specs/selection-bias-corrections-spec.md`](specs/selection-bias-corrections-spec.md) |
+
+### Operational artifacts (archived 2026-05-24)
+
+Same-day execution plans, phase-specific runbooks, and the launch-night operational runbook. Useful for traceability of how the build was sequenced; not load-bearing for product or architecture.
+
+| Archived doc | What it was |
+|---|---|
+| [`archive/morning-execution-plan-2026-05-24.md`](archive/morning-execution-plan-2026-05-24.md) | Sunday-morning workstream sequencing artifact |
+| [`archive/afternoon-execution-plan-2026-05-24.md`](archive/afternoon-execution-plan-2026-05-24.md) | Sunday-afternoon merge-train + subagent research artifact |
+| [`archive/launch-execution-plan-2026-05-23.md`](archive/launch-execution-plan-2026-05-23.md) | Day-12 launch sequencing plan (210KB) |
+| [`archive/launch-night-operational-runbook.md`](archive/launch-night-operational-runbook.md) | Launch-night ops + rollback procedure |
+| [`archive/phase5-execution-runbook.md`](archive/phase5-execution-runbook.md) | Phase-5 execution runbook |
 
 ## Research ([`research/`](research/))
 
