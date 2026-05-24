@@ -1,11 +1,12 @@
 # Progress
 
 ## Status
-In Progress — Issue #179 (Rate limiting) complete. Deployed to main.
+In Progress — Issue #175 (E2E testnet smoke test) complete. Deployed to main.
 
 ## Tasks
 
 ### Completed (this session)
+- **#175** — E2E testnet smoke test script: `verify_arc_e2e.py` with --dry-run (prerequisites check, exit 0) and --execute (full 11-step lifecycle). Evidence captured to `docs/runbooks/arc-testnet-e2e-evidence.md` with arcscan links.
 - **#179** — Rate limiting via slowapi: generate/start 5/min, profile POST 1/min, public GETs 60/min. Redis-backed, falls back to in-memory. Health + verify exempt. X-RateLimit headers. 402 tests green.
 - **#181** — User-data minimization: encrypt email at rest (Fernet), scrub from logs, owner-only API echo. 12 new privacy tests + updated 12 route tests. 402 total tests green.
 
@@ -43,4 +44,4 @@ In Progress — Issue #179 (Rate limiting) complete. Deployed to main.
 - Rate limiter: properly disabled in test mode via TESTING env var
 
 ## Open items
-- Issues still assigned to t2o2: #180 (dependabot), #176 (SSM secrets), #175 (E2E smoke), #165–#153 (Track C/E intelligence)
+- Issues still assigned to t2o2: #180 (dependabot), #176 (SSM secrets), #165–#153 (Track C/E intelligence)
