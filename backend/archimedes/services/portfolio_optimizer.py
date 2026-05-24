@@ -50,6 +50,32 @@ RISK_AVERSION: dict[str, float] = {
     "hyper_risky": 1.5,
 }
 
+# ─── Regime-conditional risk aversion multiplier ─────────────────
+# Effective γ = profile_γ × regime_multiplier.  In stressed regimes the
+# investor's effective risk aversion should rise (the optimizer pulls
+# toward minimum-variance), independent of their declared profile.  This
+# is the standard adaptive-Markowitz adjustment from Ang & Bekaert 2002,
+# "International Asset Allocation With Regime Shifts" (Review of
+# Financial Studies) — they show that regime-conditioned weights
+# strictly dominate static weights across reasonable γ specifications.
+#
+# Calibration intent (deliberately coarse):
+#  - risk_on:    1.0  — the declared profile is appropriate
+#  - transition: 1.0  — uncertain regime; do not overreact
+#  - risk_off:   2.0  — double effective γ ≈ halve effective Kelly
+#  - crisis:     4.0  — quadruple effective γ ≈ minvar-leaning
+#
+# These multipliers are conservative for a hackathon-stage system and
+# are intentionally below typical research-paper values (which sometimes
+# go 6–10× in tail regimes) to avoid producing wildly different
+# allocations every time the regime detector flips.
+REGIME_GAMMA_MULTIPLIER: dict[str, float] = {
+    "risk_on": 1.0,
+    "transition": 1.0,
+    "risk_off": 2.0,
+    "crisis": 4.0,
+}
+
 
 @dataclass
 class KellyOptimizationResult:
@@ -421,6 +447,7 @@ def kelly_optimize_from_prices(
     max_weight: float = 0.20,
     mu_override: dict[str, float] | None = None,
     mu_shrinkage: float = 0.5,
+    regime: str | None = None,
 ) -> KellyOptimizationResult | None:
     """Solve the constrained Kelly mean-variance problem.
 
@@ -428,9 +455,13 @@ def kelly_optimize_from_prices(
         subject to 0 ≤ wᵢ ≤ max_weight
                    Σ wᵢ ≤ synth_budget
 
-    γ is mapped from ``risk_profile`` via RISK_AVERSION.  ``mu_override``
-    lets the caller substitute Kelly-derived or backtest-stat expected
-    returns for the sample mean (which is noisy on short windows).
+    γ is mapped from ``risk_profile`` via RISK_AVERSION and, when a live
+    ``regime`` is provided, multiplied by ``REGIME_GAMMA_MULTIPLIER[regime]``
+    so the optimizer becomes more conservative in stressed regimes
+    (Ang & Bekaert 2002, *International Asset Allocation With Regime
+    Shifts*).  ``mu_override`` lets the caller substitute Kelly-derived
+    or backtest-stat expected returns for the sample mean (which is
+    noisy on short windows).
 
     Kelly is defined on *excess* returns — using total returns inflates
     every allocation by rf/σ² per asset (≈1.25 units of leverage at
@@ -465,7 +496,13 @@ def kelly_optimize_from_prices(
     mu = mu_total - rf_annual
     sigma_annual = np.sqrt(np.diag(cov_annual))
 
-    gamma = RISK_AVERSION.get(risk_profile, 3.0)
+    # Profile γ × regime multiplier (defaults to 1.0 if regime is None
+    # or unrecognized — preserves prior behavior for callers that don't
+    # pass a regime). The multiplier path is the only thing T-PE.7
+    # changes; the underlying Kelly objective is identical.
+    base_gamma = RISK_AVERSION.get(risk_profile, 3.0)
+    regime_mult = REGIME_GAMMA_MULTIPLIER.get(regime, 1.0) if regime else 1.0
+    gamma = base_gamma * regime_mult
     n = len(kept)
 
     def neg_obj(w: np.ndarray) -> float:

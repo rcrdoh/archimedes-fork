@@ -736,6 +736,8 @@ async def get_portfolio_advisor(
                 synth_budget,
                 0.20,
                 mu_override,
+                0.5,                # mu_shrinkage (existing default)
+                regime_value,       # regime — T-PE.7 regime-aware γ scaling
             )
         except Exception:
             opt = None
@@ -944,6 +946,8 @@ async def get_portfolio_advisor(
                 synth_budget,
                 0.20,
                 mu_override_rb,
+                0.5,                # mu_shrinkage (existing default)
+                regime_value,       # regime — T-PE.7 regime-aware γ scaling
             )
         except Exception:
             opt_rb = None
