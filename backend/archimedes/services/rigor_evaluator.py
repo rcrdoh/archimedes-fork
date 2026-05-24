@@ -168,7 +168,7 @@ def compute_pbo(
         Returns 0.0 for every strategy if N < 2 or data is insufficient.
     """
     if len(returns_matrix) < 2:
-        return {sid: 0.0 for sid in returns_matrix}
+        return dict.fromkeys(returns_matrix, 0.0)
 
     sorted_ids = sorted(returns_matrix.keys())
     N = len(sorted_ids)
@@ -181,7 +181,7 @@ def compute_pbo(
     S = s_partitions if (s_partitions % 2 == 0 and s_partitions >= 2) else 16
     rows_per_block = T // S
     if rows_per_block < 1:
-        return {sid: 0.0 for sid in sorted_ids}
+        return dict.fromkeys(sorted_ids, 0.0)
 
     blocks = [R[i * rows_per_block : (i + 1) * rows_per_block, :] for i in range(S)]
     half = S // 2
@@ -208,10 +208,10 @@ def compute_pbo(
         lambdas.append(lam)
 
     if not lambdas:
-        return {sid: 0.0 for sid in sorted_ids}
+        return dict.fromkeys(sorted_ids, 0.0)
 
     pbo = round(sum(1 for lam in lambdas if lam <= 0.0) / len(lambdas), 6)
-    return {sid: pbo for sid in sorted_ids}
+    return dict.fromkeys(sorted_ids, pbo)
 
 
 # ─── 3. Walk-forward OOS Sharpe ──────────────────────────────────────

@@ -521,15 +521,14 @@ def _faber_sma200_signal(
             weight=1.0,
             reason=f"Price {current_price:.2f} > SMA200 {current_sma:.2f} → long",
         )
-    else:
-        return AssetSignal(
-            strategy_id=strategy_id,
-            strategy_name="Faber SMA200",
-            asset=asset,
-            signal=Signal.FLAT,
-            weight=0.0,
-            reason=f"Price {current_price:.2f} ≤ SMA200 {current_sma:.2f} → flat",
-        )
+    return AssetSignal(
+        strategy_id=strategy_id,
+        strategy_name="Faber SMA200",
+        asset=asset,
+        signal=Signal.FLAT,
+        weight=0.0,
+        reason=f"Price {current_price:.2f} ≤ SMA200 {current_sma:.2f} → flat",
+    )
 
 
 def _vol_managed_signal(
@@ -628,15 +627,14 @@ def _tsmom_signal(
             weight=1.0,
             reason=f"12m return {trailing_return:+.1%} ({past_price:.2f} → {current_price:.2f}) → long",
         )
-    else:
-        return AssetSignal(
-            strategy_id=strategy_id,
-            strategy_name="TSMOM",
-            asset=asset,
-            signal=Signal.FLAT,
-            weight=0.0,
-            reason=f"12m return {trailing_return:+.1%} ({past_price:.2f} → {current_price:.2f}) → flat",
-        )
+    return AssetSignal(
+        strategy_id=strategy_id,
+        strategy_name="TSMOM",
+        asset=asset,
+        signal=Signal.FLAT,
+        weight=0.0,
+        reason=f"12m return {trailing_return:+.1%} ({past_price:.2f} → {current_price:.2f}) → flat",
+    )
 
 
 def _52w_high_signal(
@@ -673,15 +671,14 @@ def _52w_high_signal(
             weight=proximity,
             reason=f"Price {current:.2f} is {proximity:.0%} of 52w high {high_52w:.2f} → long",
         )
-    else:
-        return AssetSignal(
-            strategy_id=strategy_id,
-            strategy_name="52W High",
-            asset=asset,
-            signal=Signal.FLAT,
-            weight=0.0,
-            reason=f"Price {current:.2f} is only {proximity:.0%} of 52w high {high_52w:.2f} → flat",
-        )
+    return AssetSignal(
+        strategy_id=strategy_id,
+        strategy_name="52W High",
+        asset=asset,
+        signal=Signal.FLAT,
+        weight=0.0,
+        reason=f"Price {current:.2f} is only {proximity:.0%} of 52w high {high_52w:.2f} → flat",
+    )
 
 
 def _buy_hold_signal(

@@ -169,27 +169,21 @@ class TestReasoningTraceRegistry:
 
     def test_publish_increments_trace_count(self):
         """Each publishTrace() call increments traceCount()."""
-        pass
 
     def test_publish_emits_event(self):
         """publishTrace emits TracePublished(traceId, agent, vault, hash, timestamp)."""
-        pass
 
     def test_get_trace_by_id(self):
         """getTraceById(1) returns the correct agent, vault, hash, timestamp."""
-        pass
 
     def test_get_traces_by_vault(self):
         """getTracesByVault(vaultAddr) returns all trace IDs for that vault."""
-        pass
 
     def test_verify_trace_returns_true_for_matching_hash(self):
         """verifyTrace(id, data) returns true when SHA-256(data) matches stored hash."""
-        pass
 
     def test_verify_trace_returns_false_for_wrong_data(self):
         """verifyTrace(id, wrongData) returns false."""
-        pass
 
 
 # ─────────────────────────────────────────────────────────────

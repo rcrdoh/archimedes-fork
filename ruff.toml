@@ -35,6 +35,11 @@ extend-select = [
     "B",     # flake8-bugbear (likely bugs)
     "SIM",   # flake8-simplify (cleaner code)
     "RUF",   # ruff-specific rules
+    "ARG",   # flake8-unused-arguments (Tier 1 expansion 2026-05-24)
+    "C4",    # flake8-comprehensions
+    "PIE",   # flake8-pie (small correctness rules)
+    "RET",   # flake8-return (cleaner return idioms)
+    "SLF",   # flake8-self (private-member access)
 ]
 
 ignore = [
@@ -65,3 +70,10 @@ ignore = [
 "backend/archimedes/scripts/*.py" = ["E402"]
 "analytics-engine/scripts/*.py" = ["E402"]
 "backend/archimedes/api/selection_bias_routes.py" = ["E402"]
+# Tests legitimately have unused fixture args and routinely access private members;
+# scripts often have unused argparse helpers. Tier-1 expansion 2026-05-24.
+"backend/tests/**" = ["ARG", "SLF"]
+"analytics-engine/tests/**" = ["ARG", "SLF"]
+"tests/**" = ["ARG", "SLF"]
+"backend/archimedes/scripts/**" = ["ARG"]
+"backend/archimedes/evaluation/stockbench/__main__.py" = ["ARG"]
