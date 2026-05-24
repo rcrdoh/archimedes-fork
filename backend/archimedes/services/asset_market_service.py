@@ -99,6 +99,14 @@ def _realized_vol_annual(prices: list[float], window: int = 30) -> float | None:
 # ── Service ───────────────────────────────────────────────────────────────
 
 
+class AssetMarketService:
+    """Composes per-synth market stats from on-chain oracle + histories. 30s TTL cache."""
+
+    def __init__(self) -> None:
+        self._cache: ExploreAssetsResponse | None = None
+        self._cache_ts: float = 0.0
+        self._cache_history: dict[str, ExploreHistoryResponse] = {}
+
     # ── On-chain oracle reads ────────────────────────────────────────────
 
     async def _read_oracle_prices(

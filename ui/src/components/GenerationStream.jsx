@@ -34,6 +34,8 @@ function summarizeEvent(name, data) {
         : ''
     case 'brief_validated':
       return `Risk: ${data?.risk_appetite || '—'}`
+    case 'pipeline_selected':
+      return `${data?.pipeline || '?'} — ${data?.reason || ''}`
     case 'candidates_selected':
       return `Considering ${data?.candidate_count || '?'} candidates; ${(data?.source_arxiv_ids?.length || 0)} papers`
     case 'agent_iteration':

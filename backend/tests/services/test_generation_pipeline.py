@@ -43,7 +43,7 @@ async def test_fixture_pipeline_emits_full_event_sequence():
     brief = GenerateBrief(intent="13-week treasury alternative", risk_appetite="conservative")
 
     with patch(
-        "archimedes.services.generation_pipeline._persist_candidate",
+        "archimedes.agents.generation_pipeline._persist_candidate",
         new=AsyncMock(return_value=("strat_fixture_001", "0xdeadbeef")),
     ):
         await run_generation(job_id="job_fixture_001", brief=brief, n_candidates=1, store=store)
@@ -52,7 +52,9 @@ async def test_fixture_pipeline_emits_full_event_sequence():
     # Spec ordering — terminal `done` must be last
     assert names[0] == "job_queued"
     assert names[1] == "brief_validated"
-    assert names[2] == "candidates_selected"
+    assert names[2] == "pipeline_selected"
+    assert names[3] == "candidates_selected"
+    assert "pipeline_selected" in names
     assert "agent_iteration" in names
     assert "tool_called" in names
     assert "candidate_drafted" in names
@@ -69,7 +71,7 @@ async def test_pipeline_terminates_with_done_status():
     brief = GenerateBrief(intent="balanced macro", risk_appetite="moderate")
 
     with patch(
-        "archimedes.services.generation_pipeline._persist_candidate",
+        "archimedes.agents.generation_pipeline._persist_candidate",
         new=AsyncMock(return_value=("strat_test_002", "0xabc")),
     ):
         await run_generation(job_id="job_002", brief=brief, n_candidates=1, store=store)
@@ -197,7 +199,7 @@ async def test_pipeline_multi_candidate_picks_best():
     brief = GenerateBrief(intent="aggressive crypto", risk_appetite="aggressive")
 
     with patch(
-        "archimedes.services.generation_pipeline._persist_candidate",
+        "archimedes.agents.generation_pipeline._persist_candidate",
         new=AsyncMock(return_value=("strat_multi_001", "0xfeed")),
     ):
         await run_generation(job_id="job_multi", brief=brief, n_candidates=3, store=store)
