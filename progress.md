@@ -8,7 +8,16 @@ In Progress
 - [x] #152 Corpus Graph + KG endpoints read from S3-backed KB artifacts
 - [x] #153 CorpusGraph + CorpusKG frontend components
 - [x] #158 Wire paper-qa as defense-in-depth ranker behind strategy_fusion.select_candidates()
-- [x] #157 StockBench evaluation harness: adapter + CLI + results
+- [x] #157 StockBench evaluation harness: adapter + CLI + results + 35 tests
+
+### Issue #157 — StockBench Evaluation Harness
+- `backend/archimedes/evaluation/__init__.py` (NEW) — evaluation framework package
+- `backend/archimedes/evaluation/stockbench/__init__.py` (NEW) — StockBench subpackage
+- `backend/archimedes/evaluation/stockbench/adapter.py` (NEW — 600+ lines) — ArchimedesStockBenchAdapter wrapping StrategyFusion + PortfolioAgent into StockBench's 4-step workflow; includes PortfolioState, DailyDecision, BenchmarkResult, MultiSeedReport, price generation, composite z-score computation, JSON + Markdown persistence
+- `backend/archimedes/evaluation/stockbench/__main__.py` (NEW) — CLI entry point with --dry-run / --execute / --seeds flags
+- `backend/tests/services/test_stockbench_adapter.py` (NEW — 35 tests) — full coverage: constants, protocol imports, PortfolioState metrics, DailyDecision validation, price generation, adapter integration, multi-seed aggregation, composite z-score, persistence, CLI dry-run
+- `docs/benchmarks/stockbench-results.json` (NEW) — machine-readable results with 3-seed metrics vs. 14 published baselines
+- `docs/benchmarks/stockbench-results.md` (NEW) — human-readable leaderboard and methodology notes
 
 ## Files Changed
 
