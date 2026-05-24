@@ -1,275 +1,138 @@
 #!/usr/bin/env python3
 """
-Complexity gate: analyze changed files against a pre-fetched baseline directory.
-
-The workflow checks out both the PR HEAD and the base branch as separate
-directories, so this script never needs to call git — making it compatible
-with a distroless container.
-
-Metrics per function:
-  CC        — cyclomatic complexity (lizard, cross-language)
-  Nesting   — max nested loops/conditionals (lizard)
-  Δ CC      — delta vs. same function in baseline
-  Recursive — direct self-call (Python AST only)
-
-Usage:
-  python complexity_analysis.py \
-    --changed-files a.py b.ts \
-    --baseline-dir /workspace/.baseline \
-    --output-json /tmp/result.json \
-    > /tmp/comment.md
-
-Exit codes:
-  0 — all functions within bounds
-  1 — one or more functions critically complex (CC >= 16)
+Complexity gate: post per-function metric cards as a PR comment.
+Each function gets a 2-column table (metric | branch value) + delta vs main.
+Never blocks merge — informational only.
 """
 import argparse
 import ast
-import json
-import os
+import re
+import subprocess
 import sys
-import tempfile
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import lizard
 
-CC_SIMPLE = 5
-CC_MODERATE = 10
-CC_COMPLEX = 15
-NESTING_WARN = 3
-
-
-@dataclass
-class FuncInfo:
-    name: str
-    file: str
-    line: int
-    cc: int
-    length: int
-    params: int
-    nesting: int
-    is_recursive: bool = False
-
-
-def _lizard_funcs(filepath: str, source: Optional[str] = None) -> list[dict]:
-    try:
-        if source is not None:
-            suffix = Path(filepath).suffix
-            with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as f:
-                f.write(source)
-                tmp = f.name
-            try:
-                info = lizard.analyze_file(tmp)
-            finally:
-                os.unlink(tmp)
-        else:
-            info = lizard.analyze_file(filepath)
-
-        if info is None:
-            return []
-        return [
-            {
-                "name": fn.name,
-                "line": fn.start_line,
-                "cc": fn.cyclomatic_complexity,
-                "length": fn.length,
-                "params": fn.parameter_count,
-                "nesting": getattr(fn, "max_nesting_depth", 0),
-            }
-            for fn in info.function_list
-        ]
-    except Exception:
-        return []
-
-
-class _RecursionVisitor(ast.NodeVisitor):
-    def __init__(self, func_name: str):
-        self.func_name = func_name
-        self.found = False
-
-    def visit_Call(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Name) and node.func.id == self.func_name:
-            self.found = True
-        elif isinstance(node.func, ast.Attribute) and node.func.attr == self.func_name:
-            self.found = True
-        self.generic_visit(node)
-
-
-def _is_recursive(source: str, func_name: str) -> bool:
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return False
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
-            v = _RecursionVisitor(func_name)
-            v.visit(node)
-            return v.found
-    return False
-
-
-def _baseline_source(filepath: str, baseline_dir: str) -> Optional[str]:
-    baseline_path = Path(baseline_dir) / filepath
-    if baseline_path.exists():
-        return baseline_path.read_text(errors="replace")
-    return None
-
-
-def _analyze_file(filepath: str, baseline_dir: str) -> tuple[list[FuncInfo], list[FuncInfo]]:
-    is_py = filepath.endswith(".py")
-
-    after_raw = _lizard_funcs(filepath)
-    after_source = Path(filepath).read_text(errors="replace") if is_py and Path(filepath).exists() else None
-
-    after = [
-        FuncInfo(
-            name=f["name"], file=filepath, line=f["line"],
-            cc=f["cc"], length=f["length"], params=f["params"], nesting=f["nesting"],
-            is_recursive=_is_recursive(after_source, f["name"]) if is_py and after_source else False,
-        )
-        for f in after_raw
-    ]
-
-    baseline = _baseline_source(filepath, baseline_dir)
-    before = [
-        FuncInfo(
-            name=f["name"], file=filepath, line=f["line"],
-            cc=f["cc"], length=f["length"], params=f["params"], nesting=f["nesting"],
-            is_recursive=_is_recursive(baseline, f["name"]) if is_py and baseline else False,
-        )
-        for f in _lizard_funcs(filepath, source=baseline)
-    ] if baseline else []
-
-    return before, after
-
 
 def _cc_badge(cc: int) -> str:
-    if cc <= CC_SIMPLE:   return f"{cc} ✅"
-    if cc <= CC_MODERATE: return f"{cc} ⚠️"
-    if cc <= CC_COMPLEX:  return f"{cc} 🟠"
+    if cc <= 5:  return f"{cc} ✅"
+    if cc <= 10: return f"{cc} ⚠️"
+    if cc <= 15: return f"{cc} 🟠"
     return f"{cc} 🔴"
 
 
-def _verdict(cc: int, recursive: bool, nesting: int) -> str:
-    if cc > CC_COMPLEX:                                   return "🔴 Critical"
-    if cc > CC_MODERATE:                                  return "🟠 Complex"
-    if cc > CC_SIMPLE or recursive or nesting >= NESTING_WARN: return "⚠️ Review"
-    return "✅ OK"
+def _delta(before: int | None, after: int) -> str:
+    if before is None: return "new"
+    d = after - before
+    if d > 0:  return f"+{d} ⚠️"
+    if d < 0:  return f"{d} ✅"
+    return "—"
 
 
-def generate(changed_files: list[str], baseline_dir: str) -> tuple[str, dict]:
-    rows = []
-    has_critical = False
+def _is_recursive(source: str, name: str) -> bool:
+    try:
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Call):
+                        fn = child.func
+                        if (isinstance(fn, ast.Name) and fn.id == name) or \
+                           (isinstance(fn, ast.Attribute) and fn.attr == name):
+                            return True
+    except SyntaxError:
+        pass
+    return False
+
+
+def _is_orphan(filepath: str, name: str) -> bool:
+    r = subprocess.run(
+        ["grep", "-r", "--include=*.py", "-l", rf"\b{re.escape(name)}\b", "backend/"],
+        capture_output=True, text=True,
+    )
+    return not any(f for f in r.stdout.strip().splitlines() if f != filepath)
+
+
+def _baseline_cc(filepath: str, func_name: str, baseline_dir: str) -> int | None:
+    baseline = Path(baseline_dir) / filepath
+    if not baseline.exists():
+        return None
+    info = lizard.analyze_file(str(baseline))
+    if not info:
+        return None
+    for fn in info.function_list:
+        if fn.name == func_name:
+            return fn.cyclomatic_complexity
+    return None
+
+
+def _shorten(filepath: str) -> str:
+    for prefix in ("backend/archimedes/", "backend/", "ui/src/"):
+        if filepath.startswith(prefix):
+            return filepath[len(prefix):]
+    return filepath
+
+
+def analyze(changed_files: list[str], baseline_dir: str) -> str:
+    blocks = []
 
     for filepath in changed_files:
-        if not Path(filepath).exists():
+        p = Path(filepath)
+        if not p.exists():
+            continue
+        info = lizard.analyze_file(filepath)
+        if not info:
             continue
 
-        before_list, after_list = _analyze_file(filepath, baseline_dir)
-        before_by_name = {f.name: f for f in before_list}
+        is_py = p.suffix == ".py"
+        source = p.read_text(errors="replace") if is_py else ""
 
-        short = filepath
-        for prefix in ("backend/archimedes/", "backend/", "ui/src/"):
-            if short.startswith(prefix):
-                short = short[len(prefix):]
-                break
+        for fn in info.function_list:
+            nesting = getattr(fn, "max_nesting_depth", 0)
+            recursive = is_py and _is_recursive(source, fn.name)
+            orphan = is_py and _is_orphan(filepath, fn.name)
+            base_cc = _baseline_cc(filepath, fn.name, baseline_dir)
 
-        for fn in after_list:
-            prev = before_by_name.get(fn.name)
-            if prev is None:
-                delta = "new"
-            else:
-                d = fn.cc - prev.cc
-                delta = f"+{d} ⚠️" if d > 0 else (f"{d} ✅" if d < 0 else "—")
+            rows = [
+                ("CC",        _cc_badge(fn.cyclomatic_complexity)),
+                ("Δ CC",      _delta(base_cc, fn.cyclomatic_complexity)),
+                ("Nesting",   f"{nesting}{'⚠️' if nesting >= 3 else ''}"),
+                ("Recursive", "✅" if recursive else "—"),
+                ("Orphan",    "⚠️" if orphan else "—"),
+            ]
 
-            if fn.cc > CC_COMPLEX:
-                has_critical = True
+            header = f"### `{fn.name}` · `{_shorten(filepath)}:{fn.start_line}`"
+            table = ["| Metric | Branch |", "|---|---|"]
+            table += [f"| {k} | {v} |" for k, v in rows]
+            blocks.append(header + "\n" + "\n".join(table))
 
-            rows.append({
-                "func": fn.name,
-                "file": f"`{short}:{fn.line}`",
-                "cc": _cc_badge(fn.cc),
-                "delta": delta,
-                "nesting": f"{fn.nesting}{'⚠️' if fn.nesting >= NESTING_WARN else ''}",
-                "recursive": "**Yes** ⚠️" if fn.is_recursive else "No",
-                "verdict": _verdict(fn.cc, fn.is_recursive, fn.nesting),
-                "cc_raw": fn.cc,
-            })
+    if not blocks:
+        return "## 🔬 Complexity\n\nNo functions found in changed files.\n"
 
-    if not rows:
-        md = "## 🔬 Complexity Analysis\n\nNo analyzable functions in changed files.\n"
-        return md, {"has_critical": False, "total_funcs": 0}
-
-    lines = ["## 🔬 Complexity Analysis\n"]
-    if has_critical:
-        lines.append("> 🔴 **Critical complexity — CC ≥ 16 detected. Merge blocked.**\n")
-    elif any(r["cc_raw"] > CC_SIMPLE or "⚠️" in r["recursive"] for r in rows):
-        lines.append("> ⚠️ Some functions warrant a closer look — see table.\n")
-    else:
-        lines.append("> ✅ All functions within acceptable complexity bounds.\n")
-
-    lines += [
-        f"**{len(rows)} function{'s' if len(rows) != 1 else ''} analyzed** "
-        f"across {len(changed_files)} changed file{'s' if len(changed_files) != 1 else ''}.\n",
-        "",
-        "| Function | File | CC | Δ CC | Nesting | Recursive | Verdict |",
-        "|---|---|---|---|---|---|---|",
-    ]
-    for r in rows:
-        lines.append(
-            f"| `{r['func']}` | {r['file']} | {r['cc']} | {r['delta']} "
-            f"| {r['nesting']} | {r['recursive']} | {r['verdict']} |"
-        )
-
-    lines += [
-        "",
-        "**CC thresholds:** ✅ 1–5 · ⚠️ 6–10 · 🟠 11–15 · 🔴 16+ blocks merge  "
-        "**Nesting:** ⚠️ at depth ≥ 3  "
-        "**Recursive:** Python files only",
-    ]
-
-    return "\n".join(lines), {"has_critical": has_critical, "total_funcs": len(rows)}
+    return "## 🔬 Complexity\n\n" + "\n\n".join(blocks) + \
+           "\n\n*CC: ✅ 1–5 · ⚠️ 6–10 · 🟠 11–15 · 🔴 16+*\n"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--changed-files", nargs="+", required=True)
-    parser.add_argument("--baseline-dir", required=True,
-                        help="Path to the checkout of the base branch (e.g. .baseline/)")
-    parser.add_argument("--output-json", required=True)
-    parser.add_argument("--output-md", required=True,
-                        help="Path to write the markdown comment body")
+    parser.add_argument("--baseline-dir", required=True)
+    parser.add_argument("--output-md", required=True)
     args = parser.parse_args()
 
-    output_json = Path(args.output_json)
-    output_md = Path(args.output_md)
-
+    targets = [f for f in args.changed_files
+               if Path(f).suffix in {".py", ".js", ".ts", ".jsx", ".tsx"}]
     try:
-        targets = [f for f in args.changed_files if Path(f).suffix in {".py", ".js", ".ts", ".jsx", ".tsx"}]
-        if not targets:
-            output_md.write_text("## 🔬 Complexity Analysis\n\nNo Python or JS/TS files changed.\n")
-            output_json.write_text(json.dumps({"has_critical": False, "total_funcs": 0}))
-            sys.exit(0)
-
-        md, summary = generate(targets, args.baseline_dir)
-        output_md.write_text(md)
-        output_json.write_text(json.dumps(summary))
-        sys.exit(0)
-
+        md = analyze(targets, args.baseline_dir) if targets \
+            else "## 🔬 Complexity\n\nNo Python or JS/TS files changed.\n"
     except Exception as exc:
-        import traceback as tb
-        error_md = (
-            "## 🔬 Complexity Analysis\n\n"
-            f"> ⚠️ Analysis error: `{exc}`\n\n"
-            "<details><summary>Traceback</summary>\n\n"
-            f"```\n{tb.format_exc()}\n```\n\n"
-            "</details>\n"
+        import traceback
+        md = (
+            "## 🔬 Complexity\n\n"
+            f"> ⚠️ `{exc}`\n\n"
+            f"<details><summary>Traceback</summary>\n\n```\n{traceback.format_exc()}\n```\n\n</details>\n"
         )
-        output_md.write_text(error_md)
-        output_json.write_text(json.dumps({"has_critical": False, "total_funcs": 0}))
-        sys.exit(0)
+
+    Path(args.output_md).write_text(md)
 
 
 if __name__ == "__main__":

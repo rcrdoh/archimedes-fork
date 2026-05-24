@@ -1,21 +1,7 @@
 # Complexity gate — runs on every PR to main.
-#
-# Per-function metrics vs. main baseline:
-#   CC (cyclomatic complexity)  — lizard, cross-language
-#   Nesting depth               — lizard (max nested loops/conditionals)
-#   Δ CC                        — delta vs. same function on main
-#   Recursive                   — Python AST only (direct self-calls)
-#
-# Thresholds:
-#   CC  1–5   ✅ simple
-#   CC  6–10  ⚠️ moderate  (flagged, no block)
-#   CC 11–15  🟠 complex   (flagged, no block)
-#   CC 16+    🔴 critical  → blocks merge
-#   Nesting ≥ 3 ⚠️         (flagged, no block)
-#
-# lizard is installed via pip (cached). The GHCR image built by deploy.yml
-# exists for local/manual use but is not pulled here — avoids the bootstrap
-# problem where the image doesn't exist until after the first merge to main.
+# Posts a per-function card for each changed Python/JS/TS file:
+#   CC, Δ CC vs main, nesting depth, recursion, orphan detection.
+# Informational only — never blocks merge.
 
 name: Complexity Gate
 
@@ -37,13 +23,11 @@ jobs:
   complexity:
     name: Complexity analysis
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Main baseline — separate directory so the script can diff without git
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.base_ref }}
@@ -63,19 +47,17 @@ jobs:
         run: |
           FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD \
             -- '*.py' '*.js' '*.ts' '*.jsx' '*.tsx' | tr '\n' ' ')
+          COUNT=$(echo $FILES | wc -w | tr -d ' ')
           echo "files=$FILES" >> $GITHUB_OUTPUT
-          echo "count=$(echo $FILES | wc -w)" >> $GITHUB_OUTPUT
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
 
       - name: Run complexity analysis
-        id: analysis
         if: steps.changed.outputs.count > 0
         run: |
           python .github/scripts/complexity_analysis.py \
             --changed-files ${{ steps.changed.outputs.files }} \
             --baseline-dir .baseline \
-            --output-json /tmp/complexity_result.json \
             --output-md /tmp/complexity_comment.md
-        continue-on-error: true
 
       - name: Post or update PR comment
         if: steps.changed.outputs.count > 0
@@ -83,15 +65,9 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-
-            let body, result;
-            try {
-              body = fs.readFileSync('/tmp/complexity_comment.md', 'utf8');
-              result = JSON.parse(fs.readFileSync('/tmp/complexity_result.json', 'utf8'));
-            } catch {
-              body = '## 🔬 Complexity Analysis\n\n⚠️ Analysis script failed — check the Actions log.';
-              result = { has_critical: false };
-            }
+            const body = fs.existsSync('/tmp/complexity_comment.md')
+              ? fs.readFileSync('/tmp/complexity_comment.md', 'utf8')
+              : '## 🔬 Complexity\n\n⚠️ Analysis did not produce output — check the Actions log.';
 
             const marker = '<!-- complexity-gate-v1 -->';
             const fullBody = `${marker}\n${body}`;
@@ -118,5 +94,3 @@ jobs:
                 body: fullBody,
               });
             }
-
-            // Informational only — high CC is flagged in the table but never blocks merge.
