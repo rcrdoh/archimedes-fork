@@ -133,6 +133,31 @@ export default function WalletConnect({ address, displayName, onConnect, onDisco
             <h3>Connect Wallet</h3>
             <p className="caption">Select a wallet to interact with Arc Testnet contracts.</p>
 
+            <div
+              className="caption"
+              style={{
+                marginTop: 8,
+                marginBottom: 12,
+                padding: '10px 12px',
+                background: 'var(--surface-1)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: 8,
+                lineHeight: 1.5,
+              }}
+            >
+              Archimedes only reads your wallet address — it never custodies your USDC.
+              Deposits live in your non-custodial vault contract; the agent has rebalance
+              authority only, not withdraw-to-platform. Source open at{' '}
+              <a
+                href="https://github.com/a-apin/archimedes-arcadia"
+                target="_blank"
+                rel="noreferrer"
+              >
+                github.com/a-apin/archimedes-arcadia
+              </a>
+              . Testnet only — fake USDC, no value at risk.
+            </div>
+
             {available.length === 0 ? (
               <div className="info-box warning mt-3">
                 No wallets detected. Install <a href="https://metamask.io" target="_blank" rel="noreferrer">MetaMask</a> or{' '}

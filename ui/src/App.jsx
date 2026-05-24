@@ -149,6 +149,24 @@ export default function App() {
   const backToPortfolio = () => navigateToPage('portfolio', { vaultAddress: null })
   const selectTrace = (id) => navigateToPage('reasoning', { replace: false, traceId: id })
 
+  // Per-route document.title so browser tabs are distinguishable when users
+  // have multiple Archimedes tabs open.
+  useEffect(() => {
+    const titles = {
+      landing:        'Archimedes',
+      explore:        'Explore · Archimedes',
+      generate:       'Generate · Archimedes',
+      library:        'Library · Archimedes',
+      corpus:         'Corpus · Archimedes',
+      portfolio:      'Portfolio · Archimedes',
+      reasoning:      'Reasoning · Archimedes',
+      learnings:      'Learnings · Archimedes',
+      'vault-detail': 'Vault · Archimedes',
+      strategy:       'Strategy · Archimedes',
+    }
+    document.title = titles[page] ?? 'Archimedes'
+  }, [page])
+
   useEffect(() => {
     if (!initialRoute.matched) {
       window.history.replaceState({}, '', '/')

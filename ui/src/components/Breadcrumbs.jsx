@@ -8,6 +8,9 @@
 
 import { PAGE_LABELS } from './Layout'
 
+// `group: null` means "no intermediate label" — breadcrumb reads "Home / <page>".
+// Dropped the "Intelligence" grouping (M5): users don't know what the internal
+// grouping means, so the corpus/reasoning/risk pages now render a flat trail.
 const CRUMB_MAP = {
   explore:      { group: 'Markets', groupPage: 'explore' },
   strategies:   { group: 'Markets', groupPage: 'explore' },
@@ -19,10 +22,10 @@ const CRUMB_MAP = {
   'create-vault': { group: 'Portfolio', groupPage: 'vaults' },
   financial:    { group: 'Portfolio', groupPage: 'dashboard' },
   'vault-detail': { group: 'Portfolio', groupPage: 'vaults' },
-  reasoning:       { group: 'Intelligence', groupPage: 'reasoning' },
-  risk:            { group: 'Intelligence', groupPage: 'reasoning' },
-  corpus:          { group: 'Intelligence', groupPage: 'reasoning' },
-  'rigor-explainer': { group: 'Intelligence', groupPage: 'reasoning' },
+  reasoning:       { group: null, groupPage: null },
+  risk:            { group: null, groupPage: null },
+  corpus:          { group: null, groupPage: null },
+  'rigor-explainer': { group: null, groupPage: null },
 }
 
 export default function Breadcrumbs({ page, setPage }) {
@@ -31,7 +34,7 @@ export default function Breadcrumbs({ page, setPage }) {
 
   const crumbs = [
     { label: 'Home', page: 'explore' },
-    { label: info.group, page: info.groupPage },
+    ...(info.group ? [{ label: info.group, page: info.groupPage }] : []),
     { label: PAGE_LABELS[page] ?? page, page: null },
   ]
 
