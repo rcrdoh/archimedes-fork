@@ -375,6 +375,100 @@ class TestRegimeRoutes:
         assert isinstance(data["confidence"], float)
         assert "transition_probabilities" in data
 
+    def test_current_regime_unknown_signals_are_null_not_zero(self, client):
+        """Unknown-regime fallback must NOT report VIX=0 (it would be a lie).
+
+        Red-team report 2026-05-24 H2: VIX is a price-of-insurance index
+        that floors around 10, so 0.0 is not a valid reading -- it means
+        "no data". Surface that honestly as null instead of zero so the UI
+        can hide the row instead of rendering a misleading 0.0 bar.
+        """
+        resp = client.get("/api/regime/current")
+        assert resp.status_code == 200
+        data = resp.json()
+        if data["regime"] == "unknown":
+            # vix_level must be null (not 0.0) when no agent data is present
+            assert data["signals"]["vix_level"] is None
+
+    def test_current_regime_recommended_strategy_titles(self, client, monkeypatch):
+        """When Redis returns a known regime, the response must include
+        recommended_strategy_titles parallel to recommended_strategies so the
+        UI can render paper titles instead of raw strategy hashes.
+
+        Red-team report 2026-05-24 H3.
+        """
+        fake_state = {
+            "regime": "risk_off",
+            "confidence": 0.92,
+            "timestamp": "2026-05-24T12:00:00Z",
+            "regime_changed": False,
+            "vix_level": 28.5,
+            "sp500_above_ma50": False,
+            "sp500_above_ma200": True,
+            "composite_score": 0.65,
+        }
+
+        async def fake_load(self):
+            return fake_state
+
+        async def fake_close(self):
+            return None
+
+        from archimedes.services.redis_state import AgentStateStore
+
+        monkeypatch.setattr(AgentStateStore, "load_regime", fake_load)
+        monkeypatch.setattr(AgentStateStore, "close", fake_close)
+        # __init__ on AgentStateStore may try to connect to Redis; replace it
+        monkeypatch.setattr(AgentStateStore, "__init__", lambda self: None)
+
+        resp = client.get("/api/regime/current")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["regime"] == "risk_off"
+        # Parallel field present and a list
+        assert "recommended_strategy_titles" in data
+        titles = data["recommended_strategy_titles"]
+        ids = data["recommended_strategies"]
+        assert isinstance(titles, list)
+        assert isinstance(ids, list)
+        # Same length so the UI can index in parallel
+        assert len(titles) == len(ids)
+        # If any recommendations exist, titles must not be empty strings and
+        # must not look like raw strategy hashes (which are 32-char hex).
+        for t in titles:
+            assert isinstance(t, str) and len(t) > 0
+            # Strategy hashes are 32 lowercase hex chars; paper titles should
+            # contain spaces or capitals -- at least one non-hex character.
+            assert not (len(t) == 32 and all(c in "0123456789abcdef" for c in t))
+
+    def test_current_regime_vix_null_passthrough(self, client, monkeypatch):
+        """If the agent feed reports vix_level as None, the API must pass it
+        through as null -- never coerce to 0.0 (red-team 2026-05-24 H2)."""
+        from archimedes.services.redis_state import AgentStateStore
+
+        async def fake_load(self):
+            return {
+                "regime": "risk_on",
+                "confidence": 0.88,
+                "timestamp": "2026-05-24T12:00:00Z",
+                "regime_changed": False,
+                "vix_level": None,
+                "sp500_above_ma50": True,
+                "sp500_above_ma200": True,
+            }
+
+        async def fake_close(self):
+            return None
+
+        monkeypatch.setattr(AgentStateStore, "load_regime", fake_load)
+        monkeypatch.setattr(AgentStateStore, "close", fake_close)
+        monkeypatch.setattr(AgentStateStore, "__init__", lambda self: None)
+
+        resp = client.get("/api/regime/current")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals"]["vix_level"] is None
+
 
 class TestAgentRoutes:
     def test_agent_status(self, client):
