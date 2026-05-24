@@ -25,5 +25,5 @@ variable "project_name" {
 variable "repo_url" {
   description = "GitHub repo HTTPS URL for cloning on the instance"
   type        = string
-  default     = "https://github.com/hackagora/archimedes-arcadia.git"
+  default     = "https://github.com/a-apin/archimedes-arcadia.git"
 }
