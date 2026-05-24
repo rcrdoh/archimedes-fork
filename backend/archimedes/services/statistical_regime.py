@@ -314,12 +314,11 @@ class StatisticalRegimeDetector:
         #   0.75 - 1.0: CRISIS
         if blended < 0.30:
             return Regime.RISK_ON
-        elif blended < 0.50:
+        if blended < 0.50:
             return Regime.TRANSITION
-        elif blended < 0.75:
+        if blended < 0.75:
             return Regime.RISK_OFF
-        else:
-            return Regime.CRISIS
+        return Regime.CRISIS
 
     def _compute_confidence(self, composite: float, vix: float) -> float:
         """Compute confidence from the distance to regime boundaries.

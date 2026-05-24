@@ -402,11 +402,10 @@ def client(vault_address):
                     status_code=200,
                     json=MagicMock(return_value={"traces": [sample_trace], "total": 1}),
                 )
-            else:
-                return MagicMock(
-                    status_code=200,
-                    json=MagicMock(return_value=sample_trace),
-                )
+            return MagicMock(
+                status_code=200,
+                json=MagicMock(return_value=sample_trace),
+            )
 
         return MagicMock(
             status_code=200,

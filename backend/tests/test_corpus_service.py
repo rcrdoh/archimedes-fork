@@ -355,7 +355,7 @@ class TestLoadCorpusDBFallback:
         )
 
         # Make DB return empty (by having load_papers_from_db raise)
-        monkeypatch.setattr(corpus_service, "load_papers_from_db", lambda: [])
+        monkeypatch.setattr(corpus_service, "load_papers_from_db", list)
 
         corpus = load_corpus(path=manifest)
         assert len(corpus) == 1

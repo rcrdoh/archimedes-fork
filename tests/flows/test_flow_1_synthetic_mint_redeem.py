@@ -91,24 +91,19 @@ class TestSyntheticMint:
     def test_mint_zero_amount_reverts(self):
         """Minting with 0 USDC should revert."""
         # Contract test: ISyntheticFactory.mint(sTSLA, 0) → revert ZeroAmount()
-        pass
 
     def test_mint_without_approval_reverts(self):
         """Minting without USDC approval should revert."""
         # Contract test: call mint without approve → revert
-        pass
 
     def test_mint_emits_event(self):
         """Minting emits Minted(user, token, usdcIn, synthOut)."""
-        pass
 
     def test_mint_increases_total_collateral(self):
         """After minting, totalCollateral() increases by the USDC deposited."""
-        pass
 
     def test_health_ratio_stays_at_100pct(self):
         """With 100% collateral ratio, healthRatio should stay at 1e18."""
-        pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -121,27 +116,21 @@ class TestSyntheticRedeem:
 
     def test_redeem_returns_correct_usdc(self):
         """Redeeming 5.405 sTSLA at $185/sTSLA → ~1000 USDC."""
-        pass
 
     def test_redeem_zero_amount_reverts(self):
         """Redeeming 0 tokens should revert."""
-        pass
 
     def test_redeem_more_than_balance_reverts(self):
         """Redeeming more than you hold should revert."""
-        pass
 
     def test_redeem_emits_event(self):
         """Redeeming emits Redeemed(user, token, synthIn, usdcOut)."""
-        pass
 
     def test_redeem_decreases_total_collateral(self):
         """After redeeming, totalCollateral() decreases."""
-        pass
 
     def test_round_trip_mint_redeem_no_loss(self):
         """Mint then immediately redeem → get back same USDC (minus any fees)."""
-        pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -159,7 +148,6 @@ class TestSyntheticEndToEnd:
         3. Marten pushes TSLA price = $200
         4. User redeems ~5.405 sTSLA → receives ~$1081 USDC (profit from price increase)
         """
-        pass
 
     async def test_factory_tracks_multiple_synthetics(self):
         """
@@ -167,11 +155,9 @@ class TestSyntheticEndToEnd:
         Each has independent price and collateral tracking.
         getSynthetics() returns both addresses.
         """
-        pass
 
     async def test_stale_price_behavior(self, oracle_updater):
         """
         If oracle hasn't been updated in >5 minutes, mint/redeem should
         either revert or use the stale price (design decision — document behavior).
         """
-        pass

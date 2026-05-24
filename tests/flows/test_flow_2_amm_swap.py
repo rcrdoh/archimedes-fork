@@ -28,19 +28,15 @@ class TestPoolCreation:
 
     def test_create_pool_returns_address(self):
         """IAMMRouter.createPool(USDC, sTSLA) returns a valid pool address."""
-        pass
 
     def test_create_duplicate_pool_reverts(self):
         """Creating a pool for an existing pair should revert."""
-        pass
 
     def test_get_pool_returns_correct_address(self):
         """getPool(USDC, sTSLA) returns the pool created earlier."""
-        pass
 
     def test_get_all_pools_lists_created_pools(self):
         """After creating 5 pools, getAllPools() returns 5 addresses."""
-        pass
 
 
 class TestLiquidity:
@@ -48,23 +44,18 @@ class TestLiquidity:
 
     def test_add_liquidity_mints_lp_tokens(self):
         """Adding 10000 USDC + 54 sTSLA → receives LP tokens > 0."""
-        pass
 
     def test_add_liquidity_updates_reserves(self):
         """After adding, pool.reserve0() and pool.reserve1() increase."""
-        pass
 
     def test_remove_liquidity_returns_both_tokens(self):
         """Burning LP tokens returns proportional amounts of both tokens."""
-        pass
 
     def test_remove_all_liquidity_empties_pool(self):
         """Removing all LP tokens → reserves go to 0."""
-        pass
 
     def test_add_liquidity_respects_ratio(self):
         """Adding liquidity to an existing pool must respect the current price ratio."""
-        pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -79,40 +70,31 @@ class TestSwap:
         """Swap 100 USDC → sTSLA via IAMMRouter.swap().
         User receives sTSLA, pool reserves update.
         """
-        pass
 
     def test_swap_synth_for_usdc(self):
         """Swap sTSLA → USDC (sell direction)."""
-        pass
 
     def test_swap_respects_min_amount_out(self):
         """If output would be below minAmountOut, revert (slippage protection)."""
-        pass
 
     def test_swap_charges_fee(self):
         """0.3% fee: swapping 1000 USDC yields less than constant-product formula
         would give without fees."""
-        pass
 
     def test_swap_updates_reserves(self):
         """After swap, reserve of input token increases, output token decreases."""
-        pass
 
     def test_swap_emits_event(self):
         """Swap emits Swap(sender, tokenIn, amountIn, tokenOut, amountOut)."""
-        pass
 
     def test_swap_zero_amount_reverts(self):
         """Swapping 0 tokens should revert."""
-        pass
 
     def test_getAmountOut_matches_actual_swap(self):
         """getAmountOut() preview matches the actual swap output."""
-        pass
 
     def test_large_swap_has_significant_price_impact(self):
         """Swapping 50% of pool reserves → large price impact (constant product curve)."""
-        pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -170,15 +152,12 @@ class TestSwapEndToEnd:
         4. User's sTSLA balance increases, USDC balance decreases
         5. Pool reserves reflect the trade
         """
-        pass
 
     async def test_multiple_swaps_move_price(self):
         """
         Successive buys of sTSLA increase the price (fewer sTSLA per USDC).
         This is the AMM price discovery mechanism.
         """
-        pass
 
     async def test_spot_price_reflects_reserves(self):
         """IAMMPool.getSpotPrice() matches reserve0/reserve1 ratio."""
-        pass

@@ -379,7 +379,7 @@ def _equal_weight(symbols: list[str], budget: float) -> dict[str, float]:
     if n == 0:
         return {}
     w = round(budget / n, 6)
-    return {s: w for s in symbols}
+    return dict.fromkeys(symbols, w)
 
 
 # ─── Kelly mean-variance from price-history dict ──────────────────

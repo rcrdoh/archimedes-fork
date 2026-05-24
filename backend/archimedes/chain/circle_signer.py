@@ -224,8 +224,7 @@ class CircleSigner:
                                         tx_hash,
                                     )
                                     return tx_hash
-                                else:
-                                    raise RuntimeError(f"Circle tx {circle_tx_id} ended in {state}: {tx}")
+                                raise RuntimeError(f"Circle tx {circle_tx_id} ended in {state}: {tx}")
                             # Still processing
                             break
                 await asyncio.sleep(_POLL_INTERVAL)

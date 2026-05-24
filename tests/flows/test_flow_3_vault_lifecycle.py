@@ -30,27 +30,21 @@ class TestVaultCreation:
 
     def test_create_tier1_vault(self):
         """Agent address creates vault → tier = 1 (Archimedes Verified)."""
-        pass
 
     def test_create_tier2_vault(self):
         """Random wallet creates vault → tier = 2 (Community)."""
-        pass
 
     def test_vault_has_correct_fees(self):
         """Created vault has the specified management and performance fees."""
-        pass
 
     def test_vault_is_agent_assisted(self):
         """Vault created with agentAssisted=true → isAgentAssisted() returns true."""
-        pass
 
     def test_factory_tracks_vaults(self):
         """getVaults() and getVaultsByCreator() return the created vaults."""
-        pass
 
     def test_vault_token_is_erc20(self):
         """Vault token is a standard ERC-20 (for AMM trading — aspirational #8)."""
-        pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -63,23 +57,18 @@ class TestVaultDeposit:
 
     def test_deposit_mints_shares(self):
         """Depositing 1000 USDC → receives vault shares > 0."""
-        pass
 
     def test_first_deposit_1_to_1(self):
         """First deposit: 1000 USDC → 1000 shares (1:1 ratio on empty vault)."""
-        pass
 
     def test_second_deposit_at_current_price(self):
         """After NAV changes, new deposits mint shares at current price."""
-        pass
 
     def test_deposit_zero_reverts(self):
         """Depositing 0 USDC should revert."""
-        pass
 
     def test_preview_deposit_matches_actual(self):
         """previewDeposit(1000) matches the actual shares from deposit(1000)."""
-        pass
 
 
 class TestVaultWithdraw:
@@ -87,27 +76,21 @@ class TestVaultWithdraw:
 
     def test_redeem_returns_usdc(self):
         """Redeeming shares → receive USDC proportional to NAV."""
-        pass
 
     def test_redeem_all_empties_position(self):
         """Redeeming all shares → user has 0 shares, receives full NAV share."""
-        pass
 
     def test_withdraw_more_than_balance_reverts(self):
         """Withdrawing more shares than held should revert."""
-        pass
 
     def test_preview_redeem_matches_actual(self):
         """previewRedeem(shares) matches the actual USDC from redeem(shares)."""
-        pass
 
     def test_withdraw_after_profit(self):
         """If vault NAV increased, withdrawing returns more than deposited."""
-        pass
 
     def test_withdraw_after_loss(self):
         """If vault NAV decreased, withdrawing returns less than deposited."""
-        pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -120,19 +103,15 @@ class TestTargetAllocations:
 
     def test_set_allocations_sums_to_100pct(self):
         """setTargetAllocations with weights summing to 10000 bps succeeds."""
-        pass
 
     def test_set_allocations_not_summing_reverts(self):
         """Weights not summing to 10000 bps should revert."""
-        pass
 
     def test_get_target_allocations_returns_set_values(self):
         """getTargetAllocations() returns what was set."""
-        pass
 
     def test_only_creator_can_set_allocations(self):
         """Non-creator address calling setTargetAllocations should revert."""
-        pass
 
 
 class TestPortfolioConstructionIntegration:
@@ -197,22 +176,18 @@ class TestRebalance:
 
     def test_rebalance_restricted_to_creator_or_agent(self):
         """Random address calling rebalance() should revert."""
-        pass
 
     def test_rebalance_changes_holdings(self):
         """After rebalance, getHoldings() reflects the new positions."""
-        pass
 
     def test_rebalance_emits_event(self):
         """Rebalance emits Rebalanced(caller, tradesCount, timestamp)."""
-        pass
 
     async def test_rebalance_executes_via_amm(self, chain_executor):
         """
         IChainExecutor.execute_trades() submits swap txs to AMM.
         Each trade returns a tx hash.
         """
-        pass
 
     async def test_rebalance_cost_benefit_gate(self, agent_orchestrator):
         """

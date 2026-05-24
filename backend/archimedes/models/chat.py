@@ -18,8 +18,6 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 class Base(DeclarativeBase):
     """SQLAlchemy declarative base for all Archimedes models."""
 
-    pass
-
 
 class VaultMetadata(Base):
     """Off-chain vault metadata — strategy associations, display name, etc.
