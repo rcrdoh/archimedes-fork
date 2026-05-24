@@ -11,8 +11,8 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import logging
+import os
 from typing import TYPE_CHECKING
 
 import boto3
@@ -36,14 +36,12 @@ class S3ArtifactStore:
         bucket: str | None = None,
         region: str | None = None,
     ) -> None:
-        self.bucket = bucket or os.environ.get(
-            "AWS_S3_ARTIFACTS_BUCKET", _DEFAULT_ARTIFACTS_BUCKET
-        )
+        self.bucket = bucket or os.environ.get("AWS_S3_ARTIFACTS_BUCKET", _DEFAULT_ARTIFACTS_BUCKET)
         self.region = region or os.environ.get("AWS_REGION", _DEFAULT_REGION)
         self._client: S3Client | None = None
 
     @property
-    def client(self) -> "S3Client":
+    def client(self) -> S3Client:
         if self._client is None:
             self._client = boto3.client("s3", region_name=self.region)
         return self._client

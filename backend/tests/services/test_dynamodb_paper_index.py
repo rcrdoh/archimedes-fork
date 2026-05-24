@@ -1,9 +1,9 @@
 """Unit tests for DynamoDBPaperIndex — uses mocked boto3 (no real AWS calls)."""
 
-from unittest.mock import patch, MagicMock
 from decimal import Decimal
-import pytest
+from unittest.mock import MagicMock, patch
 
+import pytest
 from archimedes.services.dynamodb_paper_index import DynamoDBPaperIndex, _sanitize_for_dynamo
 
 
@@ -51,9 +51,7 @@ class TestDynamoDBPaperIndex:
         assert index.region == "us-west-2"
 
     def test_get_paper_found(self, mock_table):
-        mock_table.get_item.return_value = {
-            "Item": {"arxiv_id": "2301.01234", "title": "Test Paper"}
-        }
+        mock_table.get_item.return_value = {"Item": {"arxiv_id": "2301.01234", "title": "Test Paper"}}
         index = DynamoDBPaperIndex()
         result = index.get_paper("2301.01234")
         assert result == {"arxiv_id": "2301.01234", "title": "Test Paper"}
@@ -78,18 +76,14 @@ class TestDynamoDBPaperIndex:
             index.put_paper({"title": "No ID"})
 
     def test_query_by_cluster(self, mock_table):
-        mock_table.query.return_value = {
-            "Items": [{"arxiv_id": "2301.01234", "cluster_id": "momentum"}]
-        }
+        mock_table.query.return_value = {"Items": [{"arxiv_id": "2301.01234", "cluster_id": "momentum"}]}
         index = DynamoDBPaperIndex()
         result = index.query_by_cluster("momentum")
         assert len(result) == 1
         assert result[0]["cluster_id"] == "momentum"
 
     def test_query_by_year(self, mock_table):
-        mock_table.query.return_value = {
-            "Items": [{"arxiv_id": "2301.01234", "year": 2023}]
-        }
+        mock_table.query.return_value = {"Items": [{"arxiv_id": "2301.01234", "year": 2023}]}
         index = DynamoDBPaperIndex()
         result = index.query_by_year(2023)
         assert len(result) == 1
@@ -100,18 +94,18 @@ class TestDynamoDBPaperIndex:
         mock_table.batch_writer.return_value.__exit__ = MagicMock(return_value=False)
 
         index = DynamoDBPaperIndex()
-        count = index.batch_put_papers([
-            {"arxiv_id": "2301.00001", "title": "A"},
-            {"arxiv_id": "2301.00002", "title": "B"},
-            {"title": "No ID — skipped"},
-        ])
+        count = index.batch_put_papers(
+            [
+                {"arxiv_id": "2301.00001", "title": "A"},
+                {"arxiv_id": "2301.00002", "title": "B"},
+                {"title": "No ID — skipped"},
+            ]
+        )
         assert count == 2
         assert batch_writer.put_item.call_count == 2
 
     def test_scan_all(self, mock_table):
-        mock_table.scan.return_value = {
-            "Items": [{"arxiv_id": f"2301.{i:05d}"} for i in range(5)]
-        }
+        mock_table.scan.return_value = {"Items": [{"arxiv_id": f"2301.{i:05d}"} for i in range(5)]}
         index = DynamoDBPaperIndex()
         result = index.scan_all(limit=10)
         assert len(result) == 5

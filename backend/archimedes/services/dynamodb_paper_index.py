@@ -11,10 +11,10 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import logging
-from typing import Any, TYPE_CHECKING
+import os
 from decimal import Decimal
+from typing import TYPE_CHECKING, Any
 
 import boto3
 from botocore.exceptions import ClientError
@@ -39,9 +39,7 @@ def _sanitize_for_dynamo(item: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(v, dict):
             sanitized[k] = _sanitize_for_dynamo(v)
         elif isinstance(v, list):
-            sanitized[k] = [
-                Decimal(str(x)) if isinstance(x, float) else x for x in v
-            ]
+            sanitized[k] = [Decimal(str(x)) if isinstance(x, float) else x for x in v]
         else:
             sanitized[k] = v
     return sanitized
@@ -55,11 +53,9 @@ class DynamoDBPaperIndex:
         table_name: str | None = None,
         region: str | None = None,
     ) -> None:
-        self.table_name = table_name or os.environ.get(
-            "AWS_DYNAMODB_PAPERS_TABLE", _DEFAULT_TABLE
-        )
+        self.table_name = table_name or os.environ.get("AWS_DYNAMODB_PAPERS_TABLE", _DEFAULT_TABLE)
         self.region = region or os.environ.get("AWS_REGION", _DEFAULT_REGION)
-        self._resource: "DynamoDBServiceResource | None" = None
+        self._resource: DynamoDBServiceResource | None = None
         self._table = None
 
     @property
