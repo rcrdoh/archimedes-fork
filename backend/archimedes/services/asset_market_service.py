@@ -124,8 +124,17 @@ class AssetMarketService:
 
             oracle_addrs = chain_client.settings.oracle_addresses or {}
             synth_addrs = chain_client.settings.synth_addresses or {}
-            abi_path = Path(chain_client.settings.abi_dir) / "IPriceOracle.json"
-            oracle_abi = json.loads(abi_path.read_text()) if abi_path.exists() else []
+
+            # Resolve ABI path — try multiple locations (repo root, relative)
+            abi_candidates = [
+                Path(chain_client.settings.abi_dir) / "IPriceOracle.json",
+                Path(__file__).resolve().parents[3] / "contracts" / "abis" / "IPriceOracle.json",
+            ]
+            oracle_abi = []
+            for p in abi_candidates:
+                if p.exists():
+                    oracle_abi = json.loads(p.read_text())
+                    break
         except Exception as exc:
             logger.warning("explore: oracle setup failed: %s", exc)
             return {}
