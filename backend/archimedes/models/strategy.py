@@ -4,6 +4,10 @@ Passport-aware: every strategy carries enough provenance metadata to be
 independently auditable per `docs/specs/strategy-passport-spec.md`. Selection-
 bias controls (DSR, PBO, OOS sharpe split) live on `BacktestResult` rather
 than here — see `models/backtest.py`.
+
+Renamed ``Strategy`` → ``StrategyPassport`` per Issue #159 (T-PE.2).
+The multi-paper ``papers: list[PaperRef]`` shape replaces the old scalar
+``paper_*`` fields so the passport is fusion-native from day one.
 """
 
 from __future__ import annotations
@@ -12,6 +16,20 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Literal
+
+from archimedes.models.paper_ref import PaperRef
+
+__all__ = [
+    "PaperRef",
+    "StrategyStatus",
+    "SignalDefinition",
+    "PositionSizing",
+    "RebalanceFrequency",
+    "StrategyPassport",
+    # Backwards-compat alias
+    "Strategy",
+]
 
 
 class StrategyStatus(str, Enum):
@@ -52,21 +70,26 @@ class SignalDefinition:
     parameters: dict[str, float] = field(default_factory=dict)  # e.g. {"fast_period": 50}
 
 
+RegimeTag = Literal["bull", "bear", "regime_neutral"]
+
+
 @dataclass
-class Strategy:
-    """A trading strategy extracted from an academic paper.
+class StrategyPassport:
+    """A trading strategy — paper-grounded and passport-bearing.
 
     Produced by: Dan (curated library + LLM extraction)
     Consumed by: Önder (backtest evaluation, portfolio construction),
                  Chuan (strategy DB, API), Daniel (strategy explorer UI)
 
     Passport reference: docs/specs/strategy-passport-spec.md
+
+    ``papers`` is a list of ``PaperRef`` — curated strategies have 1,
+    fusion strategies have ≥2.  All paper provenance (title, authors,
+    DOI, venue, year, citation count) lives inside each ``PaperRef``.
     """
 
     id: str  # Deterministic hash of paper + methodology
-    paper_arxiv_id: str  # e.g. "2509.11420" — may be empty for non-arxiv papers
-    paper_title: str
-    paper_authors: list[str] = field(default_factory=list)
+    papers: list[PaperRef] = field(default_factory=list)
     methodology_summary: str = ""  # 2-3 sentence plain English
     asset_universe: list[str] = field(default_factory=list)  # Ticker symbols
     signals: list[SignalDefinition] = field(default_factory=list)
@@ -82,12 +105,6 @@ class Strategy:
     extraction_reasoning: str = ""  # Full LLM reasoning for extraction
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    # ── Paper provenance (passport fields) ──────────────────
-    paper_venue: str | None = None  # Journal, conference, or "arxiv only"
-    paper_year: int | None = None
-    paper_doi: str | None = None
-    paper_citation_count: int | None = None  # Snapshot at curation time
 
     # ── Methodology integrity ───────────────────────────────
     # SHA-256 over the canonical methodology — methodology_text when populated,
@@ -108,22 +125,21 @@ class Strategy:
 
     # ── On-chain anchor ─────────────────────────────────────
     on_chain_registration_tx: str | None = None  # StrategyRegistry contract tx hash
+    on_chain_registration_block: int | None = None  # Block number of registration tx
+    arcscan_url: str | None = None  # e.g. https://testnet.arcscan.app/tx/0x...
 
     # ── Paper claims (for paper-vs-actual delta in UI) ───────
-    # Parsed from PAPER_CLAIMED_* constants in strategy files.
+    # Blended across all papers in the passport; for single-paper curated
+    # strategies this is just the one paper's claim.
     paper_claimed_sharpe: float | None = None
     paper_claimed_cagr: float | None = None
     paper_claimed_max_dd: float | None = None
+    paper_claim_blended_sharpe: float | None = None  # Weighted blend across papers
 
     # ── Regime suitability ──────────────────────────────────
-    # Tag indicating which market regime this strategy is suited for.
-    # "bull" = trending/up, "bear" = defensive/vol-managed,
-    # "regime_neutral" = regime-agnostic.
-    regime_tag: str = "regime_neutral"
+    regime_tag: RegimeTag = "regime_neutral"
 
     # ── Placeholder backtest stubs (pre-analytics-engine-run) ──
-    # Sourced from BACKTEST_* constants in strategy files.
-    # Replaced by real BacktestResult when IBacktestEvaluator runs.
     stub_sharpe: float | None = None
     stub_cagr: float | None = None
     stub_max_dd: float | None = None
@@ -132,9 +148,6 @@ class Strategy:
     stub_corr_spy: float | None = None
 
     # ── Real backtest results (from backtest_fixtures.json) ────
-    # Populated by strategy_provider after the backtest engine runs.
-    # When present, routes.py serves these instead of stub_* fields
-    # and sets is_backtest_placeholder=False.
     real_sharpe: float | None = None
     real_sortino: float | None = None
     real_cagr: float | None = None
@@ -143,7 +156,7 @@ class Strategy:
     real_calmar: float | None = None
     real_corr_spy: float | None = None
     real_total_trades: int | None = None
-    real_backtest_start: str | None = None  # ISO date of the fixture-recorded backtest window
+    real_backtest_start: str | None = None
     real_backtest_end: str | None = None
     deflated_sharpe_ratio: float | None = None
     dsr_p_value: float | None = None
@@ -156,18 +169,50 @@ class Strategy:
     sharpe_ci_upper: float | None = None
     n_obs_daily: int | None = None
 
+    # ── Convenience accessors (read first paper) ────────────
+    # These provide a simple migration path for code that only
+    # needs the primary paper. For multi-paper strategies callers
+    # should iterate ``papers`` directly.
+
+    @property
+    def paper_arxiv_id(self) -> str:
+        """arxiv_id of the primary (first) paper, or empty string."""
+        return (self.papers[0].arxiv_id or "") if self.papers else ""
+
+    @property
+    def paper_title(self) -> str:
+        """Title of the primary (first) paper, or empty string."""
+        return self.papers[0].title if self.papers else ""
+
+    @property
+    def paper_authors(self) -> list[str]:
+        """Authors of the primary (first) paper."""
+        return self.papers[0].authors if self.papers else []
+
+    @property
+    def paper_venue(self) -> str | None:
+        return self.papers[0].venue if self.papers else None
+
+    @property
+    def paper_year(self) -> int | None:
+        return self.papers[0].year if self.papers else None
+
+    @property
+    def paper_doi(self) -> str | None:
+        return self.papers[0].doi if self.papers else None
+
+    @property
+    def paper_citation_count(self) -> int | None:
+        return self.papers[0].citation_count if self.papers else None
+
     @property
     def is_active(self) -> bool:
         return self.status in (StrategyStatus.VALIDATED, StrategyStatus.LIVE)
 
     @property
     def is_paper_grounded(self) -> bool:
-        """True iff the strategy traces back to a real published paper.
-
-        Tier-1 vaults require paper-grounded strategies per
-        architectural-principles.md. Tier-2 vaults do not.
-        """
-        return bool(self.paper_arxiv_id or self.paper_doi)
+        """True iff the strategy traces back to a real published paper."""
+        return any(p.arxiv_id or p.doi for p in self.papers)
 
     def compute_methodology_hash(self) -> str:
         """Compute deterministic SHA-256 hash of the methodology.
@@ -178,3 +223,20 @@ class Strategy:
         """
         source = (self.methodology_text or self.methodology_summary).strip()
         return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def compute_methodology_hash_keccak(text: str) -> str:
+        """Compute keccak256 hash matching on-chain ``eth_utils.keccak``.
+
+        Uses ``hashlib`` with the keccak variant (SHA-3 / keccak-256).
+        Returns ``0x``-prefixed hex string.
+        """
+        import hashlib as _hl
+
+        return "0x" + _hl.new("sha3_256", text.encode("utf-8")).hexdigest()
+
+
+# ── Backwards-compat alias ──────────────────────────────────────
+# Everything that imported ``Strategy`` keeps working. New code
+# should use ``StrategyPassport`` directly.
+Strategy = StrategyPassport

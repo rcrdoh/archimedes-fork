@@ -34,11 +34,30 @@ strategies_router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
 
 def _to_strategy_response(s: Strategy) -> StrategyResponse:
-    """Map Strategy + persisted BacktestResult to API schema."""
+    """Map StrategyPassport + persisted BacktestResult to API schema."""
+    from archimedes.api.schemas import PaperRefResponse
     bt = strategy_provider.get_backtest_result(s.id)
     has_real = s.real_sharpe is not None
+
+    # Build papers list from passport
+    papers_list = [
+        PaperRefResponse(
+            arxiv_id=p.arxiv_id,
+            title=p.title,
+            authors=p.authors,
+            doi=p.doi,
+            venue=p.venue,
+            year=p.year,
+            citation_count=p.citation_count,
+            contribution=p.contribution,
+        )
+        for p in s.papers
+    ]
+
     return StrategyResponse(
         id=s.id,
+        papers=papers_list,
+        # Legacy scalar fields from papers[0]
         paper_arxiv_id=s.paper_arxiv_id,
         paper_title=s.paper_title,
         paper_authors=s.paper_authors,
@@ -57,6 +76,7 @@ def _to_strategy_response(s: Strategy) -> StrategyResponse:
         curator_note=s.curator_note,
         on_chain_registration_tx=s.on_chain_registration_tx,
         paper_claimed_sharpe=bt.paper_claimed_sharpe if bt else s.paper_claimed_sharpe,
+        paper_claim_blended_sharpe=s.paper_claim_blended_sharpe,
         sharpe_ratio=s.real_sharpe if has_real else (bt.sharpe_ratio if bt else s.stub_sharpe),
         sortino_ratio=s.real_sortino if has_real else (bt.sortino_ratio if bt else None),
         cagr=s.real_cagr if has_real else (bt.cagr if bt else s.stub_cagr),

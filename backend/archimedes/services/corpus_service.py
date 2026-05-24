@@ -285,11 +285,49 @@ def get_corpus_meta() -> dict | None:
         }
 
 
-def load_papers_from_db() -> list[dict]:
-    """Load all papers from DB, returning dicts compatible with CorpusPaper.
+def load_papers_from_db(
+    *,
+    embargo_days: int = 30,
+    decay_lambda: float = 0.002,
+    regime: str = "risk_on",
+    apply_embargo: bool = True,
+    apply_decay: bool = True,
+) -> list[dict]:
+    """Load papers from DB with Xia 2026 protocol enforcement.
 
-    Falls back to empty list if DB is empty or unavailable.
+    Parameters
+    ----------
+    embargo_days : int
+        Outcome Embargo window (default 30 days).
+    decay_lambda : float
+        Time-Aware Retrieval base decay rate (default 0.002/day).
+    regime : str
+        Current regime for regime-aware λ scaling.
+    apply_embargo : bool
+        Whether to apply Outcome Embargo filtering.
+    apply_decay : bool
+        Whether to apply Time-Aware Retrieval scoring.
+
+    Returns
+    -------
+    list[dict]
+        Paper dicts, embargo-filtered and time-scored.
     """
+    from archimedes.services.embargo_filter import apply_outcome_embargo
+    from archimedes.services.time_aware_retrieval import (
+        apply_time_aware_retrieval,
+        regime_lambda,
+    )
+
     with get_session() as session:
         rows = session.query(PaperRecord).order_by(PaperRecord.published.desc()).all()
-        return [r.to_dict() for r in rows]
+        papers = [r.to_dict() for r in rows]
+
+    if apply_embargo:
+        papers = apply_outcome_embargo(papers, embargo_days=embargo_days)
+
+    if apply_decay:
+        lam = regime_lambda(decay_lambda, regime=regime)
+        papers = apply_time_aware_retrieval(papers, lam=lam)
+
+    return papers

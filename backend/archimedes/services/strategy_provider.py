@@ -30,6 +30,7 @@ from typing import Any
 
 from archimedes.db import get_session
 from archimedes.models.backtest import BacktestResult
+from archimedes.models.paper_ref import PaperRef
 from archimedes.models.strategy import (
     PositionSizing,
     RebalanceFrequency,
@@ -252,11 +253,22 @@ def _to_strategy(path: Path, metadata: dict[str, Any], code_hash: str, fixture: 
     # bump created_at/updated_at for unchanged strategies.
     file_mtime = datetime.fromtimestamp(path.stat().st_mtime)
 
+    # Build PaperRef from the curated strategy file's metadata.
+    # Curated strategies reference a single paper; fusion strategies have N.
+    paper_ref = PaperRef(
+        arxiv_id=str(metadata.get("PAPER_ARXIV_ID") or "") or None,
+        title=str(metadata.get("PAPER_TITLE") or path.stem),
+        authors=list(metadata.get("PAPER_AUTHORS") or []),
+        doi=metadata.get("PAPER_DOI"),
+        venue=metadata.get("PAPER_VENUE"),
+        year=paper_year,
+        citation_count=metadata.get("PAPER_CITATION_COUNT"),
+        contribution=None,  # Curated = single paper; no fusion contribution
+    )
+
     return Strategy(
         id=_strategy_id(metadata, code_hash),
-        paper_arxiv_id=str(metadata.get("PAPER_ARXIV_ID") or ""),
-        paper_title=str(metadata.get("PAPER_TITLE") or path.stem),
-        paper_authors=list(metadata.get("PAPER_AUTHORS") or []),
+        papers=[paper_ref],
         methodology_summary=methodology_summary,
         methodology_text=methodology_text if isinstance(methodology_text, str) else None,
         asset_universe=list(metadata.get("ASSET_UNIVERSE") or []),
@@ -269,10 +281,6 @@ def _to_strategy(path: Path, metadata: dict[str, Any], code_hash: str, fixture: 
         extraction_reasoning="",
         created_at=file_mtime,
         updated_at=file_mtime,
-        paper_venue=metadata.get("PAPER_VENUE"),
-        paper_year=paper_year,
-        paper_doi=metadata.get("PAPER_DOI"),
-        paper_citation_count=metadata.get("PAPER_CITATION_COUNT"),
         paper_claimed_sharpe=float(paper_claimed_sharpe) if paper_claimed_sharpe is not None else None,
         paper_claimed_cagr=float(paper_claimed_cagr) if paper_claimed_cagr is not None else None,
         paper_claimed_max_dd=float(paper_claimed_max_dd) if paper_claimed_max_dd is not None else None,

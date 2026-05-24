@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from archimedes.models.paper_ref import PaperRef
 from archimedes.models.strategy import Strategy, StrategyStatus
 from archimedes.services.strategy_provider import _read_module_constants, _to_strategy
 
@@ -30,15 +31,14 @@ VALID_TAGS = {"bull", "bear", "regime_neutral"}
 def test_strategy_dataclass_has_regime_tag():
     s = Strategy(
         id="test",
-        paper_arxiv_id="",
-        paper_title="Test",
+        papers=[PaperRef(title="Test")],
         regime_tag="bull",
     )
     assert s.regime_tag == "bull"
 
 
 def test_strategy_dataclass_regime_tag_default():
-    s = Strategy(id="test", paper_arxiv_id="", paper_title="Test")
+    s = Strategy(id="test", papers=[PaperRef(title="Test")])
     assert s.regime_tag == "regime_neutral"
 
 
@@ -151,8 +151,7 @@ def test_to_strategy_response_wires_regime_tag():
 
     s = Strategy(
         id="test-regime",
-        paper_arxiv_id="",
-        paper_title="Test Regime",
+        papers=[PaperRef(title="Test Regime")],
         methodology_summary="test",
         regime_tag="bear",
     )

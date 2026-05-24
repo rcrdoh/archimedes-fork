@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from archimedes.models.paper_ref import PaperRef
 from archimedes.models.strategy import Strategy
 from archimedes.services.strategy_signal_evaluator import (
     AssetSignal,
@@ -34,8 +35,7 @@ def _make_strategy(
 ) -> Strategy:
     return Strategy(
         id="test-strat-001",
-        paper_arxiv_id="",
-        paper_title=paper_title,
+        papers=[PaperRef(title=paper_title)],
         asset_universe=asset_universe or ["SPY"],
     )
 

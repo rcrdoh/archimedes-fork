@@ -148,20 +148,34 @@ class VaultListResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 
 
+class PaperRefResponse(BaseModel):
+    """A single paper reference in a strategy passport."""
+
+    arxiv_id: str | None = None
+    title: str = ""
+    authors: list[str] = []
+    doi: str | None = None
+    venue: str | None = None
+    year: int | None = None
+    citation_count: int | None = None
+    contribution: str | None = None
+
+
 class StrategyResponse(BaseModel):
     """Strategy detail for the strategy explorer."""
 
     id: str
-    paper_arxiv_id: str
-    paper_title: str
-    paper_authors: list[str] = []
+    papers: list[PaperRefResponse] = []
     methodology_summary: str
     asset_universe: list[str]
     position_sizing: str
     rebalance_frequency: str
     status: str  # "candidate" | "validated" | "live" | "retired" | "rejected"
 
-    # Paper provenance (passport fields)
+    # Legacy scalar fields (populated from papers[0] for backwards compat)
+    paper_arxiv_id: str = ""
+    paper_title: str = ""
+    paper_authors: list[str] = []
     paper_venue: str | None = None
     paper_year: int | None = None
     paper_doi: str | None = None
@@ -175,7 +189,6 @@ class StrategyResponse(BaseModel):
     on_chain_registration_tx: str | None = None
 
     # Backtest results (if evaluated; None = not yet run)
-    # Values come from persisted backtest_results rows (analytics-engine output).
     sharpe_ratio: float | None = None
     sortino_ratio: float | None = None
     max_drawdown: float | None = None
@@ -191,6 +204,7 @@ class StrategyResponse(BaseModel):
     kelly_fraction: float | None = None
     passes_rigor_gate: bool = False
     paper_claimed_sharpe: float | None = None
+    paper_claim_blended_sharpe: float | None = None
     is_backtest_placeholder: bool = False
     sharpe_ci_lower: float | None = None
     sharpe_ci_upper: float | None = None

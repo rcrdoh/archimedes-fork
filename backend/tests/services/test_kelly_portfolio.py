@@ -21,6 +21,7 @@ from archimedes.models.portfolio import (
     TradeDirection,
 )
 from archimedes.models.regime import Regime, RegimeClassification, RegimeSignals
+from archimedes.models.paper_ref import PaperRef
 from archimedes.models.strategy import Strategy, StrategyStatus
 from archimedes.services._deprecated.kelly_portfolio import KellyRiskParityConstructor
 
@@ -39,8 +40,7 @@ def _make_strategy(
     """Create a test strategy with stub metrics."""
     return Strategy(
         id=strategy_id,
-        paper_arxiv_id="",
-        paper_title=f"Test Strategy {strategy_id}",
+        papers=[PaperRef(title=f"Test Strategy {strategy_id}")],
         asset_universe=assets or ["SPY"],
         status=StrategyStatus.VALIDATED,
         stub_sharpe=sharpe,

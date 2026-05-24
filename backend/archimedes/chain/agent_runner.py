@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from archimedes.chain.client import chain_client
 from archimedes.chain.executor import chain_executor
 from archimedes.chain.trace_publisher import trace_publisher
+from archimedes.chain.v_check import VCheck
 from archimedes.models.portfolio import (
     Portfolio,
     RiskProfile,
@@ -314,6 +315,27 @@ class StrategyRunner:
                 tick_id, t.direction.value, t.symbol, t.estimated_usdc_value,
             )
 
+        # ── V_check — Xia et al. 2026 § 5 Reasoning I/O contract ───
+        # Deterministic validity gate: if weights are invalid, SKIP the
+        # entire rebalance regardless of LLM confidence.
+        alloc_weights_bps: dict[str, int] = {}
+        for t in targets:
+            if t.weight > 0 and t.token_address:
+                alloc_weights_bps[t.symbol] = int(round(t.weight * 10000))
+        v_check = VCheck(weights_bps=alloc_weights_bps)
+        v_result = v_check.run()
+        if not v_result.passed:
+            logger.warning(
+                "[tick %s] V_check FAILED for vault %s: %s — skipping rebalance",
+                tick_id, vault_address[:10], "; ".join(v_result.failures),
+            )
+            await self._publish_trace(
+                vault_address, DecisionType.SKIP, "v_check_failed",
+                portfolio, [], all_signals, regime, tick_id,
+                f"V_check rejected: {'; '.join(v_result.failures)}",
+            )
+            return
+
         # ── Commit-Reveal Flow ────────────────────────────────────
         # Phase 1: COMMIT — compute hash and anchor on-chain BEFORE trade
         reasoning = self._build_reasoning(all_signals, regime, trades)
@@ -479,6 +501,7 @@ class StrategyRunner:
                 for t in trades
             ],
             strategies_referenced=[ss.strategy_id for ss in all_signals],
+            consulted_paper_hashes=[],
         )
 
         trace.compute_hash()
@@ -561,6 +584,7 @@ class StrategyRunner:
                 for t in trades
             ],
             strategies_referenced=[ss.strategy_id for ss in all_signals],
+            consulted_paper_hashes=[],
             # Commit-reveal temporal binding
             commit_tx_hash=commit_tx,
             commit_block_number=commit_block,
@@ -680,6 +704,7 @@ class StrategyRunner:
                 for t in trades
             ],
             strategies_referenced=[ss.strategy_id for ss in all_signals],
+            consulted_paper_hashes=consulted_hashes,
         )
 
         trace.compute_hash()

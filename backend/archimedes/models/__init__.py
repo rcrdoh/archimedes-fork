@@ -2,8 +2,10 @@
 # These types cross component boundaries. Every team member depends on them.
 # Change policy: announce in Discord before modifying any model here.
 
+from archimedes.models.paper_ref import PaperRef
 from archimedes.models.strategy import (
-    Strategy,
+    StrategyPassport,
+    Strategy,  # Backwards-compat alias
     StrategyStatus,
     SignalDefinition,
     PositionSizing,
@@ -25,8 +27,11 @@ from archimedes.models.trace import ReasoningTrace, DecisionType
 from archimedes.models.asset import AssetInfo, AssetType, AssetPrice
 
 __all__ = [
-    # Strategy
-    "Strategy",
+    # Paper reference
+    "PaperRef",
+    # Strategy passport
+    "StrategyPassport",
+    "Strategy",  # Backwards-compat alias
     "StrategyStatus",
     "SignalDefinition",
     "PositionSizing",

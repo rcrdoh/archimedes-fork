@@ -64,11 +64,16 @@ class ReasoningTrace:
     trade_tx_hash: str | None = None  # The actual rebalance trade tx hash
     trade_block_number: int | None = None  # Block number of trade tx
 
+    # Source Tracking — Xia et al. 2026 § 4.3
+    # List of "arxiv_id:content_hash" strings for papers consulted in this decision.
+    consulted_paper_hashes: list[str] = field(default_factory=list)
+
     # Canonical field order for hash computation — must match contract's verifyTrace
     _HASH_FIELDS = (
         "id", "vault_address", "decision_type", "trigger", "timestamp",
         "market_context", "portfolio_before", "portfolio_after",
         "reasoning", "confidence", "trades_executed", "strategies_referenced",
+        "consulted_paper_hashes",
     )
 
     def canonical_json(self) -> str:
