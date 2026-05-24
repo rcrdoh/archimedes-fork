@@ -5,11 +5,19 @@ In Progress
 
 ## Tasks
 ### Completed
+- [x] #200 Explore page: real oracle prices with stale guards (fix pandas Series parsing bug)
 - [x] #201 Delete legacy /api/papers/corpus/* metadata-derived endpoints + repoint frontend to honest /api/corpus/*
 - [x] #152 Corpus Graph + KG endpoints read from S3-backed KB artifacts
 - [x] #153 CorpusGraph + CorpusKG frontend components
 - [x] #158 Wire paper-qa as defense-in-depth ranker behind strategy_fusion.select_candidates()
 - [x] #157 StockBench evaluation harness: adapter + CLI + results + 35 tests
+
+### Issue #200 — Explore: Real Oracle Prices
+- **Root cause:** yfinance `_fetch_price_histories` returns pandas Series, not dicts. The `isinstance(hist, dict)` check silently discarded ALL price data, leaving 84 assets with `price=None, stale=True`.
+- **Fix:** Added `hasattr(raw_hist, 'tolist')` branch to extract `dropna().tolist()` from pandas Series. Assets with no price at all (no oracle AND no history) are skipped to prevent 0.00 rows.
+- **Result:** 84 assets with real prices, all stale=True (oracle contracts have no pushed prices yet — Circle wallet updater runs on EC2). Honest stale marking + last_updated timestamps.
+- **Tests:** 14/14 passing including new `test_pandas_series_history_parsed_correctly` and `test_no_price_at_all_skips_asset`.
+- **Files changed:** `backend/archimedes/services/asset_market_service.py`, `backend/tests/services/test_asset_market_service.py`
 
 ### Issue #157 — StockBench Evaluation Harness
 - `backend/archimedes/evaluation/__init__.py` (NEW) — evaluation framework package
