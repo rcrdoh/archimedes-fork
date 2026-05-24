@@ -94,7 +94,7 @@ jobs:
           EOF
 
       - name: Post or update PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fmt = r => r === 'passed' ? '✅ passed' : '❌ not passed';
