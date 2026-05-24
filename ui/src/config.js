@@ -13,6 +13,42 @@ export const publicClient = createPublicClient({
 })
 
 // ─── Wallet Connection ──────────────────────────────────────
+//
+// Discovery follows EIP-6963 (Multi Injected Provider Discovery) when the
+// wallet supports it; falls back to legacy window.ethereum sniffing for
+// older wallets. EIP-6963 is the modern standard — newer Coinbase Wallet,
+// Rabby, Brave, Phantom EVM, etc. only announce themselves this way.
+// Reference: https://eips.ethereum.org/EIPS/eip-6963
+
+// Keyed by rdns (reverse-DNS identifier the wallet self-declares).
+const eip6963Providers = new Map()
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('eip6963:announceProvider', (event) => {
+    const detail = event.detail
+    if (detail?.info?.rdns && detail?.provider) {
+      eip6963Providers.set(detail.info.rdns, detail)
+    }
+  })
+  // Ask wallets that loaded before this listener was attached to re-announce.
+  window.dispatchEvent(new Event('eip6963:requestProvider'))
+}
+
+// Known wallets we ship icons + curated names for. Any EIP-6963 wallet not in
+// this list still surfaces via discoverEip6963Wallets() with the wallet's own
+// self-declared name + icon.
+const KNOWN_WALLET_RDNS = {
+  metamask: ['io.metamask', 'io.metamask.flask'],
+  coinbase: ['com.coinbase.wallet'],
+}
+
+function findEip6963Provider(rdnsList) {
+  for (const rdns of rdnsList) {
+    const entry = eip6963Providers.get(rdns)
+    if (entry) return entry.provider
+  }
+  return null
+}
 
 export const WALLET_PROVIDERS = [
   {
@@ -20,10 +56,13 @@ export const WALLET_PROVIDERS = [
     name: 'MetaMask',
     icon: 'i-token-branded-metamask',
     detect: () => {
+      // EIP-6963 first (modern MetaMask)
+      const announced = findEip6963Provider(KNOWN_WALLET_RDNS.metamask)
+      if (announced) return announced
+      // Legacy: window.ethereum.isMetaMask
       if (!window.ethereum) return null
-      // MetaMask injects window.ethereum with isMetaMask
       if (window.ethereum.isMetaMask) return window.ethereum
-      // Some browsers have multiple wallets — check for MetaMask specifically
+      // Multi-provider legacy
       if (window.ethereum.providers?.find(p => p.isMetaMask)) {
         return window.ethereum.providers.find(p => p.isMetaMask)
       }
@@ -35,11 +74,12 @@ export const WALLET_PROVIDERS = [
     name: 'Coinbase Wallet',
     icon: 'i-simple-icons-coinbase',
     detect: () => {
-      // Coinbase Wallet extension
+      // EIP-6963 first (modern Coinbase Wallet extension)
+      const announced = findEip6963Provider(KNOWN_WALLET_RDNS.coinbase)
+      if (announced) return announced
+      // Legacy patterns (older versions)
       if (window.ethereum?.isCoinbaseWallet) return window.ethereum
-      // Coinbase injected as separate provider
       if (window.coinbaseWalletExtension) return window.coinbaseWalletExtension
-      // Multiple providers — find Coinbase
       if (window.ethereum?.providers?.find(p => p.isCoinbaseWallet)) {
         return window.ethereum.providers.find(p => p.isCoinbaseWallet)
       }
@@ -51,11 +91,33 @@ export const WALLET_PROVIDERS = [
     name: 'Browser Wallet',
     icon: 'i-lucide-globe',
     detect: () => {
-      // Fallback: any window.ethereum provider
+      // Fallback: any window.ethereum provider not already covered.
       return window.ethereum || null
     },
   },
 ]
+
+// Returns EIP-6963 wallets that aren't in our curated WALLET_PROVIDERS list —
+// e.g. Rabby, Brave, Phantom EVM. Each entry shape matches WALLET_PROVIDERS so
+// the modal can render them with the wallet's self-declared name + icon.
+export function discoverEip6963Wallets() {
+  const knownRdns = new Set(Object.values(KNOWN_WALLET_RDNS).flat())
+  const wallets = []
+  for (const [rdns, entry] of eip6963Providers) {
+    if (knownRdns.has(rdns)) continue
+    wallets.push({
+      id: `eip6963:${rdns}`,
+      name: entry.info.name || rdns,
+      // Wallet self-declared base64 data URI (per EIP-6963); render directly
+      // in <img src=...>. We pass `iconDataUri` instead of `icon` so the
+      // modal can branch on which to render.
+      iconDataUri: entry.info.icon || null,
+      icon: 'i-lucide-wallet',
+      detect: () => entry.provider,
+    })
+  }
+  return wallets
+}
 
 const STORAGE_KEY = 'archimedes_wallet'
 
@@ -90,7 +152,7 @@ export async function reconnectWallet() {
   const meta = loadWalletMeta()
   if (!meta) return null
 
-  const provider = WALLET_PROVIDERS.find(p => p.id === meta.providerId)
+  const provider = findWalletProvider(meta.providerId)
   if (!provider) { clearWalletMeta(); return null }
 
   const ethereum = provider.detect()
@@ -165,8 +227,19 @@ async function ensureArcChain(ethereum) {
   }
 }
 
+// Resolve any provider id (curated WALLET_PROVIDERS *or* a dynamic
+// `eip6963:<rdns>` id surfaced via discoverEip6963Wallets()).
+function findWalletProvider(providerId) {
+  const curated = WALLET_PROVIDERS.find(p => p.id === providerId)
+  if (curated) return curated
+  if (providerId?.startsWith('eip6963:')) {
+    return discoverEip6963Wallets().find(p => p.id === providerId) || null
+  }
+  return null
+}
+
 export async function connectWallet(providerId) {
-  const provider = WALLET_PROVIDERS.find(p => p.id === providerId)
+  const provider = findWalletProvider(providerId)
   if (!provider) throw new Error(`Unknown provider: ${providerId}`)
 
   const ethereum = provider.detect()
@@ -220,9 +293,18 @@ export async function getWalletClient() {
   throw new Error('No wallet connected. Click "Connect Wallet" to continue.')
 }
 
-// Check which providers are available
+// Returns all wallet providers detected in the page — curated WALLET_PROVIDERS
+// that pass their detect(), plus any EIP-6963 wallet the dApp doesn't have a
+// curated entry for (Rabby, Brave, Phantom EVM, etc.).
 export function getAvailableProviders() {
-  return WALLET_PROVIDERS.filter(p => p.detect() !== null)
+  const curated = WALLET_PROVIDERS.filter(p => p.detect() !== null)
+  const discovered = discoverEip6963Wallets()
+  // Drop the generic 'browser' fallback if a real EIP-6963 wallet is present —
+  // the generic option exists for users who only have window.ethereum injected
+  // without identifying itself, which is exactly what EIP-6963 fixes.
+  const hasReal = curated.some(p => p.id !== 'browser') || discovered.length > 0
+  const filtered = hasReal ? curated.filter(p => p.id !== 'browser') : curated
+  return [...filtered, ...discovered]
 }
 
 // Listen for account/chain changes from the wallet extension

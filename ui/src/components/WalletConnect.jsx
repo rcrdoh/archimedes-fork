@@ -7,8 +7,23 @@ export default function WalletConnect({ address, displayName, onConnect, onDisco
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [discoveryTick, setDiscoveryTick] = useState(0)
   const menuRef = useRef(null)
 
+  // EIP-6963 wallets announce themselves asynchronously. The set can grow
+  // after first render — re-derive `available` when a new wallet announces.
+  useEffect(() => {
+    const bump = () => setDiscoveryTick(t => t + 1)
+    window.addEventListener('eip6963:announceProvider', bump)
+    // Re-prompt wallets to announce when the modal opens, in case any
+    // loaded after our initial requestProvider in config.js.
+    if (showModal) window.dispatchEvent(new Event('eip6963:requestProvider'))
+    return () => window.removeEventListener('eip6963:announceProvider', bump)
+  }, [showModal])
+
+  // discoveryTick is read here only to force re-computation of `available`
+  // when the EIP-6963 listener bumps it; the value itself is unused.
+  void discoveryTick
   const available = getAvailableProviders()
 
   // Close the connected-wallet dropdown on outside click or Escape.
@@ -167,7 +182,17 @@ export default function WalletConnect({ address, displayName, onConnect, onDisco
               <div className="wallet-options">
                 {available.map(p => (
                   <button key={p.id} className="wallet-option" onClick={() => handleConnect(p.id)} disabled={busy}>
-                    <span className={`wallet-icon ${p.icon} w-5 h-5`} />
+                    {p.iconDataUri ? (
+                      <img
+                        src={p.iconDataUri}
+                        alt=""
+                        width={20}
+                        height={20}
+                        style={{ borderRadius: 4 }}
+                      />
+                    ) : (
+                      <span className={`wallet-icon ${p.icon} w-5 h-5`} />
+                    )}
                     <span>{p.name}</span>
                   </button>
                 ))}
