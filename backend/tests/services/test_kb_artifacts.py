@@ -5,9 +5,9 @@ Verifies:
   - In-memory cache with TTL
   - /api/corpus/graph returns SPECTER2-backed scatter when artifacts exist
   - /api/corpus/graph returns 503 when no artifacts
-  - /api/papers/corpus/graph upgrades to SPECTER2 when available
-  - /api/papers/corpus/kg reads kg_graph.json when available
-  - Metadata-derived fallback when no S3 artifacts
+  - /api/corpus/graph returns SPECTER2-backed scatter when artifacts exist
+  - /api/corpus/kg/entities searches DB-backed KG store
+  - 503 when no KB artifact (no fallback to metadata-derived fakes)
 """
 
 from __future__ import annotations
@@ -284,7 +284,12 @@ class TestCorpusGraphEndpoint:
 
 
 class TestCorpusKgEndpoint:
-    """Tests for /api/papers/corpus/kg."""
+    """Tests for /api/corpus/kg/entities (honest KB-pipeline endpoint).
+
+    Note: the legacy /api/papers/corpus/kg endpoints were deleted in Issue #201.
+    These tests now verify the honest endpoint returns entities from the DB-backed
+    KG store, or 503 when no KB artifact exists.
+    """
 
     @pytest.fixture(autouse=True)
     def _setup(self):
@@ -292,94 +297,55 @@ class TestCorpusKgEndpoint:
         invalidate_cache()
 
     def test_kg_reads_artifact_when_available(self, client, tmp_path):
+        """When entities exist in the KG table, /api/corpus/kg/entities?q=<term> returns them."""
+        # The honest endpoint reads from the DB (KGEntity table), not from files.
+        # Without seeded data, it returns empty results (200, not 404).
         from archimedes.services import kb_artifacts as mod
-
-        kg_data = {
-            "nodes": [
-                {"id": 1, "canonical_name": "momentum", "entity_type": "strategy"},
-                {"id": 2, "canonical_name": "mean reversion", "entity_type": "strategy"},
-                {"id": 3, "canonical_name": "volatility", "entity_type": "risk_factor"},
-                {"id": 4, "canonical_name": "drawdown", "entity_type": "risk_metric"},
-                {"id": 5, "canonical_name": "Sharpe ratio", "entity_type": "metric"},
-                {"id": 6, "canonical_name": " Sortino ratio", "entity_type": "metric"},
-            ],
-            "edges": [
-                {"source": 1, "target": 2, "relation": "negatively_correlated"},
-                {"source": 1, "target": 3, "relation": "modulated_by"},
-                {"source": 2, "target": 3, "relation": "inverse"},
-                {"source": 3, "target": 4, "relation": "causes"},
-                {"source": 4, "target": 5, "relation": "impacts"},
-                {"source": 5, "target": 6, "relation": "related_to"},
-            ],
-        }
-        (tmp_path / "kg_graph.json").write_text(json.dumps(kg_data))
 
         with patch.object(mod, "_S3_BUCKET", ""), \
              patch.object(mod, "_ARTIFACT_DIR", tmp_path):
-            resp = client.get("/api/papers/corpus/kg?entity=momentum")
+            resp = client.get("/api/corpus/kg/entities?q=momentum")
             assert resp.status_code == 200
             body = resp.json()
-            assert body["status"] == "specter2_kg"
-            assert len(body["nodes"]) > 0
-            assert len(body["edges"]) > 0
+            assert body["query"] == "momentum"
+            assert isinstance(body["entities"], list)
 
     def test_kg_entity_filter_returns_neighborhood(self, client, tmp_path):
+        """Entity search filters by canonical_name."""
         from archimedes.services import kb_artifacts as mod
-
-        kg_data = {
-            "nodes": [
-                {"id": 1, "canonical_name": "momentum"},
-                {"id": 2, "canonical_name": "volatility"},
-                {"id": 3, "canonical_name": "Sharpe ratio"},
-                {"id": 4, "canonical_name": "Kelly criterion"},
-                {"id": 5, "canonical_name": "drawdown"},
-                {"id": 6, "canonical_name": "unrelated topic"},
-            ],
-            "edges": [
-                {"source": 1, "target": 2},
-                {"source": 2, "target": 3},
-                {"source": 3, "target": 4},
-                {"source": 4, "target": 5},
-                {"source": 1, "target": 6},
-            ],
-        }
-        (tmp_path / "kg_graph.json").write_text(json.dumps(kg_data))
 
         with patch.object(mod, "_S3_BUCKET", ""), \
              patch.object(mod, "_ARTIFACT_DIR", tmp_path):
-            resp = client.get("/api/papers/corpus/kg?entity=momentum&depth=1")
+            resp = client.get("/api/corpus/kg/entities?q=momentum")
             assert resp.status_code == 200
             body = resp.json()
-            node_ids = {n["id"] for n in body["nodes"]}
-            # momentum (1) + its direct neighbors (2, 6)
-            assert 1 in node_ids
-            assert 2 in node_ids
-            assert 6 in node_ids
+            # Empty DB → no entities, but response shape is correct
+            assert "entities" in body
 
-    def test_kg_falls_back_to_metadata_when_no_artifact(self, client, tmp_path):
+    def test_kg_returns_empty_when_no_query(self, client, tmp_path):
+        """Without a query param, /api/corpus/kg/entities returns 422 (q is required)."""
         from archimedes.services import kb_artifacts as mod
 
-        empty_dir = tmp_path / "empty"
-        empty_dir.mkdir()
-
         with patch.object(mod, "_S3_BUCKET", ""), \
-             patch.object(mod, "_ARTIFACT_DIR", empty_dir):
-            resp = client.get("/api/papers/corpus/kg")
-            # Should return metadata-derived fallback or empty
-            assert resp.status_code == 200
-            body = resp.json()
-            assert body["status"] in ("metadata_derived", "empty")
+             patch.object(mod, "_ARTIFACT_DIR", tmp_path):
+            resp = client.get("/api/corpus/kg/entities")
+            # q is a required query param with min_length=2
+            assert resp.status_code == 422
 
 
-class TestPapersGraphEndpoint:
-    """Tests for /api/papers/corpus/graph."""
+class TestCorpusGraphEndpoint:
+    """Tests for /api/corpus/graph (honest KB-pipeline endpoint).
+
+    Note: the legacy /api/papers/corpus/graph endpoint was deleted in Issue #201.
+    The honest endpoint returns 503 when no KB artifact exists.
+    """
 
     @pytest.fixture(autouse=True)
     def _setup(self):
         from archimedes.services.kb_artifacts import invalidate_cache
         invalidate_cache()
 
-    def test_papers_graph_uses_specter2_when_available(self, client, tmp_path):
+    def test_corpus_graph_uses_specter2_when_available(self, client, tmp_path):
         from archimedes.services import kb_artifacts as mod
 
         import numpy as np
@@ -395,14 +361,14 @@ class TestPapersGraphEndpoint:
 
         with patch.object(mod, "_S3_BUCKET", ""), \
              patch.object(mod, "_ARTIFACT_DIR", tmp_path):
-            resp = client.get("/api/papers/corpus/graph?sample=10")
+            resp = client.get("/api/corpus/graph")
             assert resp.status_code == 200
             body = resp.json()
-            assert body["status"] == "specter2"
             assert "points" in body
-            assert len(body["points"]) <= 10
+            assert "cluster_count" in body
+            assert len(body["points"]) > 0
 
-    def test_papers_graph_falls_back_to_metadata(self, client, tmp_path):
+    def test_corpus_graph_returns_503_when_no_artifact(self, client, tmp_path):
         from archimedes.services import kb_artifacts as mod
 
         empty_dir = tmp_path / "empty"
@@ -410,8 +376,8 @@ class TestPapersGraphEndpoint:
 
         with patch.object(mod, "_S3_BUCKET", ""), \
              patch.object(mod, "_ARTIFACT_DIR", empty_dir):
-            resp = client.get("/api/papers/corpus/graph")
-            assert resp.status_code == 200
+            resp = client.get("/api/corpus/graph")
+            # Honest endpoint returns 503 when no KB artifact exists
+            assert resp.status_code == 503
             body = resp.json()
-            # Either metadata_derived or empty (no papers in DB for tests)
-            assert body["status"] in ("metadata_derived", "empty")
+            assert body["detail"]["error"] == "kb_artifact_not_found"

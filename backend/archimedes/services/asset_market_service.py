@@ -218,8 +218,22 @@ class AssetMarketService:
 
         for synth in all_symbols:
             oracle = oracle_data.get(synth, {})
-            hist = histories.get(synth, {}) if isinstance(histories.get(synth), dict) else {}
-            hist_prices = hist.get("close") or []
+
+            # yfinance histories come back as pandas Series (not dicts).
+            # Convert to a plain list of floats for stat math.
+            raw_hist = histories.get(synth)
+            if isinstance(raw_hist, dict):
+                hist = raw_hist
+                hist_prices = hist.get("close") or []
+            elif hasattr(raw_hist, 'tolist'):
+                # pandas Series — extract values + date index
+                hist = {}
+                hist_prices = raw_hist.dropna().tolist()
+                if len(raw_hist.index) > 0:
+                    hist["last_ts"] = str(raw_hist.index[-1])
+            else:
+                hist = {}
+                hist_prices = []
 
             # Current price: oracle primary, yfinance fallback
             current_price: float | None = oracle.get("price")
@@ -238,6 +252,11 @@ class AssetMarketService:
 
             # If no oracle data at all, mark stale
             is_stale = oracle_stale if oracle else True
+
+            # If no price at all (no oracle AND no history), skip this asset
+            # so the UI never renders 0.00 / "—" rows
+            if current_price is None:
+                continue
 
             # Change/vol from yfinance history
             stat_dict: dict[str, Any] = {
