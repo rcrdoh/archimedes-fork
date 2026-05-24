@@ -19,7 +19,7 @@ scipy>=1.13
 
 # Market data
 yfinance>=0.2.40
-requests>=2.32
+requests>=2.34.2
 aiohttp>=3.10
 
 # Backtesting
