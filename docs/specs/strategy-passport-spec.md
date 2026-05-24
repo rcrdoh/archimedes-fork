@@ -1,7 +1,7 @@
 # Strategy Passport — Implementation Contract
 
 > **Audience:** Backend engineers + on-chain integration (Chuan / Marten) + UI (Daniel R. / Marten)
-> **Status:** Implementation contract — post-Track-E unification (multi-paper + regime-aware + on-chain-anchored). Supersedes the Day-2 draft that described scalar-paper fields, `/api/decisions/*` endpoints, and an `ALTER TABLE`-style migration. The unified `strategy_passports` table is the source of truth.
+> **Status:** Implementation contract — post-Track-E unification (multi-paper + regime-aware + on-chain-anchored). Supersedes the Day-2 draft that described scalar-paper fields, deprecated decision endpoints, and an inline-alter migration. The unified `strategy_passports` table is the source of truth.
 > **Last revised:** 2026-05-23 (Track E launch plan landing).
 > **Reference doc:** [`docs/diagrams/strategy-passport-architecture.md`](../diagrams/strategy-passport-architecture.md) — canonical architecture + mermaid diagrams. This spec is the contract that doc describes.
 > **Prerequisite reading:** [`../architectural-principles.md`](../architectural-principles.md) for the philosophy; [`selection-bias-corrections-spec.md`](selection-bias-corrections-spec.md) for the rigor gate.
@@ -163,9 +163,52 @@ CREATE TABLE backtest_results (
 CREATE INDEX ix_backtest_results_strategy_id ON backtest_results(strategy_id);
 ```
 
+### `strategy_proposals` (episodic memory — the compounding substrate)
+
+Every fusion / architect / agent proposal — **including rigor-fails and user-rejects** — is
+persisted here (T-PE.8). The strategy library is not static; every generation contributes
+content-hashed, retrievable rows. Separated from `strategy_passports` because proposals
+are ephemeral candidates while passports are admitted artifacts. When a proposal passes
+the rigor gate and is promoted, a corresponding `strategy_passports` row is minted.
+
+```sql
+CREATE TABLE strategy_proposals (
+    id                  VARCHAR(64)  PRIMARY KEY,     -- content_hash[:16]
+    generation_id       VARCHAR(64)  NOT NULL,        -- groups proposals from one Generate call
+    proposal_id         VARCHAR(64)  NOT NULL,        -- unique within generation
+    parent_proposal_id  VARCHAR(64),                  -- lineage pointer
+
+    -- Verdict
+    verdict             VARCHAR(32)  NOT NULL DEFAULT 'pending',  -- 'pending' | 'rigor_pass' | 'rigor_fail' | 'user_rejected'
+    trust_level         VARCHAR(16)  NOT NULL DEFAULT 'CANDIDATE', -- 'CANDIDATE' | 'VALIDATED' | 'RETIRED'
+
+    -- Integrity
+    content_hash        VARCHAR(66)  NOT NULL UNIQUE, -- keccak256 of canonical payload
+
+    -- Agent provenance
+    agent               VARCHAR(32)  NOT NULL DEFAULT 'unknown', -- 'fusion' | 'architect' | 'agent'
+
+    -- Regime
+    regime_tag          VARCHAR(16),                 -- nullable; populated when regime is known
+
+    -- Full proposal payload
+    payload             TEXT         NOT NULL DEFAULT '{}',
+
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_proposal_verdict       ON strategy_proposals(verdict);
+CREATE INDEX ix_proposal_agent         ON strategy_proposals(agent);
+CREATE INDEX ix_proposal_generation_id ON strategy_proposals(generation_id);
+```
+
+The `/api/strategies/proposals` endpoint exposes these for the UI's explore surface and
+for the compounding-strategy narrative in the pitch.
+
 **Notes on what this schema is NOT:**
 
-- Not `ALTER TABLE strategies ADD COLUMN ...`. The Day-2 spec assumed a pre-existing `strategies` table to extend; that table never landed in the shipped shape. `strategy_passports` is the table.
+- Not an inline column addition to a pre-existing table. The Day-2 spec assumed a `strategies` table to extend; that table never landed in the shipped shape. `strategy_passports` is the table.
 - Not a slim JSON-blob (the pre-Track-E `StrategyRecord`). All passport fields are typed columns so the rigor pipeline, regime filter, and on-chain publisher can all read structured data.
 - Not split between "curated" and "generated" stores. `generation_method` is a column, not a separate table — same shape, same gate, same anchor.
 
@@ -259,7 +302,7 @@ class StrategyPassport:
 
 ## API surface
 
-Endpoints that actually exist post-Track E. Removed: `/api/decisions/*` (lives in the reasoning-trace spec, not here); `/api/strategies/{id}/paper` (subsumed by the multi-paper passport).
+Endpoints that actually exist post-Track E. Removed: legacy decision-routing endpoints (those live in the reasoning-trace spec, not here); `/api/strategies/{id}/paper` (subsumed by the multi-paper passport).
 
 ```
 GET    /api/strategies/{id}/passport
@@ -304,6 +347,17 @@ GET    /api/traces/{trace_id}/verify     (cross-reference — see reasoning-trac
        → analogous endpoint for per-decision ReasoningTraceRegistry verification.
          Mentioned here because the UI surfaces the same Verify pattern for both
          strategies and traces.
+
+GET    /api/strategies/proposals
+       → episodic memory surface (T-PE.8). Returns every generation attempt:
+         fusion proposals, architect proposals, rigor-fails, user-rejects.
+         Query params:
+         - verdict: 'pending' | 'rigor_pass' | 'rigor_fail' | 'user_rejected'
+         - agent: 'fusion' | 'architect' | 'agent'
+         - regime_tag: 'bull' | 'bear' | 'regime_neutral'
+         - generation_id: filter to a single generation session
+       → the compounding substrate: every generation contributes retrievable rows;
+         the strategy library compounds over time instead of being a static artifact.
 ```
 
 ## Integration with the agent's decision flow
@@ -320,6 +374,7 @@ This is how a passport gets minted, gated, anchored, and read — end to end.
    - Computes `keccak256(papers[].arxiv_id sorted joined)` → `paper_corpus_hash`.
    - Derives `regime_tag` from the regime classifier (or reads the explicit `REGIME_TAG` constant from a curated file).
    - Upserts to `strategy_passports` (content-hash dedup); inserts N rows to `paper_refs`.
+   - **Also persists to `strategy_proposals`** (episodic memory) — every attempt is recorded with verdict, agent, regime_tag, and content_hash. The proposals table is the compounding substrate; passports are the promoted subset.
    - `strategy_provider.py` becomes a thin backward-compat shim that reads from the same store via the loader's queries.
 
 3. **Rigor pipeline runs.** Backtest engine executes `strategy_code_hash` on real data → writes `backtest_results` row. `rigor_evaluator.py` computes DSR + Sharpe CI; `fusion_evaluator.py` computes PBO via CSCV; AST scan for look-ahead. All four results land in `rigor_results`. If all pass → `strategy_passports.passes_rigor_gate = true` and `status` transitions `candidate → validated`. If any fail → `status = rejected` (visible failure, NOT silent drop).
@@ -403,7 +458,7 @@ Layer 2 (always-both generation) and Layer 3 (regime-aware portfolio weighting) 
 
 ## Content-hashing details
 
-**`keccak256` over canonical-encoded JSON.** Web3-compatible; matches what the on-chain registry computes. The previous spec used SHA-256 — that's wrong for our on-chain integration. Hash divergence between off-chain and on-chain breaks verification.
+**`keccak256` over canonical-encoded JSON.** Web3-compatible; matches what the on-chain registry computes. The pre-Track-E spec used a non-EVM hash — that's wrong for our on-chain integration. Hash divergence between off-chain and on-chain breaks verification.
 
 Canonical form:
 
@@ -439,7 +494,7 @@ The passport's value is fully realized in the UI. Post-Track-E shipped component
 
 - **DO NOT mint strategies without `regime_tag`.** The loader rejects passports with `regime_tag = NULL`. If the regime is genuinely unclear, the generation agent must explicitly tag `regime_neutral` (not omit the field). Auditable claim > silent omission.
 - **DO NOT skip on-chain registration for Tier-1 promotions.** A strategy is Tier-1 iff `passes_rigor_gate = true` AND `on_chain_registration_tx IS NOT NULL`. The `is_tier_1` property enforces both. The Portfolio Construction Agent only ever consumes Tier-1 strategies for production vault deployment; Tier-2 (community, opt-in) reads candidates separately.
-- **DO NOT use SHA-256 for `methodology_hash`.** Must be keccak256 for on-chain compatibility. The on-chain `StrategyRegistry.registerStrategy()` recomputes keccak256; if off-chain uses SHA-256 the verification path is broken from day one. Audit existing usages of `hashlib.sha256` in `strategy.py` and `strategy_provider.py` and migrate them in the Track E rollout.
+- **DO NOT use non-EVM hashing for `methodology_hash`.** Must be keccak256 for on-chain compatibility. The on-chain `StrategyRegistry.registerStrategy()` recomputes keccak256; if off-chain uses a different hash the verification path is broken from day one. Audit existing usages of non-keccak hashing in `strategy.py` and `strategy_provider.py` and migrate them in the Track E rollout.
 - **DO NOT mint single-paper passports with `papers = []`.** The constraint is `len(papers) >= 1`. The architect/fusion paths must always produce at least one PaperRef. Curated seed strategies always have one (or more).
 - **DO NOT collapse fusion strategies to a scalar paper field for UI convenience.** The `papers` list shape is the contract. The UI table is the right primitive; do not pick a "primary paper" and hide the rest.
 - **DO NOT anchor failed-rigor strategies.** The on-chain registry's meaning is "this passed our gate." Anchoring failures pollutes the registry and inflates gas costs. Failed strategies stay in DB with `status='rejected'`.
@@ -460,17 +515,18 @@ Current Track E spec IDs from [`docs/specs/launch-execution-plan-2026-05-23.md`]
 | `StrategyRegistry.sol` contract + Foundry tests + deploy    | T-PE.5   | Chuan    | 1.0  |
 | `chain/strategy_publisher.py` (Tier-1 promotion anchoring)  | T-PE.6   | Chuan    | 0.5  |
 | `StrategyPassport.jsx` (multi-paper table + Verify button)  | T-PE.7   | Marten   | 1.0  |
+| `strategy_proposals` table + `/api/strategies/proposals` endpoint (episodic memory) | T-PE.8 | t2o2 | 0.5  |
 
-**Total: ~6.5 person-days, parallelizable.** T-PE.1 + T-PE.5 unblock everything else; can run concurrently. T-PE.7 needs T-PE.2 + T-PE.6 landed for the Verify button to demo end-to-end.
+**Total: ~7.0 person-days, parallelizable.** T-PE.1 + T-PE.5 unblock everything else; can run concurrently. T-PE.7 needs T-PE.2 + T-PE.6 landed for the Verify button to demo end-to-end. T-PE.8 (episodic memory) is independent and can land any time.
 
 ## Acceptance criteria for the implementation contract
 
 The contract is satisfied when all of the following are true on a cold clone deployed to the live EC2 stack:
 
-- [ ] `strategy_passports`, `paper_refs`, `rigor_results`, `backtest_results` tables exist with the typed columns specified above; Alembic migration is reversible.
+- [ ] `strategy_passports`, `paper_refs`, `rigor_results`, `backtest_results`, `strategy_proposals` tables exist with the typed columns specified above; Alembic migration is reversible.
 - [ ] Every curated strategy from `analytics-engine/strategies/*.py` is loaded into `strategy_passports` via `passport_loader.py` with `papers` populated (single-entry for the curated v1 set) and `regime_tag` populated.
 - [ ] At least one fusion strategy exists in `strategy_passports` with `len(papers) >= 2`, each PaperRef carrying a non-null `contribution` and `contribution_weight`.
-- [ ] `methodology_hash` and `paper_corpus_hash` are computed with `keccak256` (not SHA-256) for every passport; canonicalization rules live in `lib/canonical.py`.
+- [ ] `methodology_hash` and `paper_corpus_hash` are computed with `keccak256` (not legacy non-EVM hashing) for every passport; canonicalization rules live in `lib/canonical.py`.
 - [ ] `StrategyRegistry.sol` is deployed to Arc testnet (deployment address recorded in `contracts/deployments.json`); ABI cached in `contracts/abis/`.
 - [ ] At least one Tier-1 strategy has been anchored on-chain via `chain/strategy_publisher.py`; `on_chain_registration_tx` populated; tx visible on arcscan.
 - [ ] `GET /api/strategies/{id}/passport` returns the full multi-paper passport including rigor + backtest + anchor fields.
@@ -480,6 +536,7 @@ The contract is satisfied when all of the following are true on a cold clone dep
 - [ ] `Reasoning.jsx`'s existing trace Verify (lines 89-104) continues to work — the strategy-passport verify is additive, not a replacement.
 - [ ] Promotion policy is honored: no passport with `passes_rigor_gate = false` has `on_chain_registration_tx IS NOT NULL`.
 - [ ] Loader rejects passports without `regime_tag` (regression test asserts `IntegrityError` on insert).
+- [ ] `strategy_proposals` table persists every generation attempt (rigor-pass, rigor-fail, user-reject) with content_hash + agent + regime_tag; `/api/strategies/proposals` exposes the episodic memory surface.
 
 ---
 
