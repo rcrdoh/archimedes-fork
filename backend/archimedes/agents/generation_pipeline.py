@@ -446,8 +446,8 @@ async def _run_live_candidate(*, candidate_id: str, brief: GenerateBrief, emit: 
     if portfolio is None:
         raise RuntimeError("agent returned no portfolio")
 
-    weights = {pick.symbol: pick.weight for pick in (portfolio.picks or [])}
-    referenced = {pick.strategy_id for pick in (portfolio.picks or []) if pick.strategy_id}
+    weights = {pick.ticker: pick.weight for pick in (portfolio.picks or [])}
+    referenced = {pick.paper_anchor for pick in (portfolio.picks or []) if pick.paper_anchor}
     source_papers = []
     for sid in referenced:
         s = next((s for s in strategies if s.id == sid), None)
