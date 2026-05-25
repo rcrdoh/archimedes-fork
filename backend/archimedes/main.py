@@ -273,6 +273,84 @@ async def health_paper_rag():
     }
 
 
+@app.get("/health/amm")
+@app.get("/api/health/amm")
+@limiter.exempt
+async def health_amm():
+    """AMM pool liquidity health — per-pool status for operator/judge probes.
+
+    Returns 200 with pool list when pools exist, or 503 with an explicit
+    status message when they haven't been initialized. Never returns 404.
+    """
+    from fastapi.responses import JSONResponse
+
+    from archimedes.chain.client import chain_client
+
+    try:
+        connected = await chain_client.is_connected()
+        if not connected:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "chain_disconnected", "reason": "Cannot reach Arc RPC"},
+            )
+
+        from archimedes.chain.contracts import get_contract_loader
+
+        loader = get_contract_loader()
+        router = loader.amm_router()
+
+        # getAllPools() returns list of pool addresses
+        pool_addresses = await router.functions.getAllPools().call()
+
+        if not pool_addresses:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "amm_pools_not_initialized",
+                    "reason": "No AMM pools exist yet. Run bootstrap_vaults to create pools.",
+                    "pools": [],
+                },
+            )
+
+        # For each pool, read basic state
+        pools = []
+        for addr in pool_addresses:
+            pool_info = {"address": addr}
+            try:
+                pool_contract = loader.amm_pool(addr)
+                # Try to read token addresses and reserves
+                token_a = await pool_contract.functions.tokenA().call()
+                token_b = await pool_contract.functions.tokenB().call()
+                reserve_a = await pool_contract.functions.reserveA().call()
+                reserve_b = await pool_contract.functions.reserveB().call()
+                pool_info.update(
+                    {
+                        "token_a": token_a,
+                        "token_b": token_b,
+                        "reserve_a": reserve_a,
+                        "reserve_b": reserve_b,
+                    }
+                )
+            except Exception:
+                pool_info["error"] = "failed to read pool state"
+            pools.append(pool_info)
+
+        return {
+            "status": "ok",
+            "pool_count": len(pools),
+            "pools": pools,
+        }
+
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "amm_health_check_failed",
+                "reason": str(exc),
+            },
+        )
+
+
 @app.get("/")
 @limiter.exempt
 async def root():
