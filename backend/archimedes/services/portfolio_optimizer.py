@@ -238,7 +238,17 @@ def compute_efficient_frontier(
     frontier: list[dict] = []
 
     w0 = np.ones(n) / n
-    bounds = [(0.0, _CAP_DEFAULT)] * n
+    # Per-asset cap. The default 0.40 cap exists to bound concentration
+    # risk when there are 3+ strategies to diversify across. With only
+    # 1–2 strategies the cap makes the frontier infeasible:
+    #   n=2, cap=0.4 → max sum = 0.8 < 1.0  (frontier empty)
+    #   n=2, cap=0.5 → only equal-weight (0.5, 0.5) is feasible (single point)
+    # When n < 3 there's no meaningful diversification cap to apply, so
+    # remove it entirely; SLSQP then sweeps the full corner-to-corner
+    # frontier. Live symptom: Library "Efficient Frontier" panel said
+    # "Need at least 2 Tier-1 strategies" even though there were 2.
+    per_asset_cap = 1.0 if n < 3 else _CAP_DEFAULT
+    bounds = [(0.0, per_asset_cap)] * n
 
     for target_mu in target_returns:
         constraints = [
