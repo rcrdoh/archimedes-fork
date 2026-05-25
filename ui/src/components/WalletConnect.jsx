@@ -36,6 +36,15 @@ export default function WalletConnect({ address, displayName, onConnect, onDisco
   void discoveryTick
   const available = getAvailableProviders()
 
+  // Allow other components (e.g. WalletGate on logged-out pages) to open
+  // this modal without prop-drilling. Dispatch `open-wallet-modal` to
+  // trigger; WalletGate's "Connect Wallet" button uses this.
+  useEffect(() => {
+    const open = () => setShowModal(true)
+    window.addEventListener('open-wallet-modal', open)
+    return () => window.removeEventListener('open-wallet-modal', open)
+  }, [])
+
   // Close the connected-wallet dropdown on outside click or Escape.
   useEffect(() => {
     if (!menuOpen) return undefined

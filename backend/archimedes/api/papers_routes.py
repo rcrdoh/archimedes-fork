@@ -18,13 +18,32 @@ async def list_papers(
     page_size: int = Query(20, ge=1, le=100),
     category: str | None = None,
     search: str | None = None,
+    processed_only: bool = Query(
+        True,
+        description=(
+            "If true (default), only return papers the KB pipeline has fully "
+            "processed (i.e. have a non-null cluster_id from BERTopic). The "
+            "papers table holds 10K rows of arxiv metadata but the KB pipeline "
+            "has only run on ~1K so far; setting this to false reveals the raw "
+            "metadata-only rows that have no embeddings/topic labels/triples."
+        ),
+    ),
 ):
-    """Paginated corpus catalog. DB-backed with file fallback."""
+    """Paginated corpus catalog. DB-backed with file fallback.
+
+    Defaults to ``processed_only=true`` so the catalog reflects what the
+    user can actually inspect end-to-end (paper detail + topic cluster +
+    similarity neighbors). The raw 10K-row metadata table is preserved
+    as a superset; the runner-state endpoint reports the processed
+    paper_count separately.
+    """
     from archimedes.models.corpus_store import PaperRecord
 
     with get_session() as session:
         query = session.query(PaperRecord)
 
+        if processed_only:
+            query = query.filter(PaperRecord.cluster_id.isnot(None))
         if category:
             query = query.filter(PaperRecord.categories.contains(category))
         if search:

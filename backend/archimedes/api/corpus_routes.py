@@ -98,6 +98,7 @@ async def corpus_overview() -> dict[str, Any]:
     """
     manifest = _load_manifest()
     paper_count = 0
+    processed_papers = 0
     cluster_rows: list[tuple] = []
     categories: list[dict[str, Any]] = []
     year_distribution: list[dict[str, Any]] = []
@@ -109,6 +110,9 @@ async def corpus_overview() -> dict[str, Any]:
 
         with get_session() as session:
             paper_count = session.query(func.count(PaperRecord.arxiv_id)).scalar() or 0
+            processed_papers = (
+                session.query(func.count(PaperRecord.arxiv_id)).filter(PaperRecord.cluster_id.isnot(None)).scalar() or 0
+            )
             cluster_rows = (
                 session.query(
                     PaperRecord.cluster_id,
@@ -117,12 +121,18 @@ async def corpus_overview() -> dict[str, Any]:
                 .group_by(PaperRecord.cluster_id)
                 .all()
             )
+            # Category + year histograms restricted to KB-processed papers so
+            # the chart numbers match what the user can actually inspect end
+            # to end (paper detail + topic cluster + similarity neighbors).
+            # Showing histogram over all 10K metadata rows would imply the
+            # KB pipeline ran on rows it hasn't touched yet.
             cat_rows = (
                 session.query(
                     PaperRecord.primary_category,
                     func.count(PaperRecord.arxiv_id),
                 )
                 .filter(PaperRecord.primary_category != "")
+                .filter(PaperRecord.cluster_id.isnot(None))
                 .group_by(PaperRecord.primary_category)
                 .order_by(func.count(PaperRecord.arxiv_id).desc())
                 .all()
@@ -142,6 +152,7 @@ async def corpus_overview() -> dict[str, Any]:
                     func.count(PaperRecord.arxiv_id),
                 )
                 .filter(PaperRecord.published != "")
+                .filter(PaperRecord.cluster_id.isnot(None))
                 .group_by("yr")
                 .order_by("yr")
                 .all()
@@ -157,11 +168,16 @@ async def corpus_overview() -> dict[str, Any]:
     return {
         # Legacy KB-pipeline shape — kept for backward compatibility
         "paper_count": paper_count,
+        "processed_papers": processed_papers,
+        "metadata_only_papers": max(paper_count - processed_papers, 0),
         "cluster_count": len([c for c, _ in cluster_rows if c is not None]),
         "last_run_ts": (manifest or {}).get("run_ts"),
         "pipeline_status": (manifest or {}).get("status", "never run"),
-        # UI shape — read by CorpusExplorer.jsx for header chips + Overview tab
-        "total_papers": paper_count,
+        # UI shape — read by CorpusExplorer.jsx for header chips + Overview tab.
+        # total_papers reflects the *processed* count so the prominent number
+        # users see matches what they can inspect end to end. Catalog tab
+        # defaults to processed_only=true (see papers_routes.py).
+        "total_papers": processed_papers,
         "categories": categories,
         "year_distribution": year_distribution,
         "source": "arxiv q-fin + adjacent",

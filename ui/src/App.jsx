@@ -12,7 +12,10 @@ import CorpusExplorer from './components/CorpusExplorer'
 import Reasoning from './components/Reasoning'
 import VaultDetail from './components/VaultDetail'
 import OnboardingTour, { hasCompletedOnboarding } from './components/OnboardingTour'
+import WalletGate from './components/WalletGate'
 import './App.css'
+
+const openConnectModal = () => window.dispatchEvent(new Event('open-wallet-modal'))
 
 // Spine routing per docs/user-stories.md. Anything not in this map is gone.
 // vault-detail is a deep-link only (reached from Portfolio); reasoning is a
@@ -188,12 +191,39 @@ export default function App() {
       case 'landing':     return <Landing onNavigate={navigateToPage} />
       case 'explore':      return <Explore onNavigate={navigateToPage} />
       case 'generate':     return <Generate onNavigate={navigateToPage} />
-      case 'library':      return <Strategies highlightStrategyId={highlightStrategyId} defaultTab={defaultTab} onNavigate={navigateToPage} />
+      case 'library':      return (
+        <WalletGate
+          walletAddr={walletAddr}
+          pageName="Your Strategies"
+          description="Library shows strategies you've generated, plus a clearly-separated set of paper-grounded example strategies. Connect a wallet — passkey or browser wallet, both work — to see your generations and deploy them as vaults."
+          onConnect={openConnectModal}
+        >
+          <Strategies highlightStrategyId={highlightStrategyId} defaultTab={defaultTab} onNavigate={navigateToPage} />
+        </WalletGate>
+      )
       case 'strategy':     return <StrategyPassport strategyId={selectedStrategy} onNavigate={navigateToPage} walletAddr={walletAddr} />
       case 'corpus':       return <CorpusExplorer />
-      case 'portfolio':    return <Portfolio walletAddr={walletAddr} onSelectVault={selectVault} onSelectTrace={selectTrace} />
+      case 'portfolio':    return (
+        <WalletGate
+          walletAddr={walletAddr}
+          pageName="Portfolio"
+          description="Portfolio shows your AUM, your deployed vaults, and the autonomous agent's rebalance decisions. Connect a wallet to deposit USDC and start tracking — this is a non-custodial vault you control, not an account on our platform."
+          onConnect={openConnectModal}
+        >
+          <Portfolio walletAddr={walletAddr} onSelectVault={selectVault} onSelectTrace={selectTrace} />
+        </WalletGate>
+      )
       case 'reasoning':    return <Reasoning onNavigate={navigateToPage} />
-      case 'learnings':    return <Learnings onNavigate={navigateToPage} />
+      case 'learnings':    return (
+        <WalletGate
+          walletAddr={walletAddr}
+          pageName="Learnings"
+          description="Learnings reviews the strategies you've deployed — winners and losers, both first-class — with the agent's reasoning available for each rebalance. Connect a wallet to see your deployments."
+          onConnect={openConnectModal}
+        >
+          <Learnings onNavigate={navigateToPage} />
+        </WalletGate>
+      )
       case 'vault-detail': return <VaultDetail address={selectedVault} onBack={backToPortfolio} />
       default:             return <NotFound page={page} onNavigate={navigateToPage} />
     }
