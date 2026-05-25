@@ -753,8 +753,8 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
 
       {examples.some(s => s.is_backtest_placeholder) && (
         <div className="caption mt-4 text-[var(--text-4)]">
-          * Estimated metrics — sourced from paper claims with McLean-Pontiff post-publication decay
-          applied. Replaced by real BacktestResult once the analytics engine runs.
+          * Pre-backtest hypothesis — empirical metrics pending evaluation. Real
+          numbers replace the placeholder once the analytics engine runs.
         </div>
       )}
 
