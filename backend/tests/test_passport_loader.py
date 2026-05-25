@@ -6,7 +6,6 @@ All tests use an in-memory SQLite DB — no real Postgres needed.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import create_engine
@@ -21,7 +20,6 @@ from archimedes.models.strategy import (
     StrategyStatus,
 )
 from archimedes.models.strategy_passport_record import (
-    PassportPaperRef,
     StrategyPassportRecord,
 )
 from archimedes.services.passport_loader import (

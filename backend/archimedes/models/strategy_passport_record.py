@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -28,10 +28,17 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.orm import Session, relationship
+from sqlalchemy.orm import relationship
 
 from archimedes.models.chat import Base
 from archimedes.models.paper_ref import PaperRef
+
+if TYPE_CHECKING:
+    # Import only for the forward-reference type annotation on
+    # to_strategy_passport(). Avoids a circular import at runtime
+    # (StrategyPassport lives in archimedes.models.strategy which imports
+    # back from this module in some paths).
+    from archimedes.models.strategy import StrategyPassport
 
 
 class StrategyPassportRecord(Base):

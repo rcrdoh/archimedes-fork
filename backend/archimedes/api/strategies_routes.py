@@ -354,7 +354,7 @@ async def get_portfolio_advisor(
     all_strategies = [s for s in strategy_provider.list_strategies() if s.real_sharpe is not None]
 
     # Apply regime-aware tilt to strategy ordering
-    from archimedes.services.regime_weight_schedule import apply_regime_tilt, regime_weight_schedule
+    from archimedes.services.regime_weight_schedule import apply_regime_tilt
 
     strategies, regime_mix = apply_regime_tilt(all_strategies, regime_value, risk_profile)
 

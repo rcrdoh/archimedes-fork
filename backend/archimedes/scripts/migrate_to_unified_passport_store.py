@@ -19,7 +19,6 @@ import argparse
 import json
 import logging
 import sys
-from datetime import UTC, datetime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +31,6 @@ def migrate(dry_run: bool = False) -> dict[str, int]:
     """Run the migration. Returns counts."""
     from archimedes.db import get_session, init_db
     from archimedes.models.strategy_passport_record import (
-        PassportPaperRef,
         StrategyPassportRecord,
     )
     from archimedes.services.passport_loader import ingest_passport
