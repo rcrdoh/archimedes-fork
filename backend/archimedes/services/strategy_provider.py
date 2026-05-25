@@ -333,6 +333,7 @@ class LocalStrategyProvider:
         self._strategies: dict[str, Strategy] = {}
         self._backtests: dict[str, BacktestResult] = {}
         self._fixtures: dict[str, Any] = {}
+        self._synced_to_unified = False  # one-time sync flag
         self.refresh()
 
     def refresh(self) -> int:
@@ -380,10 +381,12 @@ class LocalStrategyProvider:
         )
 
         # Sync to unified strategy_passports table (Phase 2, Issue #160).
-        # This keeps the Postgres table always in sync with the file-based
-        # strategies + their backtest results. Non-blocking: failures are
-        # logged but don't prevent the provider from serving.
-        self._sync_to_unified_table(loaded)
+        # One-time at startup only — not on every refresh() call.
+        # PR #283's force_update=True on every request caused 8s latency
+        # on /api/vaults/ (Issue #288).
+        if not self._synced_to_unified:
+            self._sync_to_unified_table(loaded)
+            self._synced_to_unified = True
 
         return len(loaded)
 

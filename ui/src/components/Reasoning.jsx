@@ -51,6 +51,7 @@ function OnChainTraces({ onNavigate, highlightTraceId }) {
   const [loading, setLoading] = useState(true)
   const [verifying, setVerifying] = useState({})
   const [verifyResults, setVerifyResults] = useState({})
+  const [filter, setFilter] = useState('all') // 'all' | 'rebalance' | 'construction' | 'skip'
 
   const loadTraces = useCallback(async () => {
     setLoading(true)
@@ -135,6 +136,20 @@ function OnChainTraces({ onNavigate, highlightTraceId }) {
         to jump to the source strategy and its full passport.
       </p>
 
+      {/* Filter chips */}
+      <div className="flex gap-2 flex-wrap mb-3">
+        {['all', 'rebalance', 'construction', 'skip'].map(f => (
+          <button
+            key={f}
+            className={`tag cursor-pointer ${filter === f ? 'tag-accent' : 'tag-muted'}`}
+            onClick={() => setFilter(f)}
+            style={{ border: 'none', padding: '4px 12px' }}
+          >
+            {f === 'all' ? 'All' : f === 'rebalance' ? '✅ Rebalances' : f === 'construction' ? '🏛️ Constructions' : '⏭ Skips'}
+          </button>
+        ))}
+      </div>
+
       {/* Trace list */}
       {loading ? (
         <div className="caption">Loading traces…</div>
@@ -150,7 +165,15 @@ function OnChainTraces({ onNavigate, highlightTraceId }) {
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
-          {traces.map((t, i) => {
+          {traces
+          .sort((a, b) => {
+            // Most recent first
+            const ta = a.timestamp ? new Date(typeof a.timestamp === 'number' && a.timestamp > 1e12 ? a.timestamp : a.timestamp * 1000).getTime() : 0
+            const tb = b.timestamp ? new Date(typeof b.timestamp === 'number' && b.timestamp > 1e12 ? b.timestamp : b.timestamp * 1000).getTime() : 0
+            return tb - ta
+          })
+          .filter(t => filter === 'all' || t.decision_type === filter)
+          .map((t, i) => {
             const vResult = verifyResults[t.id]
             return (
               <div key={i} id={`trace-${t.id}`} className="card" style={{ padding: 14 }}>
