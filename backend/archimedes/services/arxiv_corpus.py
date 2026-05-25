@@ -83,8 +83,11 @@ _TEXT_REL = "data/corpus/text"
 
 # Polite to the arXiv API: their guidance is a single request every ~3s.
 _API_DELAY_SECONDS = 3.0
+_PDF_DOWNLOAD_DELAY = 3.0  # same polite delay between PDF downloads
 _API_PAGE_SIZE = 100
 _PDF_TIMEOUT_SECONDS = 30
+_PDF_MAX_RETRIES = 3
+_PDF_BACKOFF_BASE = 10  # seconds; exponential: 10, 20, 40
 
 
 # ── Records ─────────────────────────────────────────────────────
@@ -256,15 +259,26 @@ def _dedupe_and_trim(papers: Iterable[CorpusPaper], max_papers: int) -> list[Cor
 
 
 def _default_pdf_downloader(pdf_url: str) -> bytes:
+    """Download a PDF with retry + exponential backoff on 429/503."""
     import requests  # lazy
 
-    resp = requests.get(
-        pdf_url,
-        timeout=_PDF_TIMEOUT_SECONDS,
-        headers={"User-Agent": "archimedes-arxiv-corpus/1.0 (+hackathon)"},
-    )
-    resp.raise_for_status()
-    return resp.content
+    for attempt in range(_PDF_MAX_RETRIES):
+        resp = requests.get(
+            pdf_url,
+            timeout=_PDF_TIMEOUT_SECONDS,
+            headers={"User-Agent": "archimedes-arxiv-corpus/1.0 (+hackathon)"},
+        )
+        if resp.status_code in (429, 503) and attempt < _PDF_MAX_RETRIES - 1:
+            wait = _PDF_BACKOFF_BASE * (2 ** attempt)
+            logger.warning("arxiv returned %d — backing off %ds (attempt %d/%d)",
+                          resp.status_code, wait, attempt + 1, _PDF_MAX_RETRIES)
+            import time
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        return resp.content
+    # Should not reach here, but satisfy type checker
+    raise RuntimeError(f"PDF download failed after {_PDF_MAX_RETRIES} retries")
 
 
 def _cache_pdf(
@@ -391,6 +405,9 @@ def build_corpus(
                 pdf_ok += 1
                 if _extract_text(paper, pdf_dir, text_dir):
                     text_ok += 1
+                # Polite delay between PDF downloads — respect arXiv rate limits
+                import time
+                time.sleep(_PDF_DOWNLOAD_DELAY)
         rows.append(paper.manifest_row(pdf_sha256=sha, fetched_at=fetched_at))
         if idx % 25 == 0:
             logger.info("processed %d/%d papers", idx, len(papers))

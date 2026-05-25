@@ -32,6 +32,8 @@ DEFAULT_TEXT_DIR = Path("data/corpus/text")
 DEFAULT_PDF_DIR = Path("data/corpus/pdfs")
 # Polite delay between arXiv downloads (seconds).
 _DOWNLOAD_DELAY = 3.0
+_MAX_RETRIES = 3
+_BACKOFF_BASE = 10  # seconds; exponential: 10, 20, 40
 
 
 def _resolve_manifest() -> Path | None:
@@ -96,14 +98,29 @@ def hydrate(
             try:
                 import requests
 
-                resp = requests.get(
-                    pdf_url,
-                    timeout=30,
-                    headers={"User-Agent": "archimedes-corpus-hydration/1.0"},
-                )
-                resp.raise_for_status()
-                pdf_path.write_bytes(resp.content)
-                logger.info("hydrate: downloaded PDF for %s", arxiv_id)
+                downloaded = False
+                for attempt in range(_MAX_RETRIES):
+                    resp = requests.get(
+                        pdf_url,
+                        timeout=30,
+                        headers={"User-Agent": "archimedes-corpus-hydration/1.0"},
+                    )
+                    if resp.status_code in (429, 503) and attempt < _MAX_RETRIES - 1:
+                        wait = _BACKOFF_BASE * (2 ** attempt)
+                        logger.warning(
+                            "hydrate: %d from arXiv for %s — backing off %ds (attempt %d/%d)",
+                            resp.status_code, arxiv_id, wait, attempt + 1, _MAX_RETRIES,
+                        )
+                        time.sleep(wait)
+                        continue
+                    resp.raise_for_status()
+                    pdf_path.write_bytes(resp.content)
+                    downloaded = True
+                    logger.info("hydrate: downloaded PDF for %s", arxiv_id)
+                    break
+                if not downloaded:
+                    logger.warning("hydrate: gave up on %s after %d retries", arxiv_id, _MAX_RETRIES)
+                    continue
                 time.sleep(_DOWNLOAD_DELAY)
             except Exception as exc:
                 logger.warning("hydrate: PDF download failed for %s: %s", arxiv_id, exc)
