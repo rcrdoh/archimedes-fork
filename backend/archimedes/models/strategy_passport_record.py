@@ -102,12 +102,12 @@ class StrategyPassportRecord(Base):
 
     # ── Timestamps ───────────────────────────────────────────
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC),
-                        onupdate=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     # ── Relations ────────────────────────────────────────────
-    paper_refs = relationship("PassportPaperRef", back_populates="passport",
-                              cascade="all, delete-orphan", lazy="joined")
+    paper_refs = relationship(
+        "PassportPaperRef", back_populates="passport", cascade="all, delete-orphan", lazy="joined"
+    )
 
     __table_args__ = (
         Index("ix_passport_status", "status"),

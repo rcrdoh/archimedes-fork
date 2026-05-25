@@ -39,9 +39,7 @@ def _compute_content_hash(passport: StrategyPassport) -> str:
         {
             "methodology_summary": (passport.methodology_summary or "").strip(),
             "asset_universe": sorted(passport.asset_universe),
-            "paper_ids": sorted(
-                p.arxiv_id or p.doi or p.title for p in passport.papers
-            ),
+            "paper_ids": sorted(p.arxiv_id or p.doi or p.title for p in passport.papers),
         },
         sort_keys=True,
         ensure_ascii=False,
@@ -49,9 +47,7 @@ def _compute_content_hash(passport: StrategyPassport) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _build_paper_refs(
-    passport_id: str, papers: list[PaperRef]
-) -> list[PassportPaperRef]:
+def _build_paper_refs(passport_id: str, papers: list[PaperRef]) -> list[PassportPaperRef]:
     """Build ORM paper ref objects from dataclass PaperRefs."""
     refs = []
     for p in papers:
@@ -94,11 +90,7 @@ def ingest_passport(
     """
     content_hash = _compute_content_hash(passport)
 
-    existing = (
-        session.query(StrategyPassportRecord)
-        .filter_by(id=passport.id)
-        .first()
-    )
+    existing = session.query(StrategyPassportRecord).filter_by(id=passport.id).first()
 
     if existing and not force_update:
         logger.debug("passport_loader: %s already exists — skipping", passport.id)
@@ -124,11 +116,15 @@ def ingest_passport(
         methodology_summary=passport.methodology_summary or "",
         methodology_text=passport.methodology_text,
         asset_universe=json.dumps(passport.asset_universe),
-        position_sizing=passport.position_sizing.value if hasattr(passport.position_sizing, 'value') else str(passport.position_sizing),
-        rebalance_frequency=passport.rebalance_frequency.value if hasattr(passport.rebalance_frequency, 'value') else str(passport.rebalance_frequency),
+        position_sizing=passport.position_sizing.value
+        if hasattr(passport.position_sizing, "value")
+        else str(passport.position_sizing),
+        rebalance_frequency=passport.rebalance_frequency.value
+        if hasattr(passport.rebalance_frequency, "value")
+        else str(passport.rebalance_frequency),
         risk_constraints=json.dumps(passport.risk_constraints) if passport.risk_constraints else "{}",
         risk_profiles=json.dumps(passport.risk_profiles) if passport.risk_profiles else "[]",
-        status=passport.status.value if hasattr(passport.status, 'value') else str(passport.status),
+        status=passport.status.value if hasattr(passport.status, "value") else str(passport.status),
         regime_tag=passport.regime_tag or "regime_neutral",
         extraction_llm=passport.extraction_llm,
         extraction_prompt_hash=passport.extraction_prompt_hash,
@@ -192,7 +188,7 @@ def _update_record(
     record.methodology_text = passport.methodology_text
     record.methodology_hash = passport.methodology_hash or passport.compute_methodology_hash()
     record.asset_universe = json.dumps(passport.asset_universe)
-    record.status = passport.status.value if hasattr(passport.status, 'value') else str(passport.status)
+    record.status = passport.status.value if hasattr(passport.status, "value") else str(passport.status)
     record.regime_tag = passport.regime_tag or "regime_neutral"
     record.passes_rigor_gate = passport.passes_rigor_gate
     record.sharpe_ratio = passport.real_sharpe
