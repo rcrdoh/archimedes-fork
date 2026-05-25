@@ -78,13 +78,7 @@ jobs:
             docker compose exec -dT backend python -m archimedes.scripts.hydrate_corpus || echo "⚠️ Corpus hydration kickoff skipped (non-fatal)"
 
             # Bootstrap AMM pool liquidity (idempotent — skips pools with existing reserves)
-            docker compose exec -T backend python -c "
-import asyncio
-from archimedes.services.amm_bootstrap import bootstrap_amm_liquidity
-result = asyncio.run(bootstrap_amm_liquidity())
-for sym, r in result.items():
-    print(f'  {sym}: {r.get("status", "?")}  {r.get("reason", r.get("error", ""))}')
-" || echo "⚠️ AMM bootstrap skipped (non-fatal)"
+            docker compose exec -T backend python -c 'import asyncio; from archimedes.services.amm_bootstrap import bootstrap_amm_liquidity; r=asyncio.run(bootstrap_amm_liquidity()); print(dict(r))' || echo "⚠️ AMM bootstrap skipped (non-fatal)"
 
             # Verify services are healthy
             sleep 10
