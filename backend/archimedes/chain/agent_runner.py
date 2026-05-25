@@ -92,6 +92,9 @@ class StrategyRunner:
         self._synth_addrs = chain_client.settings.synth_addresses
         self._usdc_addr = chain_client.settings.usdc_address
         self._known_vaults: set[str] = set()  # Vaults we've already seen
+        # Dedup: track last reasoning per vault to avoid publishing identical traces
+        self._last_reasoning: dict[str, str] = {}  # vault_address → reasoning text
+        self._last_reasoning_count: dict[str, int] = {}  # vault_address → repeat count
 
     async def tick(self) -> None:
         """Run one full strategy evaluation cycle."""
@@ -478,7 +481,26 @@ class StrategyRunner:
 
         # ── Commit-Reveal Flow ────────────────────────────────────
         # Phase 1: COMMIT — compute hash and anchor on-chain BEFORE trade
-        reasoning = self._build_reasoning(all_signals, regime, trades)
+        reasoning = self._build_reasoning(all_signals, regime, trades, portfolio)
+
+        # Deduplicate: skip identical decisions to avoid trace spam.
+        # When the same strategy signals produce the same reasoning, anchoring
+        # a duplicate trace wastes gas and clutters the Reasoning page.
+        prev_reasoning = self._last_reasoning.get(vault_address)
+        if prev_reasoning == reasoning and not trades:
+            count = self._last_reasoning_count.get(vault_address, 1) + 1
+            self._last_reasoning_count[vault_address] = count
+            logger.info(
+                "[tick %s] Vault %s: identical decision (repeat #%d) — skipping trace publish",
+                tick_id,
+                vault_address[:10],
+                count,
+            )
+            return
+        # Record current reasoning for next-tick comparison
+        self._last_reasoning[vault_address] = reasoning
+        self._last_reasoning_count[vault_address] = 1
+
         commit_tx = None
         commit_block = None
 
@@ -916,13 +938,25 @@ class StrategyRunner:
         all_signals: list[StrategySignals],
         regime: str,
         trades: list[TradeOrder],
+        portfolio: "Portfolio | None" = None,
     ) -> str:
-        """Build human-readable reasoning from strategy signals."""
+        """Build human-readable reasoning from strategy signals.
+
+        Includes portfolio context + trade specifics so each tick's reasoning
+        is distinguishable even when the underlying strategy consensus is
+        identical (addresses issue #334).
+        """
         parts = [f"Regime: {regime} (derived from strategy consensus)"]
         for ss in all_signals:
             signal_strs = [f"{s.asset}={s.signal.value}" for s in ss.signals[:4]]
             parts.append(f"{ss.paper_title[:35]}: {', '.join(signal_strs)}")
-        parts.append(f"Trades: {len(trades)}")
+        if portfolio and portfolio.holdings:
+            top = sorted(portfolio.holdings, key=lambda h: h.value_usdc, reverse=True)[:3]
+            parts.append("Portfolio: " + ", ".join(f"{h.symbol} {h.weight:.0%}" for h in top))
+        if trades:
+            parts.append("Trades: " + ", ".join(f"{t.direction.value} {t.amount:.2f} {t.symbol}" for t in trades[:4]))
+        else:
+            parts.append("No trades — within drift threshold")
         return ". ".join(parts)
 
     # ─── Vault discovery ───────────────────────────────────────────
