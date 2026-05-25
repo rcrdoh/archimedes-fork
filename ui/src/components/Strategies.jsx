@@ -550,33 +550,64 @@ function StrategyRow({ s, isHighlighted, onOpenRigorExplainer, onOpenPassport })
 function StrategyTable({ strategies, emptyState, highlightStrategyId, onOpenRigorExplainer, onOpenPassport }) {
   if (!strategies.length) return emptyState
   return (
-    <div className="overflow-x-auto rounded-lg border border-[var(--glass-border)]">
-      <table className="lib-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-        <thead>
-          <tr style={{ background: 'rgba(255,255,255,0.03)', textAlign: 'left', borderBottom: '1px solid var(--glass-border)' }}>
-            <th style={{ padding: '10px 14px' }}>Strategy</th>
-            <th style={{ padding: '10px 14px' }}>Paper</th>
-            <th style={{ padding: '10px 14px' }}>Status</th>
-            <th style={{ padding: '10px 14px', textAlign: 'right' }}>Sharpe</th>
-            <th style={{ padding: '10px 14px', textAlign: 'right' }}>CAGR</th>
-            <th style={{ padding: '10px 14px', textAlign: 'right' }}>Max DD</th>
-            <th style={{ padding: '10px 14px', textAlign: 'right' }}>$1k →</th>
-            <th style={{ padding: '10px 14px', textAlign: 'right' }}>Period</th>
-          </tr>
-        </thead>
-        <tbody>
-          {strategies.map(s => (
-            <StrategyRow
+    <>
+      {/* Desktop table */}
+      <div className="hidden md:block overflow-x-auto rounded-lg border border-[var(--glass-border)]">
+        <table className="lib-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead>
+            <tr style={{ background: 'rgba(255,255,255,0.03)', textAlign: 'left', borderBottom: '1px solid var(--glass-border)' }}>
+              <th style={{ padding: '10px 14px' }}>Strategy</th>
+              <th style={{ padding: '10px 14px' }}>Paper</th>
+              <th style={{ padding: '10px 14px' }}>Status</th>
+              <th style={{ padding: '10px 14px', textAlign: 'right' }}>Sharpe</th>
+              <th style={{ padding: '10px 14px', textAlign: 'right' }}>CAGR</th>
+              <th style={{ padding: '10px 14px', textAlign: 'right' }}>Max DD</th>
+              <th style={{ padding: '10px 14px', textAlign: 'right' }}>$1k →</th>
+              <th style={{ padding: '10px 14px', textAlign: 'right' }}>Period</th>
+            </tr>
+          </thead>
+          <tbody>
+            {strategies.map(s => (
+              <StrategyRow
+                key={s.id}
+                s={s}
+                isHighlighted={highlightStrategyId && s.id === highlightStrategyId}
+                onOpenRigorExplainer={onOpenRigorExplainer}
+                onOpenPassport={onOpenPassport}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* Mobile card list */}
+      <div className="md:hidden flex flex-col gap-3">
+        {strategies.map(s => {
+          const sharpe = s.sharpe_ratio != null ? s.sharpe_ratio.toFixed(2) : '—'
+          const cagr = s.cagr != null ? `${(s.cagr * 100).toFixed(1)}%` : '—'
+          const maxDD = s.max_drawdown != null ? `${(s.max_drawdown * 100).toFixed(1)}%` : '—'
+          const statusLabel = s.passes_rigor_gate ? '✅ Rigorous' : s.status === 'live' ? '🟢 Live' : s.status
+          return (
+            <div
               key={s.id}
-              s={s}
-              isHighlighted={highlightStrategyId && s.id === highlightStrategyId}
-              onOpenRigorExplainer={onOpenRigorExplainer}
-              onOpenPassport={onOpenPassport}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
+              className="card p-4 cursor-pointer"
+              onClick={() => onOpenPassport?.(s.id)}
+              style={{ border: highlightStrategyId === s.id ? '1px solid var(--accent)' : undefined }}
+            >
+              <div className="font-semibold text-sm mb-1 leading-snug">{s.paper_title || s.id.slice(0, 12)}</div>
+              <div className="caption mb-2" style={{ color: 'var(--text-4)' }}>
+                {s.paper_authors?.join(', ')?.slice(0, 40) || 'Internal'} {s.paper_year && `(${s.paper_year})`}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                <span><strong>Status:</strong> {statusLabel}</span>
+                <span><strong>Sharpe:</strong> {sharpe}</span>
+                <span><strong>CAGR:</strong> {cagr}</span>
+                <span><strong>Max DD:</strong> {maxDD}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </>
   )
 }
 

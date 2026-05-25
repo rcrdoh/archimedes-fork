@@ -321,7 +321,7 @@ export default function Generate({ onNavigate }) {
             value={intent}
             onChange={e => setIntent(e.target.value)}
             placeholder="e.g. A 13-week treasury alternative with low volatility and crypto upside on Fridays"
-            rows={3}
+            rows={4}
             className="chat-input w-full mb-3 p-2.5 leading-relaxed"
             disabled={starting}
           />

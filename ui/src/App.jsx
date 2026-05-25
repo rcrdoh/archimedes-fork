@@ -14,6 +14,7 @@ import Architecture from './components/Architecture'
 import VaultDetail from './components/VaultDetail'
 import OnboardingTour, { hasCompletedOnboarding } from './components/OnboardingTour'
 import WalletGate from './components/WalletGate'
+import MobileBanner from './components/MobileBanner'
 import './App.css'
 
 const openConnectModal = () => window.dispatchEvent(new Event('open-wallet-modal'))
@@ -235,6 +236,7 @@ export default function App() {
 
   return (
     <>
+      <MobileBanner />
       <Layout
         page={page}
         setPage={navigateToPage}
