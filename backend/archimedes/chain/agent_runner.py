@@ -185,13 +185,55 @@ class StrategyRunner:
 
             logger.info("[tick %s] Managing %d vaults", tick_id, len(vaults))
 
-            # 6. Process each vault
+            # 6. Process each vault with per-vault strategy scoping (Issue #307)
             for vault_addr in vaults:
                 try:
+                    # Per-vault scoping: each vault executes only its selected strategies
+                    vault_strategy_ids = self._get_vault_strategy_ids(vault_addr)
+
+                    if vault_strategy_ids is None:
+                        # No metadata — skip. Never apply global consensus to
+                        # a vault the user hasn't configured.
+                        logger.warning(
+                            "[tick %s] Vault %s has no metadata (strategy_ids=None) — "
+                            "skipping rebalance. Deploy via UI to set strategies.",
+                            tick_id,
+                            vault_addr[:10],
+                        )
+                        continue
+
+                    # Filter signals to this vault's strategies
+                    scoped_signals = [ss for ss in all_signals if ss.strategy_id in vault_strategy_ids]
+
+                    if not scoped_signals:
+                        logger.warning(
+                            "[tick %s] Vault %s strategy_ids=%s — none produced signals, skipping",
+                            tick_id,
+                            vault_addr[:10],
+                            vault_strategy_ids,
+                        )
+                        continue
+
+                    # Aggregate scoped signals into per-vault target weights
+                    vault_weights = strategy_evaluator.aggregate_signals(
+                        scoped_signals,
+                        usdc_floor=USDC_FLOOR,
+                    )
+                    vault_targets = self._weights_to_targets(vault_weights, scoped_signals)
+
+                    logger.info(
+                        "[tick %s] Vault %s: scoped to %d/%d strategies → %s",
+                        tick_id,
+                        vault_addr[:10],
+                        len(scoped_signals),
+                        len(all_signals),
+                        " | ".join(f"{k}={v:.0%}" for k, v in vault_weights.items()),
+                    )
+
                     await self._process_vault(
                         vault_addr,
-                        targets,
-                        all_signals,
+                        vault_targets,
+                        scoped_signals,
                         regime,
                         tick_id,
                     )
@@ -207,6 +249,29 @@ class StrategyRunner:
 
         except Exception:
             logger.exception("[tick %s] Strategy tick failed — will retry", tick_id)
+
+    # ─── Per-vault strategy scoping (Issue #307) ─────────────────────
+
+    def _get_vault_strategy_ids(self, vault_address: str) -> list[str] | None:
+        """Load strategy_ids from VaultMetadata for a vault.
+
+        Returns:
+            list[str] — the user's selected strategies for this vault.
+            None — if no metadata exists (vault deployed outside UI).
+        """
+        try:
+            from archimedes.db import get_session
+            from archimedes.models.chat import VaultMetadata
+
+            with get_session() as session:
+                meta = session.query(VaultMetadata).filter(VaultMetadata.vault_address == vault_address).first()
+                if meta is None:
+                    return None
+                ids = meta.get_strategy_ids()
+                return ids if ids else None
+        except Exception as exc:
+            logger.debug("_get_vault_strategy_ids(%s) failed: %s", vault_address[:10], exc)
+            return None
 
     async def _process_vault(
         self,
