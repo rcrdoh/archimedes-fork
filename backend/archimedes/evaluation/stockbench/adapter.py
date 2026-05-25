@@ -425,8 +425,7 @@ class ArchimedesStockBenchAdapter:
                 return self._momentum_fallback(analysis)
 
             market_ranking = [
-                {"synth": f"s{a['ticker']}", "ticker": a["ticker"], "signal": a.get("signal", 0)}
-                for a in analysis[:15]
+                {"synth": f"s{a['ticker']}", "ticker": a["ticker"], "signal": a.get("signal", 0)} for a in analysis[:15]
             ]
 
             portfolio = agent.propose_portfolio(
