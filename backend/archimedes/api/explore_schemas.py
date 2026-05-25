@@ -20,12 +20,23 @@ class AssetExploreItem(BaseModel):
     change_24h_pct: float | None
     change_7d_pct: float | None
     change_30d_pct: float | None
+    high_24h: float | None = Field(default=None, description="High over the last available bar; null if not available")
+    low_24h: float | None = Field(default=None, description="Low over the last available bar; null if not available")
     realized_vol_30d: float | None = Field(
         default=None, description="Annualized standard deviation of daily returns over last 30 trading days"
     )
     oracle_address: str | None = None
-    last_updated: str | None = Field(default=None, description="ISO8601 timestamp of last oracle price")
-    is_stale: bool = Field(default=False, description="True iff oracle hasn't updated in the past staleness window")
+    last_updated: str | None = Field(default=None, description="ISO8601 timestamp of last price update")
+    price_source: Literal["oracle", "yfinance", "none"] = Field(
+        default="none",
+        description="Where the displayed current_price came from: 'oracle' = on-chain PriceOracle, "
+        "'yfinance' = upstream market data fallback, 'none' = no data",
+    )
+    is_stale: bool = Field(
+        default=False,
+        description="True iff the displayed price is itself unusably old. A missing on-chain oracle "
+        "is NOT stale on its own — only the source actually being shown can be stale.",
+    )
     explanations: dict[str, str] = Field(
         default_factory=dict,
         description="Per-metric plain-English copy keyed by field name",
@@ -43,7 +54,11 @@ class ExploreHistoryPoint(BaseModel):
     price: float
 
 
+HistoryRange = Literal["1D", "1W", "1M", "1Y"]
+
+
 class ExploreHistoryResponse(BaseModel):
     symbol: str
-    interval: Literal["1d"] = "1d"
+    range: HistoryRange = "1M"
+    interval: Literal["1m", "5m", "1h", "1d"] = "1d"
     points: list[ExploreHistoryPoint]

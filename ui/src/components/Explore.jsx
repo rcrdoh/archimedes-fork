@@ -1,49 +1,37 @@
 import { useEffect, useState } from 'react'
+import AssetModal from './AssetModal'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
-// /explore — Read-only asset discovery surface (no wallet required).
-// Per docs/specs/page-roles-spec.md: the universe of tradable assets,
-// demystified for non-finance readers via plain-English explanations on
-// each metric.
-
-function fmtPct(v, digits = 1) {
-  if (v == null || isNaN(v)) return '—'
-  const sign = v >= 0 ? '+' : ''
-  return `${sign}${v.toFixed(digits)}%`
-}
+// /explore — Read-only viewer for the market data the strategy engine sees.
+// No wallet required, no trade affordance. Per docs/specs/page-roles-spec.md,
+// this is the discovery surface that helps a user form an opinion about what
+// to ask Generate to build around.
 
 function fmtPrice(v) {
-  if (v == null || isNaN(v)) return '—'
+  if (v == null || Number.isNaN(v)) return '—'
   if (v >= 1000) return `$${v.toFixed(0)}`
   if (v >= 10) return `$${v.toFixed(2)}`
   return `$${v.toFixed(4)}`
 }
 
-function fmtVol(v) {
-  if (v == null || isNaN(v)) return '—'
-  return v.toFixed(2)
+function fmtPct(v, digits = 2) {
+  if (v == null || Number.isNaN(v)) return '—'
+  const sign = v >= 0 ? '+' : ''
+  return `${sign}${v.toFixed(digits)}%`
 }
 
 function changeClass(v) {
-  if (v == null || isNaN(v)) return ''
+  if (v == null || Number.isNaN(v)) return ''
   return v >= 0 ? 'positive' : 'negative'
 }
 
-function ExplainTooltip({ children, text }) {
-  if (!text) return children
-  return (
-    <span title={text} style={{ cursor: 'help', borderBottom: '1px dotted var(--text-4)' }}>
-      {children}
-    </span>
-  )
-}
-
-export default function Explore({ onNavigate }) {
+export default function Explore() {
   const [assets, setAssets] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [filterClass, setFilterClass] = useState('all')
+  const [openAsset, setOpenAsset] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -68,31 +56,37 @@ export default function Explore({ onNavigate }) {
   const classes = ['all', ...Array.from(new Set(assets.map(a => a.asset_class).filter(Boolean)))]
   const filtered = filterClass === 'all' ? assets : assets.filter(a => a.asset_class === filterClass)
 
-  // Renamed from `useInGenerate` so it doesn't trip the rules-of-hooks
-  // detector that flags any `use*`-prefixed call inside a callback.
-  const handleUseInGenerate = (_symbol) => {
-    if (onNavigate) onNavigate('generate')
-    // The Generate page reads `?seed_asset=` later — for now, just navigate.
-    // Wiring the seed prop through requires extending the navigate API; we
-    // can do that when Phase 4 adds the strategy passport route too.
-  }
+  // Banner only fires when *every* asset's displayed price is itself stale.
+  // The backend now treats a missing on-chain oracle as "not stale" when
+  // yfinance is the actual price source, so this banner is honest: it means
+  // the feed pipeline is genuinely broken, not just "the oracle slot is
+  // unused for this asset". See asset_market_service.py docstring.
+  const allStale = assets.length > 0 && assets.every(a => a.is_stale)
+  const someStale = !allStale && assets.some(a => a.is_stale)
 
   return (
     <div>
-      <div style={{ maxWidth: 720, marginBottom: 24 }}>
+      {/* Top-of-page header & explanation */}
+      <div style={{ maxWidth: 760, marginBottom: 28 }}>
         <h2 className="serif" style={{ fontSize: '2rem', marginBottom: 10 }}>Explore</h2>
-        <p className="body" style={{ marginBottom: 8 }}>
-          The universe of synthetic assets you can trade on Arc. Prices come from the on-chain
-          oracle; explanations live next to every metric so non-finance readers don't need
-          a glossary.
+        <p className="body" style={{ marginBottom: 8, fontWeight: 500 }}>
+          Explore is a read-only viewer for the market data the strategy engine sees.
         </p>
         <p className="body" style={{ color: 'var(--text-3)' }}>
-          No wallet required — this page is browse-only. Click "Use in Generate" on any row
-          to seed a strategy around that asset.
+          Browse the universe of synthetic assets that Archimedes can allocate into,
+          look at current spot prices, recent moves, and 30-day volatility, then form
+          an opinion about what looks over- or under-valued. When you're ready,
+          head to Generate and describe a strategy around the names that caught your eye —
+          nothing on this page places a trade or moves a position.
+        </p>
+        <p className="caption" style={{ color: 'var(--text-4)', marginTop: 8 }}>
+          Click any card for full detail, price-history chart, and the upstream source the
+          price came from (on-chain oracle vs. off-chain fallback).
         </p>
       </div>
 
-      <div className="strat-filter-bar" style={{ marginBottom: 16 }}>
+      {/* Filter pills */}
+      <div className="strat-filter-bar" style={{ marginBottom: 18 }}>
         {classes.map(c => (
           <span
             key={c}
@@ -100,126 +94,135 @@ export default function Explore({ onNavigate }) {
             onClick={() => setFilterClass(c)}
             style={{ cursor: 'pointer' }}
           >
-            {c === 'all' ? 'All' : c.replace(/_/g, ' ')} {c !== 'all' && `(${assets.filter(a => a.asset_class === c).length})`}
+            {c === 'all' ? 'All' : c.replace(/_/g, ' ')}
+            {c !== 'all' && ` (${assets.filter(a => a.asset_class === c).length})`}
           </span>
         ))}
       </div>
 
+      {/* Loading / error / empty states */}
       {loading && !assets.length && <div className="caption">Loading market data…</div>}
       {error && !assets.length && (
         <div className="info-box warning" style={{ marginBottom: 16 }}>
           Couldn't load assets: {error}.
         </div>
       )}
-
       {!loading && !error && assets.length === 0 && (
         <div className="info-box" style={{ marginBottom: 16 }}>
-          Oracle feed paused — no price data available. This page refreshes automatically when the oracle resumes.
+          No market data available right now. This page refreshes automatically.
         </div>
       )}
 
-      {!loading && !error && assets.length > 0 && assets.every(a => a.is_stale) && (
+      {/* Banner — only when something is actually wrong with the feed. */}
+      {allStale && (
         <div className="info-box warning" style={{ marginBottom: 16 }}>
-          Oracle feed paused — last update{' '}
-          <span className="mono" style={{ fontSize: '0.85rem' }}>
-            {assets[0]?.last_updated ? new Date(assets[0].last_updated).toLocaleString() : 'unknown'}
-          </span>.
-          Prices shown may be outdated.
+          Every asset's price feed is older than the freshness threshold.
+          The upstream market-data pipeline appears to be paused; values shown may be outdated.
+        </div>
+      )}
+      {someStale && (
+        <div className="info-box" style={{ marginBottom: 16, fontSize: '0.82rem' }}>
+          Some assets have stale price feeds (marked with a STALE badge on the card).
+          Most assets are current.
         </div>
       )}
 
+      {/* Asset card grid */}
       {filtered.length > 0 && (
-        <div style={{ overflowX: 'auto', border: '1px solid var(--glass-border)', borderRadius: 8 }}>
-          <table className="lib-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-            <thead>
-              <tr style={{ background: 'rgba(255,255,255,0.03)', textAlign: 'left', borderBottom: '1px solid var(--glass-border)' }}>
-                <th style={{ padding: '10px 14px' }}>Symbol</th>
-                <th style={{ padding: '10px 14px' }}>Name</th>
-                <th style={{ padding: '10px 14px', textAlign: 'right' }}>
-                  <ExplainTooltip text="Latest price from the on-chain oracle. Settlement on Arc uses this.">
-                    Price
-                  </ExplainTooltip>
-                </th>
-                <th style={{ padding: '10px 14px', textAlign: 'right' }}>
-                  <ExplainTooltip text="Percentage change in the last trading day.">
-                    24h
-                  </ExplainTooltip>
-                </th>
-                <th style={{ padding: '10px 14px', textAlign: 'right' }}>
-                  <ExplainTooltip text="Percentage change over the past week.">
-                    7d
-                  </ExplainTooltip>
-                </th>
-                <th style={{ padding: '10px 14px', textAlign: 'right' }}>
-                  <ExplainTooltip text="Percentage change over the past month.">
-                    30d
-                  </ExplainTooltip>
-                </th>
-                <th style={{ padding: '10px 14px', textAlign: 'right' }}>
-                  <ExplainTooltip text="How much the price wobbles. Higher = bigger swings.">
-                    Vol 30d
-                  </ExplainTooltip>
-                </th>
-                <th style={{ padding: '10px 14px', textAlign: 'right' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(a => (
-                <tr key={a.symbol} className="lib-row">
-                  <td style={{ padding: '10px 14px', fontWeight: 600 }}>
-                    {a.symbol}
-                    {a.is_stale && (
-                      <span
-                        className="tag"
-                        style={{
-                          marginLeft: 6,
-                          fontSize: '0.65rem',
-                          background: 'var(--warning-bg, #fef3c7)',
-                          color: 'var(--warning-text, #92400e)',
-                          borderRadius: 4,
-                          padding: '1px 5px',
-                        }}
-                      >
-                        STALE
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ padding: '10px 14px' }} className="caption">{a.name}</td>
-                  <td className="mono" style={{ padding: '10px 14px', textAlign: 'right' }}>
-                    <ExplainTooltip text={a.explanations?.current_price}>{fmtPrice(a.current_price)}</ExplainTooltip>
-                  </td>
-                  <td className={`mono ${changeClass(a.change_24h_pct)}`} style={{ padding: '10px 14px', textAlign: 'right' }}>
-                    <ExplainTooltip text={a.explanations?.change_24h_pct}>{fmtPct(a.change_24h_pct)}</ExplainTooltip>
-                  </td>
-                  <td className={`mono ${changeClass(a.change_7d_pct)}`} style={{ padding: '10px 14px', textAlign: 'right' }}>
-                    <ExplainTooltip text={a.explanations?.change_7d_pct}>{fmtPct(a.change_7d_pct)}</ExplainTooltip>
-                  </td>
-                  <td className={`mono ${changeClass(a.change_30d_pct)}`} style={{ padding: '10px 14px', textAlign: 'right' }}>
-                    <ExplainTooltip text={a.explanations?.change_30d_pct}>{fmtPct(a.change_30d_pct)}</ExplainTooltip>
-                  </td>
-                  <td className="mono" style={{ padding: '10px 14px', textAlign: 'right' }}>
-                    <ExplainTooltip text={a.explanations?.realized_vol_30d}>{fmtVol(a.realized_vol_30d)}</ExplainTooltip>
-                  </td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                    <button
-                      className="btn btn-outline btn-sm"
-                      onClick={() => handleUseInGenerate(a.symbol)}
-                      title={`Seed a Generate brief around ${a.symbol}`}
-                    >
-                      Use in Generate →
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: 14,
+          }}
+        >
+          {filtered.map(a => (
+            <button
+              key={a.symbol}
+              type="button"
+              onClick={() => setOpenAsset(a)}
+              className="card-flat"
+              style={{
+                textAlign: 'left',
+                padding: 16,
+                background: 'rgba(255,255,255,0.02)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: 8,
+                cursor: 'pointer',
+                color: 'inherit',
+                font: 'inherit',
+                transition: 'background 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
+                e.currentTarget.style.borderColor = 'var(--text-4)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.02)'
+                e.currentTarget.style.borderColor = 'var(--glass-border)'
+              }}
+              aria-label={`Open details for ${a.symbol}`}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6 }}>
+                <div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 700, lineHeight: 1.1 }}>{a.symbol}</div>
+                  <div className="caption" style={{
+                    color: 'var(--text-4)',
+                    fontSize: '0.7rem',
+                    marginTop: 2,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth: 180,
+                  }}>
+                    {a.name || '—'}
+                  </div>
+                </div>
+                {a.is_stale && (
+                  <span
+                    className="tag"
+                    style={{
+                      fontSize: '0.6rem',
+                      background: 'rgba(239,68,68,0.10)',
+                      color: 'var(--negative)',
+                      borderRadius: 4,
+                      padding: '1px 5px',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title="The displayed price is older than the freshness window"
+                  >
+                    STALE
+                  </span>
+                )}
+              </div>
+
+              <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 600, marginTop: 12 }}>
+                {fmtPrice(a.current_price)}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 6 }}>
+                <span className={`mono ${changeClass(a.change_24h_pct)}`} style={{ fontSize: '0.85rem' }}>
+                  {fmtPct(a.change_24h_pct)}
+                </span>
+                <span className="caption" style={{ color: 'var(--text-4)', fontSize: '0.65rem' }}>
+                  24h
+                </span>
+              </div>
+            </button>
+          ))}
         </div>
       )}
 
-      <p className="caption" style={{ marginTop: 16, color: 'var(--text-4)' }}>
-        Prices from on-chain PriceOracle with yfinance fallback. Stale = oracle hasn't updated in &gt;5 minutes.
-        The "Vol 30d" column is annualized realized volatility (std of daily returns × √252).
+      {/* Footer disclosure */}
+      <p className="caption" style={{ marginTop: 22, color: 'var(--text-4)' }}>
+        Prices come from the on-chain PriceOracle when available, with yfinance as the
+        off-chain fallback. "STALE" means the displayed price is itself older than the
+        freshness window (5 minutes for the oracle, ~4 days for daily-close fallback).
+        The "Vol 30d" metric in the detail modal is annualized realized volatility
+        (std of daily returns × √252).
       </p>
+
+      {openAsset && <AssetModal asset={openAsset} onClose={() => setOpenAsset(null)} />}
     </div>
   )
 }

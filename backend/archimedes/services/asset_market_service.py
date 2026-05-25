@@ -6,6 +6,16 @@ fallback when the oracle is stale or unavailable.  30-second TTL cache
 (per the Phase 3a spec — page must load <1s without synchronous on-chain
 reads on cache hit). The plain-English explanations live in this module so
 the route handler stays a thin facade.
+
+Staleness semantics (rebuilt 2026-05-25 — see Explore page rebuild):
+The on-chain ``PriceOracle`` is only actively pushed for a small subset of
+synths (those in ``OracleUpdater.YFINANCE_MAP`` / ``CRYPTO_MAP`` — currently
+~9 symbols). The rest of the ``DEFAULT_SCAN_UNIVERSE`` (~70 names) has an
+oracle slot allocated but no one calls ``setPrice()`` for it. Flagging those
+assets as "STALE" when in fact the displayed price comes from yfinance is
+misleading — the *displayed* price isn't stale; an unused oracle slot is. So
+``is_stale`` now reflects the actual displayed price source, not the oracle
+slot. ``price_source`` discloses where the displayed price came from.
 """
 
 from __future__ import annotations
@@ -15,7 +25,7 @@ import logging
 import math
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from archimedes.api.explore_schemas import (
     AssetExploreItem,
@@ -30,7 +40,17 @@ logger = logging.getLogger(__name__)
 _CACHE_TTL_SECONDS = 30
 _HISTORY_LOOKBACK = "3mo"  # enough for 30d realized vol + change windows
 _STALE_WINDOW_SECONDS = 5 * 60  # >5 min since oracle push → "stale" (per issue #168)
+_YF_STALE_WINDOW_SECONDS = 4 * 24 * 60 * 60  # yfinance daily-close → stale if >4 days old
 _ORACLE_READ_TIMEOUT = 5  # seconds per individual chain read
+
+# Range param → (yfinance period, yfinance interval). Daily intervals work
+# for week / month / year ranges; the 1D button uses 5-minute intraday data.
+_HISTORY_RANGE_MAP: dict[str, tuple[str, str]] = {
+    "1D": ("2d", "5m"),
+    "1W": ("1mo", "1d"),
+    "1M": ("3mo", "1d"),
+    "1Y": ("1y", "1d"),
+}
 
 
 # ── Plain-English explanations ────────────────────────────────────────────
@@ -96,6 +116,67 @@ def _realized_vol_annual(prices: list[float], window: int = 30) -> float | None:
     return math.sqrt(var) * math.sqrt(252)
 
 
+# ── Direct yfinance fetch (used by /assets/{symbol}/history) ─────────────
+
+
+def _fetch_yfinance_series(symbol: str, period: str, interval: str) -> list[ExploreHistoryPoint]:
+    """Fetch a single-asset time series at the requested period+interval.
+
+    Returns an empty list when the symbol is unknown, yfinance is unavailable,
+    or the upstream feed returned no data. The caller (route handler) turns
+    an empty list into a 404 so the frontend can render an honest empty state
+    instead of a faked flat line.
+    """
+    try:
+        from archimedes.services.strategy_signal_evaluator import GLOBAL_ASSETS
+
+        entry = GLOBAL_ASSETS.get(symbol)
+        if not entry:
+            return []
+        yf_ticker = entry[0]
+    except Exception as exc:
+        logger.warning("explore: history symbol resolve for %s failed: %s", symbol, exc)
+        return []
+
+    try:
+        import yfinance as yf
+
+        data = yf.download(
+            yf_ticker,
+            period=period,
+            interval=interval,
+            progress=False,
+            auto_adjust=True,
+            threads=False,
+        )
+    except Exception as exc:
+        logger.warning("explore: yfinance history fetch failed for %s (%s/%s): %s", symbol, period, interval, exc)
+        return []
+
+    if data is None or len(data) == 0:
+        return []
+
+    try:
+        close = data["Close"]
+        # When yfinance is called with a single ticker it sometimes still returns
+        # a DataFrame (one column). Squeeze to a Series for uniform handling.
+        if hasattr(close, "columns"):
+            close = close.iloc[:, 0]
+        close = close.dropna()
+    except Exception as exc:
+        logger.warning("explore: yfinance close extract failed for %s: %s", symbol, exc)
+        return []
+
+    points: list[ExploreHistoryPoint] = []
+    for ts, price in close.items():
+        try:
+            # pandas Timestamps render as ISO when stringified.
+            points.append(ExploreHistoryPoint(ts=str(ts), price=float(price)))
+        except Exception:
+            continue
+    return points
+
+
 # ── Service ───────────────────────────────────────────────────────────────
 
 
@@ -105,7 +186,9 @@ class AssetMarketService:
     def __init__(self) -> None:
         self._cache: ExploreAssetsResponse | None = None
         self._cache_ts: float = 0.0
-        self._cache_history: dict[str, ExploreHistoryResponse] = {}
+        # Keyed by (symbol, range) — different ranges have different lookbacks.
+        self._cache_history: dict[tuple[str, str], tuple[float, ExploreHistoryResponse]] = {}
+        self._history_cache_ttl = 60.0  # seconds
 
     # ── On-chain oracle reads ────────────────────────────────────────────
 
@@ -228,30 +311,73 @@ class AssetMarketService:
             else:
                 hist_prices = []
 
-            # Current price: oracle primary, yfinance fallback
-            current_price: float | None = oracle.get("price")
-            if current_price is None and hist_prices:
-                current_price = hist_prices[-1]
-
-            # Staleness + last_updated from oracle
-            oracle_stale = oracle.get("stale", True)
+            # Pick the displayed price source. Oracle wins iff its last push
+            # is within the oracle freshness window. Otherwise fall back to
+            # the most recent yfinance daily close. Track which one we used
+            # so the UI can label it ("Source: on-chain oracle" vs. yfinance).
+            oracle_price = oracle.get("price")
             oracle_updated_at = oracle.get("updated_at")
-            if oracle_updated_at:
+            oracle_fresh = (
+                oracle_price is not None
+                and oracle_updated_at
+                and oracle_updated_at > 0
+                and (now - oracle_updated_at) <= _STALE_WINDOW_SECONDS
+            )
+
+            current_price: float | None
+            price_source: Literal["oracle", "yfinance", "none"]
+            last_updated: str | None
+            displayed_is_stale: bool
+
+            if oracle_fresh:
+                current_price = oracle_price
+                price_source = "oracle"
                 last_updated = datetime.fromtimestamp(oracle_updated_at, tz=UTC).isoformat()
-            elif raw_hist is not None and hasattr(raw_hist, "index") and len(raw_hist) > 0:
-                last_updated = str(raw_hist.index[-1])
+                displayed_is_stale = False
+            elif hist_prices:
+                current_price = hist_prices[-1]
+                price_source = "yfinance"
+                if raw_hist is not None and hasattr(raw_hist, "index") and len(raw_hist) > 0:
+                    last_bar = raw_hist.index[-1]
+                    last_updated = str(last_bar)
+                    try:
+                        # pandas Timestamp supports .timestamp(); fall back to
+                        # parse if last_bar is already a str.
+                        bar_ts = float(last_bar.timestamp()) if hasattr(last_bar, "timestamp") else 0.0
+                    except Exception:
+                        bar_ts = 0.0
+                    # yfinance daily close: stale if last bar is more than a few
+                    # trading days old (weekends + bank holidays count as
+                    # legitimate gaps, but more than ~4 days means the feed is
+                    # broken for this name).
+                    displayed_is_stale = bool(bar_ts > 0 and (now - bar_ts) > _YF_STALE_WINDOW_SECONDS)
+                else:
+                    last_updated = nowstamp
+                    displayed_is_stale = False
             else:
-                last_updated = nowstamp
+                # No source at all — honestly stale + null price.
+                current_price = None
+                price_source = "none"
+                last_updated = None
+                displayed_is_stale = True
 
-            # If no oracle data at all, mark stale
-            is_stale = oracle_stale if oracle else True
+            # 24h high / low — only computable for intraday data, which we
+            # don't fetch in the listing endpoint. The detail-modal endpoint
+            # (get_history with range="1D") returns intraday bars and the UI
+            # can compute these client-side from that series. Leave them
+            # ``None`` here so the card / modal show "—" honestly.
+            high_24h = None
+            low_24h = None
 
-            # Change/vol from yfinance history
+            # Change / vol from yfinance daily history (independent of where
+            # the spot came from — both source paths benefit from these).
             stat_dict: dict[str, Any] = {
                 "current_price": current_price,
                 "change_24h_pct": _pct_change(hist_prices, 1) if hist_prices else None,
                 "change_7d_pct": _pct_change(hist_prices, 5) if hist_prices else None,
                 "change_30d_pct": _pct_change(hist_prices, 21) if hist_prices else None,
+                "high_24h": high_24h,
+                "low_24h": low_24h,
                 "realized_vol_30d": _realized_vol_annual(hist_prices, 30) if hist_prices else None,
             }
 
@@ -266,7 +392,8 @@ class AssetMarketService:
                     asset_class=asset_class,
                     oracle_address=oracle.get("oracle_address"),
                     last_updated=last_updated,
-                    is_stale=is_stale,
+                    is_stale=displayed_is_stale,
+                    price_source=price_source,
                     explanations=_explanations_for(stat_dict),
                     **stat_dict,
                 )
@@ -288,26 +415,30 @@ class AssetMarketService:
         self._cache_ts = now
         return self._cache
 
-    async def get_history(self, symbol: str) -> ExploreHistoryResponse:
-        if symbol in self._cache_history:
-            return self._cache_history[symbol]
-        histories: dict[str, Any] = {}
-        try:
-            from archimedes.services.strategy_signal_evaluator import (
-                _fetch_price_histories,
-            )
+    async def get_history(self, symbol: str, range_: str = "1M") -> ExploreHistoryResponse:
+        """Return time-series points for ``symbol`` over ``range_``.
 
-            histories = await asyncio.to_thread(_fetch_price_histories, [symbol], _HISTORY_LOOKBACK)
-        except Exception as exc:
-            logger.warning("explore: history for %s failed: %s", symbol, exc)
-        hist = histories.get(symbol) or {}
-        prices = hist.get("close") or []
-        dates = hist.get("dates") or []
-        points = [
-            ExploreHistoryPoint(ts=str(dates[i]) if i < len(dates) else "", price=prices[i]) for i in range(len(prices))
-        ]
-        resp = ExploreHistoryResponse(symbol=symbol, points=points)
-        self._cache_history[symbol] = resp
+        Ranges: 1D (intraday 5m bars), 1W / 1M / 1Y (daily close).
+        """
+        if range_ not in _HISTORY_RANGE_MAP:
+            range_ = "1M"
+
+        cache_key = (symbol, range_)
+        now = time.time()
+        cached = self._cache_history.get(cache_key)
+        if cached is not None and (now - cached[0]) < self._history_cache_ttl:
+            return cached[1]
+
+        period, interval = _HISTORY_RANGE_MAP[range_]
+        points = await asyncio.to_thread(_fetch_yfinance_series, symbol, period, interval)
+
+        resp = ExploreHistoryResponse(
+            symbol=symbol,
+            range=range_,  # type: ignore[arg-type]
+            interval=interval,  # type: ignore[arg-type]
+            points=points,
+        )
+        self._cache_history[cache_key] = (now, resp)
         return resp
 
 

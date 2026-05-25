@@ -9,7 +9,9 @@ in routes.py).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException, Query
 
 from archimedes.api.explore_schemas import ExploreAssetsResponse, ExploreHistoryResponse
 from archimedes.services.asset_market_service import asset_market_service
@@ -24,12 +26,20 @@ async def list_explore_assets() -> ExploreAssetsResponse:
 
 
 @explore_router.get("/assets/{symbol}/history", response_model=ExploreHistoryResponse)
-async def get_explore_history(symbol: str) -> ExploreHistoryResponse:
-    """Daily price history for one asset, used by sparklines + detail charts."""
-    resp = await asset_market_service.get_history(symbol)
+async def get_explore_history(
+    symbol: str,
+    range: Literal["1D", "1W", "1M", "1Y"] = Query("1M", description="History lookback range"),
+) -> ExploreHistoryResponse:
+    """Price history for one asset, used by detail-chart range toggles.
+
+    The ``range`` query controls both the lookback period and the bar interval.
+    The endpoint returns ``[]`` and ``404`` when no series is available for the
+    requested range — the frontend renders an explicit empty state in that case.
+    """
+    resp = await asset_market_service.get_history(symbol, range_=range)
     if not resp.points:
         raise HTTPException(
             status_code=404,
-            detail=f"No price history available for {symbol}. Check the symbol spelling.",
+            detail=f"No price history available for {symbol} ({range}). The upstream feed returned no data.",
         )
     return resp

@@ -189,7 +189,7 @@ export default function App() {
   const renderPage = () => {
     switch (page) {
       case 'landing':     return <Landing onNavigate={navigateToPage} />
-      case 'explore':      return <Explore onNavigate={navigateToPage} />
+      case 'explore':      return <Explore />
       case 'generate':     return <Generate onNavigate={navigateToPage} />
       case 'library':      return (
         <WalletGate

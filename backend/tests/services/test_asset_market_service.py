@@ -180,13 +180,23 @@ class TestListAssets:
         assert spy.is_stale is False
 
     @pytest.mark.asyncio
-    async def test_no_oracle_marks_stale(self):
-        """When oracle data is completely missing, asset is marked stale."""
+    async def test_no_oracle_falls_back_to_yfinance_not_stale(self):
+        """When the on-chain oracle has no price, the service should fall back
+        to yfinance and surface ``price_source="yfinance"``. The displayed
+        price isn't stale just because the unused oracle slot has no value —
+        ``is_stale`` reflects the *displayed* price's freshness, not the oracle
+        slot. (Semantics changed during the 2026-05-25 Explore-page rebuild —
+        see ``asset_market_service.py`` module docstring for full rationale.)"""
         service = AssetMarketService()
+        # Use the current UTC date as the latest bar so the staleness check
+        # (yfinance window of 4 days) doesn't drift the test as time passes.
+        from datetime import UTC, datetime, timedelta
+
+        today = datetime.now(UTC).date()
         mock_histories = {
             "sSPY": {
                 "close": [540.0, 545.0],
-                "dates": ["2026-05-22", "2026-05-23"],
+                "dates": [(today - timedelta(days=1)).isoformat(), today.isoformat()],
             }
         }
 
@@ -203,8 +213,9 @@ class TestListAssets:
 
         spy = next((a for a in resp.assets if a.symbol == "sSPY"), None)
         assert spy is not None
-        assert spy.is_stale is True
         assert spy.current_price == pytest.approx(545.0)  # yfinance fallback
+        assert spy.price_source == "yfinance"
+        assert spy.is_stale is False  # displayed price is fresh; only the unused oracle slot is empty
 
     @pytest.mark.asyncio
     async def test_cache_ttl(self):
