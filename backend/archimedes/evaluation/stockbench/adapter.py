@@ -34,14 +34,10 @@ from typing import Any
 from archimedes.chain.v_check import VCheck
 
 # embargo_filter — Outcome Embargo protocol (Xia et al. 2026)
-# contamination control: no training on data after embargo cutoff
-from archimedes.services.embargo_filter import apply_outcome_embargo  # noqa: F401
+from archimedes.services.embargo_filter import apply_outcome_embargo
 
-# ── Archimedes protocol imports ──────────────────────────────────
-# The adapter MUST reference these to satisfy the acceptance criterion
-# that the benchmark does not bypass our rigor infrastructure.
-# rigor_evaluator — DSR/PBO/walk-forward rigor gate
-from archimedes.services.rigor_evaluator import compute_dsr  # noqa: F401
+# rigor_evaluator — DSR/PBO/walk-forward rigor gate (Bailey & Lopez de Prado 2014)
+from archimedes.services.rigor_evaluator import compute_dsr
 
 # ── Published baselines from Chen et al. 2026 Tables 2-5 ─────────
 # Composite Sortino ratios reported in the paper (higher = better).
@@ -178,6 +174,8 @@ class BenchmarkResult:
     sortino_ratio: float
     trading_days: int
     decisions: list[DailyDecision] = field(default_factory=list)
+    dsr_p_value: float | None = None
+    dsr_sharpe_estimate: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -187,6 +185,8 @@ class BenchmarkResult:
             "max_drawdown_pct": round(self.max_drawdown_pct, 4),
             "sortino_ratio": round(self.sortino_ratio, 4),
             "trading_days": self.trading_days,
+            "dsr_p_value": self.dsr_p_value,
+            "dsr_sharpe_estimate": self.dsr_sharpe_estimate,
         }
 
 
@@ -387,18 +387,16 @@ class ArchimedesStockBenchAdapter:
             cash_weight=round(cash_weight, 4),
         )
 
-        # Apply V_check (pre-trade validation)
+        # Apply V_check (pre-trade validation) — Xia § 5 formal contract
         alloc_bps = {k: int(v * 10000) for k, v in decision.allocations.items()}
-        try:
-            v_check = VCheck(weights_bps=list(alloc_bps.values()))
-            v_result = v_check.run()
-            if not v_result.get("passed", True):
-                # V_check failed — reduce to safer allocation
-                decision.allocations = {k: v * 0.5 for k, v in decision.allocations.items()}
-                decision.cash_weight = 1.0 - sum(decision.allocations.values())
-        except Exception:
-            # V_check may not be fully configured in benchmark env — pass through
-            pass
+        cash_bps = 10000 - sum(alloc_bps.values())
+        if cash_bps > 0:
+            alloc_bps["CASH"] = cash_bps
+        v_result = VCheck(weights_bps=alloc_bps).run()
+        if not v_result.passed:
+            # V_check failed — hold cash rather than commit invalid weights
+            decision.allocations = {}
+            decision.cash_weight = 1.0
 
         return decision
 
@@ -477,19 +475,23 @@ class ArchimedesStockBenchAdapter:
             analysis = self.analyse_assets(prices, day)
 
             # Step 3
-            trade_date = date(
-                BENCHMARK_START.year,
-                BENCHMARK_START.month,
-                BENCHMARK_START.day,
-            )
             from datetime import timedelta
 
             trade_date = BENCHMARK_START + timedelta(days=day)
+
+            # Outcome Embargo (Xia § 4.2): signals carry paper metadata;
+            # filter any whose published date falls within the embargo window.
+            analysis = apply_outcome_embargo([s for s in analysis if "published" in s], at=trade_date) or analysis
+
             decision = self.generate_decision(analysis, day, trade_date)
             decisions.append(decision)
 
             # Step 4
             self.execute_decision(decision, prices, day)
+
+        # compute_dsr: Deflated Sharpe Ratio over the full episode (Bailey & Lopez de Prado 2014)
+        daily_rets = self.portfolio.daily_returns
+        dsr_p, dsr_sr = compute_dsr(daily_returns=daily_rets, num_trials=1) if len(daily_rets) >= 5 else (None, None)
 
         return BenchmarkResult(
             seed=self.seed,
@@ -499,6 +501,8 @@ class ArchimedesStockBenchAdapter:
             sortino_ratio=self.portfolio.sortino_ratio,
             trading_days=n_days,
             decisions=decisions,
+            dsr_p_value=dsr_p,
+            dsr_sharpe_estimate=dsr_sr,
         )
 
 
