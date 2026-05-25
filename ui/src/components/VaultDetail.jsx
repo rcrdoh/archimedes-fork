@@ -329,7 +329,18 @@ export default function VaultDetail({ address, onBack }) {
             {detail.recent_traces.map((t, i) => (
               <div key={i} className="vault-trace-row">
                 <span className="vault-trace-type">{t.decision_type}</span>
-                <code className="vault-trace-hash">{t.trace_hash?.slice(0, 16)}…</code>
+                {t.arc_tx_hash ? (
+                  <a
+                    href={`https://testnet.arcscan.app/tx/${t.arc_tx_hash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="vault-trace-hash mono underline decoration-dotted underline-offset-2 hover:text-[var(--accent)] transition-colors"
+                  >
+                    {t.arc_tx_hash.slice(0, 16)}… ↗
+                  </a>
+                ) : (
+                  <code className="vault-trace-hash">{t.trace_hash?.slice(0, 16)}…</code>
+                )}
                 <span className="vault-trace-time">{timeAgo(t.timestamp)}</span>
                 {t.is_verified && <span className="vault-trace-verified i-lucide-check" style={{width:12,height:12}} />}
               </div>

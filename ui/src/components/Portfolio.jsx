@@ -259,7 +259,19 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace, on
                 )}
                 <div className="caption mt-1.5 flex gap-3 text-[var(--text-3)]">
                   {t.vault_address && <span>vault {shortAddr(t.vault_address)}</span>}
-                  {t.trace_hash && <span className="mono">{t.trace_hash.slice(0, 10)}…</span>}
+                  {t.arc_tx_hash ? (
+                    <a
+                      href={`https://testnet.arcscan.app/tx/${t.arc_tx_hash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mono underline decoration-dotted underline-offset-2 hover:text-[var(--accent)] transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {t.arc_tx_hash.slice(0, 10)}… ↗
+                    </a>
+                  ) : t.trace_hash ? (
+                    <span className="mono">{t.trace_hash.slice(0, 10)}…</span>
+                  ) : null}
                   {t.is_verified
                     ? <span className="flex items-center gap-1 text-[var(--positive)]"><span className="i-lucide-check-circle w-3.5 h-3.5" /> anchored on Arc</span>
                     : <span className="flex items-center gap-1 text-[var(--text-3)]" title="Trace hashed + persisted off-chain; on-chain anchor pending (registry write didn't complete yet — usually transient).">

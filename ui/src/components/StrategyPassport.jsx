@@ -266,7 +266,14 @@ export default function StrategyPassport({ strategyId, onNavigate, walletAddr })
             {s.on_chain_registration_tx && (
               <div>
                 <div className="caption text-[var(--text-4)]">Registration tx</div>
-                <div className="mono">{s.on_chain_registration_tx.slice(0, 14)}…</div>
+                <a
+                  href={`https://testnet.arcscan.app/tx/${s.on_chain_registration_tx}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mono underline decoration-dotted underline-offset-2 hover:text-[var(--accent)] transition-colors"
+                >
+                  {s.on_chain_registration_tx.slice(0, 14)}… ↗
+                </a>
               </div>
             )}
             {s.curator_note && (
