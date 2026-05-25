@@ -372,6 +372,14 @@ class StrategyRunner:
         for t in targets:
             if t.weight > 0 and t.token_address:
                 alloc_weights_bps[t.symbol] = int(round(t.weight * 10000))
+        # Fix float→int rounding drift: individually rounded weights can
+        # sum to 10001 or 9999 instead of 10000. Adjust the largest weight
+        # to absorb the residual (max 1 BPS correction).
+        if alloc_weights_bps:
+            residual = sum(alloc_weights_bps.values()) - 10000
+            if residual != 0:
+                largest = max(alloc_weights_bps, key=alloc_weights_bps.get)
+                alloc_weights_bps[largest] -= residual
         v_check = VCheck(weights_bps=alloc_weights_bps)
         v_result = v_check.run()
         if not v_result.passed:
