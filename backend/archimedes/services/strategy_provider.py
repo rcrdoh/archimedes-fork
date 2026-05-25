@@ -397,7 +397,8 @@ class LocalStrategyProvider:
                 for strategy in strategies.values():
                     try:
                         ingest_passport(
-                            session, strategy,
+                            session,
+                            strategy,
                             generation_method="curated",
                             force_update=True,
                         )

@@ -736,8 +736,7 @@ async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief) -> tuple
                 from archimedes.services.passport_loader import ingest_passport
 
                 papers = [
-                    PaperRef(arxiv_id=p.get("arxiv_id"), title=p.get("title", ""))
-                    for p in (c.source_papers or [])
+                    PaperRef(arxiv_id=p.get("arxiv_id"), title=p.get("title", "")) for p in (c.source_papers or [])
                 ]
                 passport = StrategyPassport(
                     id=record.id,
