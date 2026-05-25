@@ -3,12 +3,17 @@ import { createPortal } from 'react-dom'
 import {
   getWalletClient,
   getAddress,
+  getConnectedProvider,
+  getSmartAccount,
+  getSmartAccountClient,
   publicClient,
   USDC,
   TOKEN_ABI,
   VAULT_ABI,
   ASSETS,
+  CIRCLE_PROVIDER_ID,
 } from '../config'
+import { executeUserOp, encodeCall } from '../circle-tx-executor'
 
 const ARCSCAN_TX = 'https://testnet.arcscan.app/tx'
 const STORAGE_PREFIX = 'archimedes_deposit_'
@@ -67,7 +72,19 @@ function defaultAllocations() {
   }
 }
 
-export default function DepositFlow({ vaultAddress, depositAmount = '100', strategy, onClose, onComplete }) {
+export default function DepositFlow(props) {
+  // Branch on wallet type: passkey wallets sign ONE batched user operation
+  // (approve + deposit + setTargetAllocations in a single biometric
+  // confirmation, gas sponsored by Circle Gas Station). EOA wallets keep
+  // the existing 3-step stepper since each writeContract call gets its
+  // own wallet popup either way.
+  if (getConnectedProvider() === CIRCLE_PROVIDER_ID) {
+    return <PasskeyDepositFlow {...props} />
+  }
+  return <EoaDepositFlow {...props} />
+}
+
+function EoaDepositFlow({ vaultAddress, depositAmount = '100', strategy, onClose, onComplete }) {
   // Resume from localStorage if we have prior progress
   const saved = loadProgress(vaultAddress)
   const [currentStep, setCurrentStep] = useState(saved?.stepIndex ?? 0)
@@ -359,6 +376,215 @@ export default function DepositFlow({ vaultAddress, depositAmount = '100', strat
         @keyframes spin { to { transform: rotate(360deg) } }
         .spin { animation: spin 0.8s linear infinite; }
       `}</style>
+    </div>,
+    document.body,
+  )
+}
+
+// ── Passkey-wallet variant: single batched user operation ──────────────
+//
+// Submits approve + deposit + setTargetAllocations as ONE user op via
+// Circle's bundler. Single biometric prompt for the whole sequence;
+// gas sponsored by Circle Gas Station (paymaster: true). Much smoother
+// UX than the 3-popup EOA flow — sell this in the pitch deck.
+//
+// State machine:
+//   IDLE     — form rendered; awaiting user "Confirm deposit" click
+//   SIGNING  — WebAuthn prompt up; user is signing the user op
+//   SENT     — user op submitted to bundler; awaiting on-chain inclusion
+//   COMPLETE — on-chain success; arcscan link rendered
+//   FAILED   — error mapped to a friendly message via the executor
+function PasskeyDepositFlow({ vaultAddress, depositAmount = '100', strategy, onClose, onComplete }) {
+  const [amount, setAmount] = useState(depositAmount)
+  const [state, setState] = useState('IDLE')
+  const [error, setError] = useState('')
+  const [result, setResult] = useState(null)  // { userOpHash, txHash }
+
+  const runDeposit = useCallback(async () => {
+    setError('')
+    setResult(null)
+    setState('SIGNING')
+    try {
+      const smartAccount = getSmartAccount()
+      const client = getSmartAccountClient()
+      const userAddr = getAddress()
+      if (!smartAccount || !client) {
+        throw new Error('Passkey wallet not initialized — please reconnect.')
+      }
+      const parsedAmount = BigInt(Math.round(parseFloat(amount) * 1e6))
+      if (parsedAmount <= 0n) throw new Error('Amount must be greater than 0')
+
+      const { tokens, weights } = defaultAllocations()
+
+      // Batch all 3 calls into ONE user operation. The bundler executes
+      // them atomically in order; if any reverts, all revert.
+      const calls = [
+        encodeCall({
+          address: USDC,
+          abi: TOKEN_ABI,
+          functionName: 'approve',
+          args: [vaultAddress, parsedAmount],
+        }),
+        encodeCall({
+          address: vaultAddress,
+          abi: VAULT_ABI,
+          functionName: 'deposit',
+          args: [parsedAmount, userAddr],
+        }),
+        encodeCall({
+          address: vaultAddress,
+          abi: VAULT_ABI,
+          functionName: 'setTargetAllocations',
+          args: [tokens, weights],
+        }),
+      ]
+
+      const out = await executeUserOp({
+        smartAccount,
+        client,
+        calls,
+        onStateChange: setState,
+      })
+      setResult(out)
+      setState('COMPLETE')
+    } catch (err) {
+      setState('FAILED')
+      setError(err.message || 'Deposit failed')
+    }
+  }, [amount, vaultAddress])
+
+  const isDone = state === 'COMPLETE'
+  const isBusy = state === 'SIGNING' || state === 'SENT'
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center z-[1000]"
+      style={{ background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(6px)' }}
+      onClick={isBusy ? undefined : onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="passkey-deposit-title"
+    >
+      <div
+        className="card-elevated p-6 max-w-[520px] w-[92vw]"
+        onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--surface-1)', maxHeight: '90vh', overflowY: 'auto' }}
+      >
+        <div className="caption mb-2 uppercase tracking-wider text-[var(--text-4)]">
+          {isDone ? 'Deposit complete' : 'Fund your vault'}
+        </div>
+        <h3 id="passkey-deposit-title" className="font-serif text-[1.5rem] mb-1">
+          {strategy?.paper_title || 'Strategy Vault'}
+        </h3>
+        <p className="caption mb-1 mono text-[var(--text-4)]">
+          Vault: {vaultAddress?.slice(0, 10)}…{vaultAddress?.slice(-6)}
+        </p>
+        <p className="caption mb-4 leading-relaxed">
+          {isDone
+            ? 'Your vault is funded and the target allocation is set. The autonomous agent will begin managing it.'
+            : 'Approve USDC, deposit, and set target allocations — batched into one gasless transaction signed with your passkey.'}
+        </p>
+
+        {!isDone && (
+          <div className="mb-4">
+            <label className="block">
+              <span className="caption block mb-1">Deposit amount (USDC)</span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                className="chat-input w-full p-2.5 mono"
+                disabled={isBusy}
+              />
+            </label>
+          </div>
+        )}
+
+        {/* What this batches — surface honestly so users know what they're signing */}
+        {!isDone && (
+          <div className="card-flat p-3 mb-3">
+            <div className="caption mb-2 text-[var(--text-4)]">
+              One passkey signature authorizes:
+            </div>
+            <ul style={{ paddingLeft: 18, margin: 0 }}>
+              <li className="caption" style={{ marginBottom: 4 }}>
+                Approve {amount} USDC for the vault
+              </li>
+              <li className="caption" style={{ marginBottom: 4 }}>
+                Deposit into the ERC-4626 vault
+              </li>
+              <li className="caption" style={{ marginBottom: 4 }}>
+                Set target allocation across {defaultAllocations().labels.length} synthetics
+              </li>
+            </ul>
+            <div className="caption mt-2" style={{ color: 'var(--text-4)', fontSize: '0.7rem' }}>
+              Gas sponsored by Circle Gas Station — you pay $0.
+            </div>
+          </div>
+        )}
+
+        {/* In-flight state */}
+        {state === 'SIGNING' && (
+          <div className="info-box mt-3" style={{ background: 'rgba(224,166,79,0.08)' }}>
+            <span className="caption">Waiting for passkey confirmation… (Touch ID / Face ID / hardware key)</span>
+          </div>
+        )}
+        {state === 'SENT' && (
+          <div className="info-box mt-3" style={{ background: 'rgba(224,166,79,0.08)' }}>
+            <span className="caption">User operation submitted. Awaiting on-chain confirmation…</span>
+          </div>
+        )}
+
+        {/* Completion */}
+        {isDone && result?.txHash && (
+          <div className="card-flat p-3 mt-3">
+            <div className="caption mb-1 text-[var(--text-4)]">Confirmed on Arc Testnet</div>
+            <a
+              href={`${ARCSCAN_TX}/${result.txHash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="mono caption"
+              style={{ color: 'var(--accent)', fontSize: '0.75rem' }}
+            >
+              {shortHash(result.txHash)} ↗
+            </a>
+          </div>
+        )}
+
+        {state === 'FAILED' && error && (
+          <div className="info-box warning mt-3">
+            <span className="caption">{error}</span>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex justify-end gap-2 mt-5">
+          {!isDone && (
+            <>
+              <button className="btn btn-outline" onClick={onClose} disabled={isBusy}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={runDeposit}
+                disabled={isBusy}
+              >
+                {state === 'SIGNING' ? 'Confirming…'
+                  : state === 'SENT' ? 'Awaiting on-chain…'
+                  : state === 'FAILED' ? 'Retry'
+                  : 'Confirm deposit'}
+              </button>
+            </>
+          )}
+          {isDone && (
+            <button className="btn btn-primary" onClick={onComplete}>
+              Done — View Portfolio →
+            </button>
+          )}
+        </div>
+      </div>
     </div>,
     document.body,
   )

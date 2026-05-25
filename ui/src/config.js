@@ -1,4 +1,10 @@
 import { createPublicClient, createWalletClient, custom, http } from 'viem'
+import {
+  connectCirclePasskey,
+  clearCircleSession,
+  circlePasskeyEnabled,
+  rehydrateSmartAccount,
+} from './circle-wallet'
 
 const arcTestnet = {
   id: 5042002,
@@ -121,13 +127,28 @@ export function discoverEip6963Wallets() {
 
 const STORAGE_KEY = 'archimedes_wallet'
 
+// Synthetic provider id for the Circle Modular Wallets path. Distinct from
+// the EOA paths (metamask / coinbase / eip6963:*) so connectWallet() +
+// reconnectWallet() can branch cleanly. The MSCA path has no EIP-1193
+// provider and no viem WalletClient — txs go through bundler.sendUserOperation
+// (Phase 2.5 follow-up); for this PR we surface the MSCA address only.
+export const CIRCLE_PROVIDER_ID = 'circle-passkey'
+
 let _walletClient = null
 let _provider = null
 let _address = null
 let _providerId = null
+let _smartAccount = null      // populated for the Circle path; null for EOA paths
+let _smartAccountClient = null // Circle modular-transport viem client (for bundler)
 
 export function getConnectedProvider() { return _providerId }
 export function getAddress() { return _address }
+// Returns the Circle smart account when connected via passkey, else null.
+// Phase 2.5 uses this to wrap deposit calls in sendUserOperation.
+export function getSmartAccount() { return _smartAccount }
+// Returns the modular-transport public client paired with the smart
+// account — required for createBundlerClient. Null for EOA paths.
+export function getSmartAccountClient() { return _smartAccountClient }
 
 function saveWalletMeta(providerId, address) {
   try {
@@ -147,10 +168,41 @@ function loadWalletMeta() {
 }
 
 // Try to reconnect to a previously connected wallet on page load.
-// Uses eth_accounts (non-popup) to check if the user is still authorised.
+// Uses eth_accounts (non-popup) for EOA wallets to check if the user is
+// still authorised. For Circle passkey wallets we DO NOT auto-trigger
+// a WebAuthn prompt on page load (would spam users); we restore the
+// address from localStorage only, and the smart-account object is
+// lazily re-hydrated on the first tx via a fresh login flow.
 export async function reconnectWallet() {
   const meta = loadWalletMeta()
   if (!meta) return null
+
+  // Circle passkey path: rebuild the smart account from the stored
+  // credential without triggering a WebAuthn prompt. The credential
+  // only holds the public key (private key stays in the device's
+  // secure enclave), so we can derive the address + signer wrapper
+  // silently. Prompt only happens when the user actually signs a
+  // user operation later.
+  if (meta.providerId === CIRCLE_PROVIDER_ID) {
+    if (!circlePasskeyEnabled()) { clearWalletMeta(); return null }
+    try {
+      const restored = await rehydrateSmartAccount()
+      if (!restored) { clearWalletMeta(); return null }
+      _address = restored.address
+      _providerId = CIRCLE_PROVIDER_ID
+      _provider = null
+      _walletClient = null
+      _smartAccount = restored.smartAccount
+      _smartAccountClient = restored.client
+      saveWalletMeta(CIRCLE_PROVIDER_ID, _address)
+      return { address: _address, provider: _providerId }
+    } catch {
+      // If rehydration fails (corrupted credential, SDK error, etc.)
+      // fall back gracefully — user can re-connect manually.
+      clearWalletMeta()
+      return null
+    }
+  }
 
   const provider = findWalletProvider(meta.providerId)
   if (!provider) { clearWalletMeta(); return null }
@@ -238,7 +290,28 @@ function findWalletProvider(providerId) {
   return null
 }
 
+// Connect via Circle Modular Wallets passkey. Returns the same shape as
+// connectWallet() so the WalletConnect onConnect callback works
+// uniformly. Triggers a WebAuthn prompt (biometric / hardware key) for
+// the user — caller should debounce + show a "Authenticating..." state.
+export async function connectCircleWallet() {
+  if (!circlePasskeyEnabled()) {
+    throw new Error('Circle passkey wallet is not configured.')
+  }
+  const result = await connectCirclePasskey({ mode: 'auto' })
+  _address = result.address
+  _providerId = CIRCLE_PROVIDER_ID
+  _provider = null
+  _walletClient = null
+  _smartAccount = result.smartAccount
+  _smartAccountClient = result.client
+  saveWalletMeta(CIRCLE_PROVIDER_ID, _address)
+  return { address: _address, provider: CIRCLE_PROVIDER_ID }
+}
+
 export async function connectWallet(providerId) {
+  if (providerId === CIRCLE_PROVIDER_ID) return connectCircleWallet()
+
   const provider = findWalletProvider(providerId)
   if (!provider) throw new Error(`Unknown provider: ${providerId}`)
 
@@ -281,21 +354,38 @@ export async function connectWallet(providerId) {
 }
 
 export function disconnectWallet() {
+  // If we were connected via passkey, also clear the stored P256
+  // credential so the next connect starts a fresh register flow.
+  if (_providerId === CIRCLE_PROVIDER_ID) clearCircleSession()
   _walletClient = null
   _provider = null
   _address = null
   _providerId = null
+  _smartAccount = null
+  _smartAccountClient = null
   clearWalletMeta()
 }
 
 export async function getWalletClient() {
   if (_walletClient) return _walletClient
+  if (_providerId === CIRCLE_PROVIDER_ID) {
+    // Passkey wallets sign via Circle's bundler (executeUserOp), not viem
+    // writeContract — callers should branch on getConnectedProvider() and
+    // use the executor for that path. This error fires only if a code path
+    // forgot to branch.
+    throw new Error(
+      'This action is not yet wired for passkey wallets. ' +
+      'The deposit flow uses Circle bundler execution; other flows still need that wrapper.',
+    )
+  }
   throw new Error('No wallet connected. Click "Connect Wallet" to continue.')
 }
 
 // Returns all wallet providers detected in the page — curated WALLET_PROVIDERS
 // that pass their detect(), plus any EIP-6963 wallet the dApp doesn't have a
-// curated entry for (Rabby, Brave, Phantom EVM, etc.).
+// curated entry for (Rabby, Brave, Phantom EVM, etc.). The Circle passkey
+// option is included whenever VITE_CIRCLE_CLIENT_KEY is set — it requires no
+// extension, just WebAuthn support, so it shows up in every browser.
 export function getAvailableProviders() {
   const curated = WALLET_PROVIDERS.filter(p => p.detect() !== null)
   const discovered = discoverEip6963Wallets()
@@ -304,7 +394,17 @@ export function getAvailableProviders() {
   // without identifying itself, which is exactly what EIP-6963 fixes.
   const hasReal = curated.some(p => p.id !== 'browser') || discovered.length > 0
   const filtered = hasReal ? curated.filter(p => p.id !== 'browser') : curated
-  return [...filtered, ...discovered]
+  const passkey = circlePasskeyEnabled()
+    ? [{
+        id: CIRCLE_PROVIDER_ID,
+        name: 'Sign in with Passkey',
+        icon: 'i-lucide-fingerprint',
+        // Synthetic provider — no EIP-1193 detect; presence is implied by
+        // circlePasskeyEnabled() being true.
+        detect: () => true,
+      }]
+    : []
+  return [...passkey, ...filtered, ...discovered]
 }
 
 // Listen for account/chain changes from the wallet extension

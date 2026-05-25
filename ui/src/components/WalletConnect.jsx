@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { Fragment, useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { connectWallet, getAvailableProviders } from '../config'
+import { connectWallet, getAvailableProviders, CIRCLE_PROVIDER_ID } from '../config'
 
 export default function WalletConnect({ address, displayName, onConnect, onDisconnect, onEditProfile }) {
   const [showModal, setShowModal] = useState(false)
@@ -180,22 +180,55 @@ export default function WalletConnect({ address, displayName, onConnect, onDisco
               </div>
             ) : (
               <div className="wallet-options">
-                {available.map(p => (
-                  <button key={p.id} className="wallet-option" onClick={() => handleConnect(p.id)} disabled={busy}>
-                    {p.iconDataUri ? (
-                      <img
-                        src={p.iconDataUri}
-                        alt=""
-                        width={20}
-                        height={20}
-                        style={{ borderRadius: 4 }}
-                      />
-                    ) : (
-                      <span className={`wallet-icon ${p.icon} w-5 h-5`} />
-                    )}
-                    <span>{p.name}</span>
-                  </button>
-                ))}
+                {available.map((p, i) => {
+                  // Insert a divider + label between the passkey option (if
+                  // present, always first) and the EOA wallets that follow.
+                  // Visually separates "no extension needed" from "browser
+                  // extension required".
+                  const prev = available[i - 1]
+                  const showDivider = prev?.id === CIRCLE_PROVIDER_ID && p.id !== CIRCLE_PROVIDER_ID
+                  return (
+                    <Fragment key={p.id}>
+                      {showDivider && (
+                        <div
+                          className="caption"
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            margin: '6px 0', color: 'var(--text-4)',
+                            fontSize: '0.7rem', textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                          }}
+                        >
+                          <span style={{ flex: 1, height: 1, background: 'var(--glass-border)' }} />
+                          <span>or use a browser wallet</span>
+                          <span style={{ flex: 1, height: 1, background: 'var(--glass-border)' }} />
+                        </div>
+                      )}
+                      <button className="wallet-option" onClick={() => handleConnect(p.id)} disabled={busy}>
+                        {p.iconDataUri ? (
+                          <img
+                            src={p.iconDataUri}
+                            alt=""
+                            width={20}
+                            height={20}
+                            style={{ borderRadius: 4 }}
+                          />
+                        ) : (
+                          <span className={`wallet-icon ${p.icon} w-5 h-5`} />
+                        )}
+                        <span>{p.name}</span>
+                        {p.id === CIRCLE_PROVIDER_ID && (
+                          <span
+                            className="caption"
+                            style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-4)' }}
+                          >
+                            Works in any browser
+                          </span>
+                        )}
+                      </button>
+                    </Fragment>
+                  )
+                })}
               </div>
             )}
 

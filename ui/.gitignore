@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Env files — Vite reads these at build time and embeds VITE_* vars into the
+# client bundle. Keep real values local; commit ui/.env.example as the template.
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
