@@ -133,10 +133,7 @@ def run_benchmark(
             action_set = agent.decide(obs)
             allocation = agent.act(action_set)
 
-            if harness_available:
-                post_state = harness.step(allocation.allocations)  # type: ignore[possibly-undefined]
-            else:
-                post_state = step_data  # synthetic fixture already has post_state fields
+            post_state = harness.step(allocation.allocations) if harness_available else step_data  # type: ignore[possibly-undefined]
 
             agent.verify(post_state)
 
@@ -165,7 +162,7 @@ def run_benchmark(
         m = sum(vals) / len(vals)
         return math.sqrt(sum((v - m) ** 2 for v in vals) / (len(vals) - 1))
 
-    aggregate = {
+    return {
         "run_metadata": {
             "seeds": seeds,
             "horizon_days": horizon_days,
@@ -192,8 +189,6 @@ def run_benchmark(
         },
         "per_seed": seed_results,
     }
-
-    return aggregate
 
 
 def main(argv: list[str] | None = None) -> int:
