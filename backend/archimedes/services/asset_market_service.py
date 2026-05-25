@@ -221,7 +221,7 @@ class AssetMarketService:
             # _fetch_price_histories returns {symbol: pd.Series} (close prices)
             # Convert Series to a plain list for downstream math.
             raw_hist = histories.get(synth)
-            if raw_hist is not None and hasattr(raw_hist, 'tolist'):
+            if raw_hist is not None and hasattr(raw_hist, "tolist"):
                 hist_prices = [float(v) for v in raw_hist.tolist() if v == v]  # v==v filters NaN
             elif isinstance(raw_hist, dict):
                 hist_prices = raw_hist.get("close") or []
@@ -238,7 +238,7 @@ class AssetMarketService:
             oracle_updated_at = oracle.get("updated_at")
             if oracle_updated_at:
                 last_updated = datetime.fromtimestamp(oracle_updated_at, tz=UTC).isoformat()
-            elif raw_hist is not None and hasattr(raw_hist, 'index') and len(raw_hist) > 0:
+            elif raw_hist is not None and hasattr(raw_hist, "index") and len(raw_hist) > 0:
                 last_updated = str(raw_hist.index[-1])
             else:
                 last_updated = nowstamp

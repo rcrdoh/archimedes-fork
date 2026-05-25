@@ -269,10 +269,16 @@ def _default_pdf_downloader(pdf_url: str) -> bytes:
             headers={"User-Agent": "archimedes-arxiv-corpus/1.0 (+hackathon)"},
         )
         if resp.status_code in (429, 503) and attempt < _PDF_MAX_RETRIES - 1:
-            wait = _PDF_BACKOFF_BASE * (2 ** attempt)
-            logger.warning("arxiv returned %d — backing off %ds (attempt %d/%d)",
-                          resp.status_code, wait, attempt + 1, _PDF_MAX_RETRIES)
+            wait = _PDF_BACKOFF_BASE * (2**attempt)
+            logger.warning(
+                "arxiv returned %d — backing off %ds (attempt %d/%d)",
+                resp.status_code,
+                wait,
+                attempt + 1,
+                _PDF_MAX_RETRIES,
+            )
             import time
+
             time.sleep(wait)
             continue
         resp.raise_for_status()
@@ -407,6 +413,7 @@ def build_corpus(
                     text_ok += 1
                 # Polite delay between PDF downloads — respect arXiv rate limits
                 import time
+
                 time.sleep(_PDF_DOWNLOAD_DELAY)
         rows.append(paper.manifest_row(pdf_sha256=sha, fetched_at=fetched_at))
         if idx % 25 == 0:

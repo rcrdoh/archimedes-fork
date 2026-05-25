@@ -106,10 +106,14 @@ def hydrate(
                         headers={"User-Agent": "archimedes-corpus-hydration/1.0"},
                     )
                     if resp.status_code in (429, 503) and attempt < _MAX_RETRIES - 1:
-                        wait = _BACKOFF_BASE * (2 ** attempt)
+                        wait = _BACKOFF_BASE * (2**attempt)
                         logger.warning(
                             "hydrate: %d from arXiv for %s — backing off %ds (attempt %d/%d)",
-                            resp.status_code, arxiv_id, wait, attempt + 1, _MAX_RETRIES,
+                            resp.status_code,
+                            arxiv_id,
+                            wait,
+                            attempt + 1,
+                            _MAX_RETRIES,
                         )
                         time.sleep(wait)
                         continue
