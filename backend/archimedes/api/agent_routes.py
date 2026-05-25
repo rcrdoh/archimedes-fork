@@ -6,8 +6,9 @@ import asyncio
 import contextlib
 from datetime import UTC
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
+from archimedes.api.auth_guard import require_internal_agent_key
 from archimedes.api.limiter import limiter
 from archimedes.api.schemas import AgentStatusResponse, AMMHealthResponse
 from archimedes.chain.executor import chain_executor
@@ -186,8 +187,11 @@ async def get_amm_health(request: Request):
 
 
 @agent_router.post("/bootstrap-liquidity")
-async def bootstrap_amm_liquidity():
-    """Add AMM pool liquidity so vault rebalances can execute."""
+async def bootstrap_amm_liquidity(_: None = Depends(require_internal_agent_key)):
+    """Add AMM pool liquidity so vault rebalances can execute.
+
+    Internal-only: requires X-Internal-Agent-Key header.
+    """
     from archimedes.services.amm_bootstrap import bootstrap_amm_liquidity as _bootstrap
 
     async def _run():
