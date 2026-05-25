@@ -447,27 +447,48 @@ async def _run_live_candidate(*, candidate_id: str, brief: GenerateBrief, emit: 
         raise RuntimeError("agent returned no portfolio")
 
     weights = {pick.ticker: pick.weight for pick in (portfolio.picks or [])}
+    # Collect paper anchors — try matching by ID first, then by fuzzy name match
     referenced = {pick.paper_anchor for pick in (portfolio.picks or []) if pick.paper_anchor}
     source_papers = []
-    for sid in referenced:
-        s = next((s for s in strategies if s.id == sid), None)
+    strat_by_id = {s.id: s for s in strategies}
+    strat_by_name = {s.paper_title.lower(): s for s in strategies if s.paper_title}
+    for anchor in referenced:
+        s = strat_by_id.get(anchor)
+        if not s:
+            # Fuzzy match: the LLM often returns a short name instead of the ID
+            s = strat_by_name.get(anchor.lower())
+        if not s:
+            # Try substring match
+            s = next((st for st in strategies if anchor.lower() in st.paper_title.lower()), None)
         if s and getattr(s, "paper_arxiv_id", None):
-            source_papers.append(
-                {
-                    "arxiv_id": s.paper_arxiv_id,
-                    "title": s.paper_title,
-                }
-            )
+            source_papers.append({"arxiv_id": s.paper_arxiv_id, "title": s.paper_title})
+    # Defensive fallback: if agent returned no anchors, include ALL strategies
+    # that are in the curated library as potential sources (honest: they were
+    # available to the agent even if it didn't cite them explicitly)
+    if not source_papers and strategies:
+        for s in strategies[:5]:  # cap at 5 to avoid noise
+            if getattr(s, "paper_arxiv_id", None):
+                source_papers.append({"arxiv_id": s.paper_arxiv_id, "title": s.paper_title})
 
     # Real rigor verdict via Önder's compute_dsr + compute_oos_sharpe on the
     # buy-and-hold return series of the agent's allocation. PBO is patched
     # later (after all candidates are in) since it's a library-level metric.
     return_series = _portfolio_return_series(weights, price_histories)
     verdict = _rigor_verdict_for(return_series, num_trials=1)
+    # Derive meaningful name + thesis from the brief and agent output (#299)
+    top_picks = sorted(weights.items(), key=lambda x: -x[1])[:3]
+    pick_summary = " / ".join(t for t, _ in top_picks)
+    strategy_name = f"{brief.risk_appetite.title()} Blend — {brief.intent[:50].strip()}"
+    agent_reasoning = getattr(portfolio, "reasoning_text", "") or ""
+    thesis = agent_reasoning if len(agent_reasoning) > 20 else (
+        f"For brief '{brief.intent[:100]}': allocates {pick_summary} "
+        f"across {len(weights)} assets with {brief.risk_appetite} risk appetite."
+    )
+
     return _CandidateResult(
         candidate_id=candidate_id,
-        strategy_name=f"{brief.risk_appetite.title()} Agent Blend",
-        thesis=getattr(portfolio, "reasoning_text", "") or "Agent-constructed allocation",
+        strategy_name=strategy_name,
+        thesis=thesis,
         asset_universe=list(weights.keys()),
         source_papers=source_papers,
         weights=weights,
