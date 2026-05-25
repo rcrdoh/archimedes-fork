@@ -46,6 +46,10 @@ services:
     restart: unless-stopped
     ports:
       - "80:8080"
+      - "443:8443"
+    volumes:
+      - /etc/letsencrypt/live/archimedes-arc.app/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+      - /etc/letsencrypt/live/archimedes-arc.app/privkey.pem:/etc/nginx/certs/privkey.pem:ro
     depends_on:
       backend:
         condition: service_started
