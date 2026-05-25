@@ -191,6 +191,7 @@ app.include_router(proposals_router)
 
 
 @app.get("/health")
+@app.get("/api/health")
 @limiter.exempt
 async def health():
     """Health check — used by Docker healthcheck and CI/CD.
