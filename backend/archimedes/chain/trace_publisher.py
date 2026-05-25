@@ -173,6 +173,48 @@ class TracePublisher:
         except Exception:
             return []
 
+    async def get_trace_by_tx_hash(self, tx_hash: str) -> dict | None:
+        """Get trace details from the TracePublished event in a known tx receipt.
+
+        O(1) verification path — single RPC roundtrip — used by /verify when the
+        off-chain trace already remembers its `arc_tx_hash`. Avoids the O(N)
+        getTracesByVault → getTraceById scan over a vault's full trace history.
+
+        Returns the same shape as `get_trace_by_id` (agent / vault / trace_hash /
+        timestamp / metadata=None) or None if the receipt is missing or the
+        TracePublished event cannot be decoded.
+        """
+        if not tx_hash:
+            return None
+
+        registry = self.loader.trace_registry
+        try:
+            receipt = await chain_client.w3.eth.get_transaction_receipt(tx_hash)
+        except Exception as e:
+            logger.error(f"Failed to fetch receipt for {tx_hash}: {e}")
+            return None
+
+        for log in receipt.logs:
+            try:
+                decoded = registry.events.TracePublished().process_log(log)
+            except Exception:
+                continue
+            args = decoded["args"]
+            trace_hash_raw = args["traceHash"]
+            trace_hash_hex = (
+                trace_hash_raw.hex() if isinstance(trace_hash_raw, (bytes, bytearray)) else str(trace_hash_raw)
+            )
+            return {
+                "agent": args["agent"],
+                "vault": args["vault"],
+                "trace_hash": trace_hash_hex,
+                "timestamp": args["timestamp"],
+                "metadata": None,
+                "trace_id": args.get("traceId", 0),
+            }
+
+        return None
+
     def _encode_metadata(self, trace: ReasoningTrace) -> bytes:
         """Encode trace metadata as ABI-encoded bytes for on-chain storage."""
         import json

@@ -295,24 +295,32 @@ async def verify_trace(trace_id: str, request: Request):  # noqa: ARG001 — slo
         on_chain_ts = 0
         details = ""
 
-        if not off_chain.get("arc_tx_hash"):
+        arc_tx_hash = off_chain.get("arc_tx_hash")
+        if not arc_tx_hash:
             details = "Trace was not published on-chain -- cannot verify"
         else:
             try:
-                vault_traces = await trace_publisher.get_traces_by_vault(vault)
-                on_chain_count = await trace_publisher.get_total_trace_count()
-                is_verified = False
-                agent = ""
-                on_chain_ts = 0
-
-                for tid in vault_traces if vault_traces else range(1, on_chain_count + 1):
-                    detail = await trace_publisher.get_trace_by_id(tid)
-                    if detail and detail["trace_hash"] == trace_hash.removeprefix("0x"):
+                # O(1): fetch the receipt for the cached arc_tx_hash and decode
+                # the TracePublished event directly. Replaces the prior O(N)
+                # getTracesByVault → getTraceById scan that 504'd on vaults with
+                # 40+ traces.
+                detail = await trace_publisher.get_trace_by_tx_hash(arc_tx_hash)
+                if detail is None:
+                    details = "On-chain receipt not found for cached arc_tx_hash"
+                else:
+                    expected = trace_hash.removeprefix("0x").lower()
+                    on_chain = detail["trace_hash"].removeprefix("0x").lower()
+                    if expected and expected == on_chain:
                         is_verified = True
                         agent = detail["agent"]
                         on_chain_ts = detail["timestamp"]
-                        break
-                details = "Hash verified on-chain ✓" if is_verified else "Hash not found on-chain"
+                        # Keep vault as recorded off-chain; surface the on-chain
+                        # vault when off-chain didn't record one.
+                        if not vault:
+                            vault = detail["vault"]
+                        details = "Hash verified on-chain ✓"
+                    else:
+                        details = "Hash mismatch: on-chain trace does not match off-chain hash"
             except Exception as e:
                 details = f"Verification failed: {e}"
 

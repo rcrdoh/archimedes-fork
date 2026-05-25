@@ -162,3 +162,113 @@ class TestTraceVerify:
 
             result = asyncio.get_event_loop().run_until_complete(publisher.verify(trace))
             assert result is True
+
+
+class TestGetTraceByTxHash:
+    """Test the O(1) tx-receipt-based lookup used by /verify."""
+
+    def test_returns_decoded_event(self):
+        """When the receipt contains a TracePublished log, the helper decodes it."""
+        trace_hash_bytes = bytes.fromhex("aa" * 32)
+
+        # Mock the receipt with a single log.
+        fake_log = MagicMock()
+        fake_receipt = MagicMock()
+        fake_receipt.logs = [fake_log]
+
+        mock_registry = MagicMock()
+        mock_registry.events.TracePublished.return_value.process_log = MagicMock(
+            return_value={
+                "args": {
+                    "traceId": 7,
+                    "agent": "0xagent",
+                    "vault": "0xvault",
+                    "traceHash": trace_hash_bytes,
+                    "timestamp": 99999,
+                }
+            }
+        )
+
+        mock_loader = MagicMock()
+        mock_loader.trace_registry = mock_registry
+
+        with patch("archimedes.chain.trace_publisher.chain_client") as mock_client:
+            mock_client.w3.eth.get_transaction_receipt = AsyncMock(return_value=fake_receipt)
+
+            from archimedes.chain.trace_publisher import TracePublisher
+
+            publisher = TracePublisher(loader=mock_loader)
+
+            import asyncio
+
+            result = asyncio.get_event_loop().run_until_complete(publisher.get_trace_by_tx_hash("0xdeadbeef"))
+
+            assert result is not None
+            assert result["agent"] == "0xagent"
+            assert result["vault"] == "0xvault"
+            assert result["trace_hash"] == trace_hash_bytes.hex()
+            assert result["timestamp"] == 99999
+            assert result["trace_id"] == 7
+            # Single RPC roundtrip — receipt fetched exactly once.
+            mock_client.w3.eth.get_transaction_receipt.assert_awaited_once_with("0xdeadbeef")
+
+    def test_returns_none_when_no_event_in_receipt(self):
+        """If no log decodes to TracePublished, return None."""
+        fake_log = MagicMock()
+        fake_receipt = MagicMock()
+        fake_receipt.logs = [fake_log]
+
+        mock_registry = MagicMock()
+        mock_registry.events.TracePublished.return_value.process_log = MagicMock(
+            side_effect=Exception("not this event")
+        )
+
+        mock_loader = MagicMock()
+        mock_loader.trace_registry = mock_registry
+
+        with patch("archimedes.chain.trace_publisher.chain_client") as mock_client:
+            mock_client.w3.eth.get_transaction_receipt = AsyncMock(return_value=fake_receipt)
+
+            from archimedes.chain.trace_publisher import TracePublisher
+
+            publisher = TracePublisher(loader=mock_loader)
+
+            import asyncio
+
+            result = asyncio.get_event_loop().run_until_complete(publisher.get_trace_by_tx_hash("0xdeadbeef"))
+            assert result is None
+
+    def test_returns_none_when_receipt_fetch_fails(self):
+        """If get_transaction_receipt raises, the helper returns None (no crash)."""
+        mock_loader = MagicMock()
+        mock_loader.trace_registry = MagicMock()
+
+        with patch("archimedes.chain.trace_publisher.chain_client") as mock_client:
+            mock_client.w3.eth.get_transaction_receipt = AsyncMock(side_effect=Exception("RPC error"))
+
+            from archimedes.chain.trace_publisher import TracePublisher
+
+            publisher = TracePublisher(loader=mock_loader)
+
+            import asyncio
+
+            result = asyncio.get_event_loop().run_until_complete(publisher.get_trace_by_tx_hash("0xdeadbeef"))
+            assert result is None
+
+    def test_returns_none_for_empty_tx_hash(self):
+        """Empty or falsy tx_hash short-circuits to None without an RPC call."""
+        mock_loader = MagicMock()
+        mock_loader.trace_registry = MagicMock()
+
+        with patch("archimedes.chain.trace_publisher.chain_client") as mock_client:
+            mock_client.w3.eth.get_transaction_receipt = AsyncMock()
+
+            from archimedes.chain.trace_publisher import TracePublisher
+
+            publisher = TracePublisher(loader=mock_loader)
+
+            import asyncio
+
+            result = asyncio.get_event_loop().run_until_complete(publisher.get_trace_by_tx_hash(""))
+            assert result is None
+            mock_client.w3.eth.get_transaction_receipt.assert_not_awaited()
