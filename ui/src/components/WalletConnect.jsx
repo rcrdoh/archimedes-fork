@@ -315,16 +315,7 @@ export default function WalletConnect({ address, displayName, onConnect, onDisco
                           <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, flex: 1 }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                               <span>{p.name}</span>
-                              <span
-                                style={{
-                                  marginLeft: 'auto', fontSize: '0.62rem', letterSpacing: '0.04em',
-                                  textTransform: 'uppercase', padding: '2px 6px',
-                                  background: 'rgba(212, 168, 83, 0.12)', color: 'var(--accent)',
-                                  border: '1px solid rgba(212, 168, 83, 0.3)', borderRadius: 999,
-                                }}
-                              >
-                                Recommended
-                              </span>
+
                             </span>
                             <span
                               className="caption"

@@ -202,7 +202,7 @@ export default function App() {
         <WalletGate
           walletAddr={walletAddr}
           pageName="Your Strategies"
-          description="Library shows strategies you've generated, plus a clearly-separated set of paper-grounded example strategies. Connect a wallet — passkey or browser wallet, both work — to see your generations and deploy them as vaults."
+          description="Library shows strategies you've generated, plus a clearly-separated set of paper-grounded example strategies. Connect a wallet — sign in with a passkey, no extension needed — to see your generations and deploy them as vaults."
           onConnect={openConnectModal}
         >
           <Strategies highlightStrategyId={highlightStrategyId} defaultTab={defaultTab} onNavigate={navigateToPage} />
