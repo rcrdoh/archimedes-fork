@@ -22,6 +22,14 @@ from archimedes.models.portfolio import (
 
 logger = logging.getLogger(__name__)
 
+# Minimum USDC-equivalent reserve a pool must hold for the executor to submit
+# a swap through it. Prevents doomed trades on thinly-seeded testnet pools.
+MIN_HEALTHY_LIQUIDITY_USDC = 1000.0
+
+
+class InsufficientLiquidityError(RuntimeError):
+    """Raised when an AMM pool's USDC reserve is below MIN_HEALTHY_LIQUIDITY_USDC."""
+
 
 class ChainExecutor:
     """Executes on-chain vault operations: read portfolio, rebalance, create vault."""
@@ -83,6 +91,53 @@ class ChainExecutor:
             total_value_usdc=total_assets / 1e6,
         )
 
+    async def _validate_trade_liquidity(self, trades: list[TradeOrder]) -> None:
+        """Pre-flight: verify AMM pools have sufficient liquidity for proposed trades.
+
+        Reads reserve0/reserve1 from each pool, identifies the USDC-side reserve,
+        and raises InsufficientLiquidityError if it's below the threshold.
+        """
+        usdc_addr = chain_client.to_checksum(chain_client.settings.usdc_address)
+        router = self.loader.amm_router
+
+        for trade in trades:
+            token_addr = chain_client.to_checksum(trade.token_address)
+            try:
+                pool_addr = await router.functions.getPool(usdc_addr, token_addr).call()
+                if pool_addr == "0x" + "0" * 40:
+                    raise InsufficientLiquidityError(f"No AMM pool for {trade.symbol}: getPool returned zero address")
+
+                pool = self.loader.amm_pool(pool_addr)
+                r0 = await pool.functions.reserve0().call()
+                r1 = await pool.functions.reserve1().call()
+                t0 = await pool.functions.token0().call()
+
+                # Identify USDC-side reserve (6 decimals)
+                if chain_client.to_checksum(t0) == usdc_addr:
+                    usdc_reserve = r0 / 1e6
+                else:
+                    usdc_reserve = r1 / 1e6
+
+                if usdc_reserve < MIN_HEALTHY_LIQUIDITY_USDC:
+                    raise InsufficientLiquidityError(
+                        f"Pool {pool_addr[:10]}… ({trade.symbol}): USDC reserve "
+                        f"${usdc_reserve:,.2f} below threshold ${MIN_HEALTHY_LIQUIDITY_USDC:,.0f}"
+                    )
+                logger.debug(
+                    "liquidity OK for %s: pool %s USDC reserve $%.2f",
+                    trade.symbol,
+                    pool_addr[:10],
+                    usdc_reserve,
+                )
+            except InsufficientLiquidityError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "liquidity check failed for %s (non-fatal, allowing trade): %s",
+                    trade.symbol,
+                    exc,
+                )
+
     async def execute_trades(
         self,
         vault_address: str,
@@ -91,12 +146,15 @@ class ChainExecutor:
         """Execute rebalance trades for a vault.
 
         Uses Circle dev-controlled wallet if configured, falls back to raw private key.
+        Pre-flight: validates AMM pool liquidity before submitting.
 
         Amounts in TradeOrder are in human-readable USDC units (e.g. 8.0 for $8).
         The vault's rebalance() expects raw token amounts:
           - BUY (USDC → synth): amount in USDC raw (6 decimals)
           - SELL (synth → USDC): amount in synth raw (18 decimals)
         """
+        # Pre-flight liquidity check (raises InsufficientLiquidityError)
+        await self._validate_trade_liquidity(trades)
 
         # Split trades into buys and sells with proper decimal conversion
         tokens_in: list[str] = []

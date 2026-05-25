@@ -26,7 +26,7 @@ import uuid
 from datetime import UTC, datetime
 
 from archimedes.chain.client import chain_client
-from archimedes.chain.executor import chain_executor
+from archimedes.chain.executor import InsufficientLiquidityError, chain_executor
 from archimedes.chain.trace_publisher import trace_publisher
 from archimedes.chain.v_check import VCheck
 from archimedes.models.portfolio import (
@@ -540,6 +540,27 @@ class StrategyRunner:
                     [h[:16] for h in tx_hashes],
                 )
                 await self.state.save_last_rebalance(vault_address)
+            except InsufficientLiquidityError as e:
+                logger.warning(
+                    "[tick %s] Vault %s: swap skipped — thin pool: %s; will retry next tick",
+                    tick_id,
+                    vault_address[:10],
+                    e,
+                )
+                await self._publish_trace(
+                    vault_address,
+                    DecisionType.SKIP,
+                    "insufficient_liquidity",
+                    portfolio,
+                    [],
+                    all_signals,
+                    regime,
+                    tick_id,
+                    f"Swap skipped — thin pool: {e}",
+                    commit_tx=commit_tx,
+                    commit_block=commit_block,
+                )
+                return
             except Exception as e:
                 logger.error(
                     "[tick %s] Trade execution FAILED for %s: %s",
