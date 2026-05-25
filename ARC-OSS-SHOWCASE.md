@@ -65,7 +65,9 @@ sequenceDiagram
 
 This is the technical claim behind "non-custodial in the strong sense" — the worst the agent can do is rebalance within the user's stated risk envelope. The user retains exit authority at all times.
 
-## The seven forkable primitives
+## The twelve forkable primitives
+
+> The original seven below shipped Day 4 → Day 9. **Primitives 8–12** were added 2026-05-24 as part of the Day-12 ship train and are the more recent forks. Each is independently consumable: pick what you need.
 
 ### 1. Strategy Passport schema + validation
 
@@ -165,6 +167,81 @@ Replaces raw private-key signing with Circle's managed-wallet REST API. Submits 
 **How to fork:** drop in `CircleSigner` + your Circle API credentials in env. Calls become `await signer.execute_contract(...)` and you're done. Avoids the operational risk of holding raw private keys in production.
 
 **Who benefits:** any Arc app whose backend needs to sign transactions without managing private keys — agent products, automated rebalancing services, on-chain orchestration platforms.
+
+### 8. Xia 2026 named-protocol implementation (Outcome Embargo + Time-Aware Retrieval + Hierarchy of Truth + Source Tracking + V_check)
+
+Implements the five protocols Xia et al. 2026 formalize as the prerequisites for an R3-reproducible trading-agent system. **Every protocol is an enforced mechanism, not advisory guidance.**
+
+| Where it lives | What it is |
+|---|---|
+| [`backend/archimedes/services/embargo_filter.py`](backend/archimedes/services/embargo_filter.py) | Outcome Embargo — papers published after the decision timestamp are filtered out of retrieval. |
+| [`backend/archimedes/services/time_aware_retrieval.py`](backend/archimedes/services/time_aware_retrieval.py) | Time-Aware Retrieval — SPECTER2 similarity scores decay exponentially with paper age; decay rate scales with regime volatility. |
+| [`backend/archimedes/chain/v_check.py`](backend/archimedes/chain/v_check.py) | `V_check` on-chain validator — rejects agent actions that violate deterministic constraints regardless of agent confidence. |
+| [`backend/archimedes/services/source_tracker.py`](backend/archimedes/services/source_tracker.py) | Source Tracking — every trace records `consulted_paper_hashes` (sorted `arxiv_id:content_hash` list), which is part of the canonical trace hash anchored on-chain. |
+| [`docs/specs/xia-2026-protocols.md`](docs/specs/xia-2026-protocols.md) | Full reference — maps each protocol to the section of the Xia paper it implements. |
+
+**How to fork:** drop the four modules into any retrieval-augmented agent that consumes time-stamped sources. The Hierarchy of Truth is enforced structurally (peer-reviewed > narrative > social), so adopt the curation rule too.
+
+**Who benefits:** any LLM-agent product that retrieves from a corpus and emits actions audited against a benchmark. The protocols close the "Oracle Fallacy" and "Provenance Loss" failure modes Xia identifies in 15/19 surveyed studies.
+
+### 9. StockBench harness adapter
+
+A clean adapter that wraps Archimedes' `StrategyFusion.propose` + `PortfolioAgent.propose_portfolio` against the [StockBench](https://arxiv.org/abs/2510.02209) (Chen et al. 2026) closed-loop benchmark protocol. Runs the full multi-month evaluation with 3 seeds and emits Sortino, return, and max-drawdown metrics comparable to the 14 published baselines.
+
+| Where it lives | What it is |
+|---|---|
+| [`backend/archimedes/evaluation/stockbench/adapter.py`](backend/archimedes/evaluation/stockbench/adapter.py) | The adapter (244 lines, 97% test-covered) — wires Archimedes to the StockBench protocol surface. |
+| [`backend/archimedes/evaluation/stockbench/__main__.py`](backend/archimedes/evaluation/stockbench/__main__.py) | `python -m archimedes.evaluation.stockbench` — one-command harness run. |
+| [`docs/benchmarks/stockbench-results.md`](docs/benchmarks/stockbench-results.md) | Our actual result: #15/15 (Sortino -0.91). Documents the methodology so a forker can re-derive. |
+
+**How to fork:** point the adapter at your agent's `propose` interface. Replaces 200 lines of brittle "wrap my agent in their loop" plumbing with a tested seam. **Reproducibility-grade evidence:** when you ship a number, it's comparable to Chen et al. 2026's published baseline table — not a vibes claim.
+
+**Who benefits:** any trading-agent project that wants to surface an honest performance number against a contamination-free benchmark instead of a cherry-picked backtest. The honest "we underperformed passive in this window" framing is itself a Tier-1 signal — Xia et al. document that *all* LLM agents underperform passive in many windows; pretending otherwise loses credibility.
+
+### 10. paper-qa semantic-retrieval wrap (defense-in-depth ranker behind fusion.select_candidates)
+
+Wraps the Apache-2.0 [paper-qa](https://github.com/Future-House/paper-qa) library as a second-pass semantic ranker behind keyword filtering in the fusion candidate selection step. Uses local `sentence-transformers` embeddings (no external API calls). Falls back gracefully to keyword-only when deps are missing.
+
+| Where it lives | What it is |
+|---|---|
+| [`backend/archimedes/services/paper_rag.py`](backend/archimedes/services/paper_rag.py) | The wrap — `SemanticReranker` + the seam into `strategy_fusion.select_candidates()`. |
+| `FUSION_SEMANTIC_RETRIEVAL` env var | Feature flag — set to `true` to enable the second-pass ranker. |
+
+**How to fork:** drop the file into any RAG project that needs a defense-in-depth ranker. The fallback pattern (degrade loudly + keep shipping) is the part most "RAG demos" skip and the part you actually want in production.
+
+**Who benefits:** any paper-grounded AI product. Closes the failure mode where keyword filtering returns plausible-but-irrelevant matches because the keyword surface is sparse.
+
+### 11. Strategy episodic memory (`strategy_proposals` table — substrate that compounds)
+
+A Postgres table that persists every fusion proposal + every rigor-gate verdict + every user-reject, content-hashed. Makes the "library compounds" pitch claim demonstrable rather than aspirational. The Considered Alternatives panel on every Strategy Passport reads from this table — judges can see what was rejected and why.
+
+| Where it lives | What it is |
+|---|---|
+| [`backend/archimedes/services/strategy_memory.py`](backend/archimedes/services/strategy_memory.py) | The episodic-memory wrap (72 statements, 79% covered) — write-side. |
+| `/api/strategies/proposals` | Read-side endpoint — the Considered Alternatives panel reads from here. |
+| `strategy_proposals` table | The Postgres schema; one row per proposed strategy with status `(WINNER, REJECTED_RIGOR, REJECTED_USER)` + rationale. |
+
+**How to fork:** mirror the table shape + the write hook in your generation pipeline. Lifts you from "agent restarts cold every session" to "library compounds across sessions" without changing the user-facing surface beyond adding the Considered Alternatives panel.
+
+**Who benefits:** any agent product whose pitch involves "the system gets smarter over time" but whose code restarts cold every call. This is the smallest scope of episodic memory that makes the compounding claim defensible.
+
+### 12. Security pillar — first-class, fork-grade
+
+Treats security as an architectural pillar the same way the statistical pipeline is. Zero-trust posture, secrets out of `.env`, IAM-scoped resource access, HTTPS-everywhere, security headers + CORS + rate limits, dependency scanning, secret-leak detection, user-data minimization with KMS encryption.
+
+| Where it lives | What it is |
+|---|---|
+| [`backend/archimedes/services/email_crypto.py`](backend/archimedes/services/email_crypto.py) | Fernet at-rest encryption for any user PII at rest. |
+| [`backend/archimedes/services/log_scrubber.py`](backend/archimedes/services/log_scrubber.py) | PII redaction wrapper — all profile-touching loggers must route through it. |
+| [`backend/archimedes/api/limiter.py`](backend/archimedes/api/limiter.py) + `slowapi` decorators across `/api/generate/start`, `/api/user/profile`, public GETs | Rate limiting (5/min, 1/min, 60/min respectively) — Redis-backed. |
+| [`backend/archimedes/main.py`](backend/archimedes/main.py) CORS middleware | Locked to `PUBLIC_DOMAIN` only (no wildcard); preflight cache 600s. |
+| [`infra/nginx/nginx.conf`](infra/nginx/nginx.conf) | HSTS + CSP + X-Frame-Options + X-Content-Type-Options + Referrer-Policy + Permissions-Policy. |
+| [`infra/iam/archimedes-backend-policy.json`](infra/iam/archimedes-backend-policy.json) | IAM least-privilege for backend → S3 / DynamoDB / SSM. |
+| [`.pre-commit-config.yaml`](.pre-commit-config.yaml) + `.secrets.baseline` | Pre-commit detect-secrets baseline — secret-leak detection at commit time. |
+
+**How to fork:** the eight pieces above compose into a forkable security baseline for any Arc / Circle / FastAPI app. Most of them are 10–20 lines each; the discipline is in shipping them as a set, not picking-and-choosing.
+
+**Who benefits:** any Arc app that handles user PII or signs transactions. The judges read this repo like operators — visible security posture is itself a Traction signal.
 
 ## Why we should be a top contender
 
