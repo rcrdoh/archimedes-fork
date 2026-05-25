@@ -21,6 +21,10 @@ for LLM-based Trading Agents", arxiv 2510.02209.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import math
 import random
@@ -287,11 +291,17 @@ class ArchimedesStockBenchAdapter:
     benchmark score reflects the real agent with all protocols active.
     """
 
+    # Rebalance every N trading days (weekly ≈ 5 days)
+    _REBALANCE_INTERVAL = 5
+
     def __init__(self, seed: int = 0) -> None:
         self.seed = seed
         self.rng = random.Random(seed)
         self.portfolio = PortfolioState()
         self._price_cache: dict[str, list[float]] | None = None
+        self._cached_agent_allocations: dict[str, float] | None = None
+        self._cached_cash_weight: float = 1.0
+        self._last_rebalance_day: int = -999
 
     def _get_prices(self, n_days: int) -> dict[str, list[float]]:
         if self._price_cache is None:
@@ -356,29 +366,21 @@ class ArchimedesStockBenchAdapter:
         day: int,
         date_: date,
     ) -> DailyDecision:
-        """Produce daily allocation weights.
+        """Produce daily allocation weights using the real Archimedes agent.
 
-        This is where PortfolioAgent.propose_portfolio would run in
-        production. The adapter converts its output into StockBench's
-        expected weight format. V_check is applied post-generation.
+        Calls PortfolioAgent.propose_portfolio every _REBALANCE_INTERVAL days
+        (weekly cadence). Between rebalances, holds the previous allocation.
+        The agent reasons over the curated strategy library + market signals
+        to produce weights mapped to the DJIA-20 universe.
         """
-        # Top-N equal-weight strategy with cash reserve
-        # (mirrors a simple fusion output: momentum + risk-aware sizing)
-        n_positions = min(5, len(analysis))
-        weight_per_position = 0.15  # 15% each
-        cash_weight = 1.0 - (n_positions * weight_per_position)
-
-        allocations = {}
-        for i in range(n_positions):
-            ticker = analysis[i]["ticker"]
-            # Slight random perturbation (seeded) for realism
-            noise = self.rng.gauss(0, 0.01)
-            allocations[ticker] = max(0.0, min(1.0, weight_per_position + noise))
-
-        # Renormalize
-        total = sum(allocations.values())
-        if total > 0:
-            allocations = {k: v / total * (1 - cash_weight) for k, v in allocations.items()}
+        if (day - self._last_rebalance_day) >= self._REBALANCE_INTERVAL or self._cached_agent_allocations is None:
+            allocations, cash_weight = self._call_real_agent(analysis, day)
+            self._cached_agent_allocations = allocations
+            self._cached_cash_weight = cash_weight
+            self._last_rebalance_day = day
+        else:
+            allocations = dict(self._cached_agent_allocations)
+            cash_weight = self._cached_cash_weight
 
         decision = DailyDecision(
             day=day,
@@ -399,6 +401,70 @@ class ArchimedesStockBenchAdapter:
             decision.cash_weight = 1.0
 
         return decision
+
+    def _call_real_agent(
+        self,
+        analysis: list[dict],
+        day: int,
+    ) -> tuple[dict[str, float], float]:
+        """Call the real Archimedes PortfolioAgent for allocation weights.
+
+        Maps agent output to the DJIA-20 universe (drop non-DJIA tickers,
+        renormalize). Falls back to momentum on any failure.
+        """
+        try:
+            from archimedes.agents.portfolio_agent import get_portfolio_agent
+            from archimedes.services.strategy_provider import default_provider
+
+            agent = get_portfolio_agent()
+            provider = default_provider()
+            strategies = [s for s in provider.list_strategies() if s.real_sharpe is not None]
+
+            if not agent.available or not strategies:
+                logger.warning("StockBench day %d: agent unavailable — momentum fallback", day)
+                return self._momentum_fallback(analysis)
+
+            market_ranking = [
+                {"synth": f"s{a['ticker']}", "ticker": a["ticker"], "signal": a.get("signal", 0)}
+                for a in analysis[:15]
+            ]
+
+            portfolio = agent.propose_portfolio(
+                regime="transition",
+                regime_confidence=0.5,
+                risk_profile="moderate",
+                usdc_floor=0.25,
+                synth_budget=0.75,
+                market_ranking=market_ranking,
+                strategies=strategies,
+                scan_universe={f"s{a['ticker']}" for a in analysis},
+            )
+
+            if portfolio is None or not portfolio.picks:
+                return self._momentum_fallback(analysis)
+
+            djia_set = {a["ticker"] for a in analysis}
+            allocations = {}
+            for pick in portfolio.picks:
+                if pick.ticker in djia_set:
+                    allocations[pick.ticker] = pick.weight
+
+            total = sum(allocations.values())
+            if total > 0:
+                allocations = {k: v / total * 0.75 for k, v in allocations.items()}
+            cash_weight = 1.0 - sum(allocations.values())
+            logger.info("StockBench day %d: real agent → %d tickers", day, len(allocations))
+            return allocations, round(cash_weight, 4)
+
+        except Exception as exc:
+            logger.warning("StockBench day %d: agent error (%s) — fallback", day, exc)
+            return self._momentum_fallback(analysis)
+
+    def _momentum_fallback(self, analysis: list[dict]) -> tuple[dict[str, float], float]:
+        """Simple momentum fallback when agent is unavailable."""
+        n = min(5, len(analysis))
+        alloc = {analysis[i]["ticker"]: 0.15 for i in range(n)}
+        return alloc, round(1.0 - sum(alloc.values()), 4)
 
     # ── Step 4: Execution ────────────────────────────────────────
 
