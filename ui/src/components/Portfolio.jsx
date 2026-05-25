@@ -4,6 +4,7 @@ import {
   VAULT_ABI, VAULT_FACTORY_ABI, NEW_CONTRACTS,
 } from '../config'
 import RegimePanel from './RegimePanel'
+import StressScenarioPanel from './StressScenarioPanel'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -188,6 +189,34 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
           </div>
         )}
       </div>
+
+      {/* Stress scenarios — collapsed by default */}
+      {allVaults.length > 0 && (
+        <div className="mb-7">
+          <details className="card" style={{ padding: 0 }}>
+            <summary className="label cursor-pointer" style={{ padding: '14px 18px' }}>
+              🔥 Stress Scenarios
+            </summary>
+            <div style={{ padding: '0 18px 18px' }}>
+              <StressScenarioPanel
+                allocations={allVaults.flatMap(v =>
+                  (v.holdings || []).filter(h => h.symbol !== 'USDC').map(h => ({
+                    symbol: h.symbol,
+                    weight: h.weight || h.allocation_pct / 100 || 0,
+                  }))
+                )}
+                usdcWeight={0}
+                portfolioValue={allVaults.reduce((sum, v) => sum + (v.aum_usdc || 0), 0) || 10000}
+              />
+            </div>
+          </details>
+        </div>
+      )}
+      {allVaults.length === 0 && (
+        <div className="card" style={{ padding: 18 }}>
+          <p className="caption">Deploy a vault to see stress test results.</p>
+        </div>
+      )}
 
       {/* User's own vaults (wallet-gated) */}
       {walletAddr && userVaults.length > 0 && (
