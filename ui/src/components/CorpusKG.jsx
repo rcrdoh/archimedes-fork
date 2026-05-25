@@ -38,8 +38,8 @@ export default function CorpusKG({ onOpenPaper }) {
     setLoading(true)
     setError('')
     try {
-      if (!q) { setData(null); setLoading(false); return }
-      const res = await fetch(`${API_BASE}/api/corpus/kg/entities?q=${encodeURIComponent(q)}`)
+      const searchTerm = q || 'topic'
+      const res = await fetch(`${API_BASE}/api/corpus/kg/entities?q=${encodeURIComponent(searchTerm)}`)
       if (res.status === 503) throw new Error('KB pipeline still running — first artifact pending')
       if (!res.ok) throw new Error(res.statusText)
       setData(await res.json())

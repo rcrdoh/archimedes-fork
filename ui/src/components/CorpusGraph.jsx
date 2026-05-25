@@ -137,7 +137,7 @@ export default function CorpusGraph() {
     )
   }
 
-  if (!data || data.status === 'empty' || !data.nodes || data.nodes.length === 0) {
+  if (!data || data.status === 'empty' || ((!data.nodes || data.nodes.length === 0) && (!data.points || data.points.length === 0))) {
     return (
       <div className="corpus-graph-empty" style={{ padding: 40, textAlign: 'center' }}>
         <div className="caption">No papers in corpus yet.</div>
