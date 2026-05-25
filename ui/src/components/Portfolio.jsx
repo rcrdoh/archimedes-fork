@@ -8,6 +8,11 @@ import StressScenarioPanel from './StressScenarioPanel'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
+// /portfolio — Personal dashboard. YOUR AUM, YOUR vaults, YOUR traces.
+// The vault marketplace (every vault ever deployed) used to live here too, which
+// dragged the surface down with anonymous deploy-seed vaults. That moved to
+// /marketplace on 2026-05-25; this page is now strictly personal.
+
 function timeAgo(iso) {
   const d = typeof iso === 'string' ? new Date(iso) : new Date(iso * 1000)
   const secs = Math.floor((Date.now() - d.getTime()) / 1000)
@@ -22,15 +27,16 @@ function shortAddr(a) {
   return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '—'
 }
 
-export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) {
+export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace, onNavigate }) {
   const [userVaults, setUserVaults] = useState([])
-  const [allVaults, setAllVaults] = useState([])
   const [agentStatus, setAgentStatus] = useState(null)
   const [recentTraces, setRecentTraces] = useState([])
   const [tracesLoading, setTracesLoading] = useState(false)
   const [vaultsLoading, setVaultsLoading] = useState(false)
 
-  // Load user's own vaults (wallet-gated, from on-chain)
+  // Load user's own vaults (wallet-gated, from on-chain via VaultFactory.getVaultsByCreator).
+  // This is the personal surface; we deliberately do NOT pull /api/vaults/ here —
+  // the marketplace listing lives on /marketplace now.
   const loadVaults = useCallback(async () => {
     const factoryAddr = NEW_CONTRACTS.vaultFactory
     if (!factoryAddr || !walletAddr) { setUserVaults([]); return }
@@ -57,19 +63,6 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
     }
   }, [walletAddr])
 
-  // Load ALL vaults from backend API (not wallet-gated)
-  const loadAllVaults = useCallback(async () => {
-    try {
-      const r = await fetch(`${API_BASE}/api/vaults/`)
-      if (r.ok) {
-        const data = await r.json()
-        setAllVaults(data.vaults || [])
-      }
-    } catch {
-      // Network blip — leave prior allVaults intact; next 30s poll retries.
-    }
-  }, [])
-
   const loadAgentAndRegime = useCallback(async () => {
     try {
       const r = await fetch(`${API_BASE}/api/agent/status`)
@@ -95,15 +88,16 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
   }, [])
 
   useEffect(() => { loadVaults() }, [loadVaults])
-  useEffect(() => { loadAllVaults(); loadAgentAndRegime(); loadTraces() }, [loadAllVaults, loadAgentAndRegime, loadTraces])
+  useEffect(() => { loadAgentAndRegime(); loadTraces() }, [loadAgentAndRegime, loadTraces])
   useEffect(() => {
-    const t = setInterval(() => { loadAllVaults(); loadAgentAndRegime(); loadTraces() }, 30_000)
+    const t = setInterval(() => { loadAgentAndRegime(); loadTraces() }, 30_000)
     return () => clearInterval(t)
-  }, [loadAllVaults, loadAgentAndRegime, loadTraces])
+  }, [loadAgentAndRegime, loadTraces])
 
   // YOUR AUM — sum across vaults the connected wallet created.
   // Wallet-disconnected users see 0; wallet-connected users see real $ at risk.
   const yourAum = userVaults.reduce((s, v) => s + v.aum, 0)
+  const hasVaults = userVaults.length > 0
 
   return (
     <div>
@@ -111,16 +105,16 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
         <div>
           <h2 className="serif text-[2rem] mb-2.5">Portfolio</h2>
           <p className="body">
-            Browse vaults, monitor the agent, and inspect every rebalance decision.
-            Every action has a reasoning trace anchored on Arc — click to inspect.
+            Your AUM, your vaults, your agent's rebalance traces — all in one place.
+            Every action has a reasoning trace anchored on Arc; click any trace to inspect.
           </p>
         </div>
         {/* Regime context — small pill; full breakdown lives on /learnings. */}
         <RegimePanel compact />
       </div>
 
-      {/* Status strip — Your AUM (wallet-scoped) + marketplace vault count + agent. */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+      {/* Status strip — Your AUM (wallet-scoped) + agent status. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div className="card-flat p-4">
           <div className="label mb-2">Your AUM</div>
           <div className="text-[1.8rem] font-bold">
@@ -128,13 +122,6 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
           </div>
           <div className="caption mt-1.5">
             Across {userVaults.length} {userVaults.length === 1 ? 'vault' : 'vaults'} you created
-          </div>
-        </div>
-        <div className="card-flat p-4">
-          <div className="label mb-2">Marketplace</div>
-          <div className="text-[1.8rem] font-bold">{allVaults.length}</div>
-          <div className="caption mt-1.5">
-            {allVaults.filter(v => v.tier === 1).length} Tier 1 · {allVaults.filter(v => v.tier === 2).length} Tier 2
           </div>
         </div>
         <div className="card-flat p-4">
@@ -149,20 +136,51 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
         </div>
       </div>
 
-      {/* Vault marketplace — every deployed vault (yours and others). */}
-      <div className="mb-7">
-        <div className="label mb-3">Vault Marketplace</div>
-        {allVaults.length === 0 && (
-          <div className="card" style={{ padding: 18 }}>
-            <p className="body">No vaults deployed yet.</p>
+      {/* Your Vaults — the hero. */}
+      {!vaultsLoading && !hasVaults && (
+        <div className="card mb-7" style={{ padding: 24, textAlign: 'center' }}>
+          <h3 className="serif text-[1.4rem] mb-2">You haven't deployed a vault yet</h3>
+          <p className="body mb-4" style={{ color: 'var(--text-3)' }}>
+            A vault is the non-custodial container that holds your USDC and runs your strategy.
+            Generate one in minutes — or browse what others have built.
+          </p>
+          <div className="flex justify-center gap-3 flex-wrap">
+            <button
+              className="btn btn-primary"
+              onClick={() => onNavigate?.('generate')}
+            >
+              Generate a Strategy
+            </button>
+            <a
+              onClick={() => onNavigate?.('marketplace')}
+              style={{ color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline', alignSelf: 'center' }}
+            >
+              Browse Marketplace
+            </a>
           </div>
-        )}
-        {allVaults.length > 0 && (
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-            {allVaults.map(v => (
-              <div key={v.address} className="card vault-card-clickable" onClick={() => onSelectVault?.(v.address)}>
+        </div>
+      )}
+
+      {vaultsLoading && (
+        <div className="mb-7">
+          <div className="label mb-3">Your Vault Positions</div>
+          <div className="caption">Loading vaults…</div>
+        </div>
+      )}
+
+      {hasVaults && (
+        <div className="mb-7">
+          <div className="label mb-3">Your Vault Positions</div>
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+            {userVaults.map(v => (
+              <div
+                key={v.address}
+                className="card vault-card-clickable"
+                onClick={() => onSelectVault?.(v.address)}
+                style={{ padding: 18 }}
+              >
                 <div className="flex justify-between items-center mb-2">
-                  <span className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>
+                  <span className="font-semibold" style={{ fontSize: '0.95rem' }}>
                     {v.name || `Vault ${shortAddr(v.address)}`}
                   </span>
                   <span className={`tag ${v.tier === 1 ? 'tag-accent' : 'tag-muted'}`}>
@@ -170,28 +188,22 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
                   </span>
                 </div>
                 <div className="flex items-baseline gap-2 mt-3 mb-1">
-                  <span className="text-[1.4rem] font-bold">
-                    ${(v.aum_usdc || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <span className="text-[1.5rem] font-bold">
+                    ${v.aum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <span className="caption">AUM</span>
                 </div>
-                <div className="caption flex gap-3 text-[var(--text-3)] mt-1">
+                <div className="caption mt-2" style={{ color: 'var(--text-3)' }}>
                   <code>{shortAddr(v.address)}</code>
-                  {v.is_agent_assisted && <span style={{ color: 'var(--accent)' }}>AI-managed</span>}
                 </div>
-                {v.management_fee_pct != null && (
-                  <div className="caption text-[var(--text-4)] mt-1">
-                    {v.management_fee_pct}% mgmt · {v.performance_fee_pct}% perf
-                  </div>
-                )}
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Stress scenarios — collapsed by default */}
-      {allVaults.length > 0 && (
+      {/* Stress scenarios — collapsed by default, only when user has vaults */}
+      {hasVaults && (
         <div className="mb-7">
           <details className="card" style={{ padding: 0 }}>
             <summary className="label cursor-pointer" style={{ padding: '14px 18px' }}>
@@ -199,43 +211,12 @@ export default function Portfolio({ walletAddr, onSelectVault, onSelectTrace }) 
             </summary>
             <div style={{ padding: '0 18px 18px' }}>
               <StressScenarioPanel
-                allocations={allVaults.flatMap(v =>
-                  (v.holdings || []).filter(h => h.symbol !== 'USDC').map(h => ({
-                    symbol: h.symbol,
-                    weight: h.weight || h.allocation_pct / 100 || 0,
-                  }))
-                )}
+                allocations={[]}
                 usdcWeight={0}
-                portfolioValue={allVaults.reduce((sum, v) => sum + (v.aum_usdc || 0), 0) || 10000}
+                portfolioValue={yourAum || 10000}
               />
             </div>
           </details>
-        </div>
-      )}
-      {allVaults.length === 0 && (
-        <div className="card" style={{ padding: 18 }}>
-          <p className="caption">Deploy a vault to see stress test results.</p>
-        </div>
-      )}
-
-      {/* User's own vaults (wallet-gated) */}
-      {walletAddr && userVaults.length > 0 && (
-        <div className="mb-7">
-          <div className="label mb-3">Your Vault Positions</div>
-          {vaultsLoading && <div className="caption">Loading vaults…</div>}
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-            {userVaults.map(v => (
-              <div key={v.address} className="card vault-card-clickable" onClick={() => onSelectVault?.(v.address)}>
-                <div className="flex justify-between mb-2">
-                  <code style={{ fontSize: '0.8rem' }}>{shortAddr(v.address)}</code>
-                  <span className={`tag ${v.tier === 1 ? 'tag-accent' : 'tag-muted'}`}>T{v.tier}</span>
-                </div>
-                {v.name && <div className="caption" style={{ marginBottom: 4 }}>{v.name}</div>}
-                <div className="text-[1.2rem] font-bold">${v.aum.toFixed(2)}</div>
-                <div className="caption">AUM</div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 

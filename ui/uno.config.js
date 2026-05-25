@@ -107,6 +107,7 @@ export default defineConfig({
     'i-lucide-check-circle-2',
     'i-lucide-sparkles',
     'i-lucide-graduation-cap',
+    'i-lucide-store',
     // Crypto asset logos
     'i-cryptocurrency-color-btc',
     'i-cryptocurrency-color-usdc',
