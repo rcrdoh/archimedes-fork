@@ -62,6 +62,14 @@ def init_db() -> None:
             "ALTER TABLE papers ADD COLUMN IF NOT EXISTS cluster_id TEXT",
             "ALTER TABLE papers ADD COLUMN IF NOT EXISTS topic_label TEXT",
             "ALTER TABLE papers ADD COLUMN IF NOT EXISTS content_hash TEXT",
+            # strategy_store columns added after the table was first created.
+            # Without these, Generate persistence dies with UndefinedColumn
+            # (observed live 2026-05-25 on every Generate attempt — the agent
+            # completes but the post-evaluation upsert crashes).
+            "ALTER TABLE strategy_store ADD COLUMN IF NOT EXISTS is_example BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE strategy_store ADD COLUMN IF NOT EXISTS on_chain_registration_tx VARCHAR(66)",
+            "ALTER TABLE strategy_store ADD COLUMN IF NOT EXISTS on_chain_registration_block VARCHAR(32)",
+            "ALTER TABLE strategy_store ADD COLUMN IF NOT EXISTS parent_id VARCHAR(64)",
         ]
         try:
             with engine.begin() as conn:
