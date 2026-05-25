@@ -35,6 +35,10 @@ class VaultService:
         "USDC": 0.04,  #  4% annual (yield)
     }
 
+    _vault_list_cache: VaultListResponse | None = None
+    _vault_list_cache_ts: float = 0
+    _VAULT_LIST_CACHE_TTL = 30  # seconds
+
     async def list_vaults(
         self,
         tier: int | None = None,
@@ -43,7 +47,17 @@ class VaultService:
         limit: int = 20,
         offset: int = 0,
     ) -> VaultListResponse:
-        """List all vaults with summary data."""
+        """List all vaults with summary data. Cached 30s to avoid N+1 on-chain reads."""
+        import time as _time
+        now = _time.time()
+        if self._vault_list_cache and (now - self._vault_list_cache_ts) < self._VAULT_LIST_CACHE_TTL:
+            vaults = list(self._vault_list_cache.vaults)
+            if tier is not None:
+                vaults = [v for v in vaults if v.tier == tier]
+            sort_key = sort_by if sort_by != "return_inception" else "return_inception"
+            vaults.sort(key=lambda v: getattr(v, sort_key, 0) or 0, reverse=(order == "desc"))
+            return VaultListResponse(vaults=vaults[offset:offset+limit], total=len(vaults))
+
         try:
             vault_addresses = await chain_executor.get_all_vaults()
         except Exception as e:
@@ -73,6 +87,11 @@ class VaultService:
             key=lambda v: getattr(v, sort_key, 0) or 0,
             reverse=(order == "desc"),
         )
+
+        # Cache before filtering/sorting
+        import time as _time
+        self._vault_list_cache = VaultListResponse(vaults=list(summaries), total=len(summaries))
+        self._vault_list_cache_ts = _time.time()
 
         # Paginate
         total = len(summaries)
