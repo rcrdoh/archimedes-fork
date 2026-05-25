@@ -378,7 +378,36 @@ class LocalStrategyProvider:
             self._strategies_dir,
             len(self._backtests),
         )
+
+        # Sync to unified strategy_passports table (Phase 2, Issue #160).
+        # This keeps the Postgres table always in sync with the file-based
+        # strategies + their backtest results. Non-blocking: failures are
+        # logged but don't prevent the provider from serving.
+        self._sync_to_unified_table(loaded)
+
         return len(loaded)
+
+    def _sync_to_unified_table(self, strategies: dict[str, Strategy]) -> None:
+        """Sync loaded strategies to the unified strategy_passports table."""
+        try:
+            from archimedes.services.passport_loader import ingest_passport
+
+            with get_session() as session:
+                synced = 0
+                for strategy in strategies.values():
+                    try:
+                        ingest_passport(
+                            session, strategy,
+                            generation_method="curated",
+                            force_update=True,
+                        )
+                        synced += 1
+                    except Exception as exc:
+                        logger.debug("passport sync failed for %s: %s", strategy.id, exc)
+                session.commit()
+            logger.info("synced %d strategies to strategy_passports table", synced)
+        except Exception as exc:
+            logger.warning("unified table sync failed (non-blocking): %s", exc)
 
     def _load_backtests(self, strategy_ids: Iterable[str]) -> dict[str, BacktestResult]:
         ids = list(strategy_ids)

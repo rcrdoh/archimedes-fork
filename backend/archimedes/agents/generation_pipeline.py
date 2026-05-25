@@ -728,6 +728,35 @@ async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief) -> tuple
                 is_example=False,
             )
             session.commit()
+
+            # Also write to the unified strategy_passports table (Issue #160)
+            try:
+                from archimedes.models.paper_ref import PaperRef
+                from archimedes.models.strategy import StrategyPassport, StrategyStatus
+                from archimedes.services.passport_loader import ingest_passport
+
+                papers = [
+                    PaperRef(arxiv_id=p.get("arxiv_id"), title=p.get("title", ""))
+                    for p in (c.source_papers or [])
+                ]
+                passport = StrategyPassport(
+                    id=record.id,
+                    papers=papers,
+                    methodology_summary=c.thesis or "",
+                    asset_universe=c.asset_universe or [],
+                    status=StrategyStatus(record.status) if record.status else StrategyStatus.CANDIDATE,
+                    regime_tag="regime_neutral",
+                    passes_rigor_gate=bool(c.rigor_verdict.get("passing", False)) if c.rigor_verdict else False,
+                    deflated_sharpe_ratio=c.rigor_verdict.get("dsr") if c.rigor_verdict else None,
+                    pbo_score=c.rigor_verdict.get("pbo") if c.rigor_verdict else None,
+                    out_of_sample_sharpe=c.rigor_verdict.get("oos_sharpe") if c.rigor_verdict else None,
+                )
+                with get_session() as sess2:
+                    ingest_passport(sess2, passport, generation_method="fusion", force_update=True)
+                    sess2.commit()
+            except Exception as exc:
+                logger.warning("unified passport persist failed (non-blocking): %s", exc)
+
             return record.id
 
     strategy_id = await asyncio.to_thread(_do_persist)

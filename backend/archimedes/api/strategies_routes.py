@@ -1559,3 +1559,35 @@ async def construct_strategy(req: StrategyConstructionRequest):
             is_anchored=trace.is_anchored,
         ),
     )
+
+
+# ── Unified Passport Store (Issue #160 Phase 2) ───────────────────────────
+
+
+@strategies_router.get("/passports")
+async def list_strategy_passports(
+    status: str | None = Query(None),
+    regime_tag: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List strategies from the unified strategy_passports table.
+
+    This is the Phase 2 read path for the unified store — all strategies
+    (curated + generated) are accessible from a single table.
+    """
+    from archimedes.db import get_session
+    from archimedes.services.passport_loader import list_passports
+
+    with get_session() as session:
+        records = list_passports(
+            session,
+            status=status,
+            regime_tag=regime_tag,
+        )
+        passports = [r.to_dict() for r in records[:limit]]
+
+    return {
+        "passports": passports,
+        "total": len(passports),
+        "source": "strategy_passports",
+    }
