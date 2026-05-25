@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, Query, Request, Response
 
 from archimedes.api._route_helpers import strategy_provider, vault_svc
 from archimedes.api.limiter import limiter
+from archimedes.chain.strategy_publisher import strategy_publisher
+
+logger = logging.getLogger(__name__)
 from archimedes.api.schemas import (
     VaultDetailResponse,
     VaultListResponse,
@@ -25,6 +29,37 @@ from archimedes.chain.executor import chain_executor
 from archimedes.models.chat import VaultMetadata
 
 vaults_router = APIRouter(prefix="/api/vaults", tags=["vaults"])
+
+
+async def _anchor_strategies_async(strategy_ids: list[str]) -> None:
+    """Best-effort on-chain anchoring of strategy passports via StrategyRegistry.
+
+    Fire-and-forget: failures are logged but never raised. Matches the
+    trace_publisher pattern in agent_runner.py.
+    """
+    for sid in strategy_ids:
+        try:
+            passport = strategy_provider.get_strategy(sid)
+            if passport is None:
+                logger.debug("anchor: strategy %s not found in provider — skipping", sid)
+                continue
+            if not getattr(passport, "methodology_hash", None):
+                logger.info("skipping anchor for %s: no methodology_hash", sid)
+                continue
+
+            paper_hashes = [p.arxiv_id for p in passport.papers if p.arxiv_id]
+            regime_tag = getattr(passport, "regime_tag", None)
+
+            await strategy_publisher.anchor(
+                strategy_id=passport.id,
+                methodology_hash=passport.methodology_hash,
+                paper_hashes=paper_hashes,
+                regime_tag=regime_tag,
+                metadata_uri="",
+            )
+            logger.info("anchored strategy %s on-chain", sid)
+        except Exception as exc:
+            logger.warning("anchor failed for strategy %s (non-fatal): %s", sid, exc)
 
 
 @vaults_router.get("/", response_model=VaultListResponse)
@@ -104,6 +139,11 @@ async def store_vault_metadata(req: VaultMetadataRequest, request: Request, resp
         meta.set_strategy_ids(req.strategy_ids)
         session.commit()
         session.refresh(meta)
+
+        # Fire-and-forget on-chain strategy anchoring (best-effort, non-fatal)
+        if req.strategy_ids:
+            asyncio.create_task(_anchor_strategies_async(req.strategy_ids))
+
         return VaultMetadataResponse(**meta.to_dict())
     except Exception as exc:
         session.rollback()
