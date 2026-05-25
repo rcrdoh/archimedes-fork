@@ -60,6 +60,49 @@ USDC_FLOOR = float(os.getenv("AGENT_USDC_FLOOR", "0.20"))
 _DRIFT_THRESHOLD = 0.15
 
 
+def _compute_confidence(all_signals: list[StrategySignals]) -> float:
+    """Compute dynamic confidence from signal consensus + magnitude.
+
+    Combines two factors (Issue #359):
+    1. Vote ratio: fraction of signals that are non-flat (directional)
+    2. Signal strength: average weight magnitude across all directional signals
+       (higher weights = stronger conviction = higher confidence)
+
+    Formula: confidence = vote_ratio * (0.5 + 0.5 * avg_strength)
+    Range: [0.0, 1.0] — varies naturally with signal composition.
+    """
+    total_signals = sum(len(ss.signals) for ss in all_signals)
+    if total_signals == 0:
+        return 0.5  # No data — neutral confidence
+
+    directional = [s for ss in all_signals for s in ss.signals if s.signal.value != "flat"]
+    flat_count = total_signals - len(directional)
+    vote_ratio = 1.0 - (flat_count / total_signals)
+
+    # Average magnitude of directional signals (weight represents conviction)
+    if directional:
+        avg_strength = sum(abs(s.weight) for s in directional) / len(directional)
+        # Normalize: weights are typically 0.0-1.0, but clamp for safety
+        avg_strength = min(avg_strength, 1.0)
+    else:
+        avg_strength = 0.0
+
+    # Weight dispersion penalty: high disagreement in weights → lower confidence
+    # std-dev of weights across all signals (not just directional)
+    all_weights = [s.weight for ss in all_signals for s in ss.signals]
+    if len(all_weights) >= 2:
+        mean_w = sum(all_weights) / len(all_weights)
+        variance = sum((w - mean_w) ** 2 for w in all_weights) / len(all_weights)
+        dispersion = variance**0.5  # std dev, typically 0.0-0.3
+        dispersion_penalty = min(dispersion * 2, 0.3)  # cap penalty at 0.3
+    else:
+        dispersion_penalty = 0.0
+
+    # Final confidence: vote_ratio × strength_boost − dispersion_penalty
+    raw = vote_ratio * (0.5 + 0.5 * avg_strength) - dispersion_penalty
+    return max(0.05, min(0.99, round(raw, 4)))  # clamp + round to 4dp
+
+
 def _paper_hashes_from_signals(all_signals: list[StrategySignals]) -> list[str]:
     """Build consulted-paper hash list (Xia § 4.3 Source Tracking) from strategy signals.
 
@@ -702,11 +745,7 @@ class StrategyRunner:
                 },
             },
             reasoning=f"[COMMIT] {reasoning}",
-            confidence=1.0
-            - (
-                sum(1 for ss in all_signals for s in ss.signals if s.signal.value == "flat")
-                / max(sum(len(ss.signals) for ss in all_signals), 1)
-            ),
+            confidence=_compute_confidence(all_signals),
             trades_executed=[
                 {"symbol": t.symbol, "direction": t.direction.value, "amount": t.amount, "phase": "intended"}
                 for t in trades
@@ -786,11 +825,7 @@ class StrategyRunner:
             },
             portfolio_after={"tx_hashes": tx_hashes or []},
             reasoning=f"[REVEAL] {reasoning}",
-            confidence=1.0
-            - (
-                sum(1 for ss in all_signals for s in ss.signals if s.signal.value == "flat")
-                / max(sum(len(ss.signals) for ss in all_signals), 1)
-            ),
+            confidence=_compute_confidence(all_signals),
             trades_executed=[{"symbol": t.symbol, "direction": t.direction.value, "amount": t.amount} for t in trades],
             strategies_referenced=[ss.strategy_id for ss in all_signals],
             consulted_paper_hashes=_paper_hashes_from_signals(all_signals),
@@ -902,11 +937,7 @@ class StrategyRunner:
             },
             portfolio_after={"tx_hashes": tx_hashes or []},
             reasoning=reasoning + (f" ERROR: {error}" if error else ""),
-            confidence=1.0
-            - (
-                sum(1 for ss in all_signals for s in ss.signals if s.signal.value == "flat")
-                / max(sum(len(ss.signals) for ss in all_signals), 1)
-            ),
+            confidence=_compute_confidence(all_signals),
             trades_executed=[{"symbol": t.symbol, "direction": t.direction.value, "amount": t.amount} for t in trades],
             strategies_referenced=[ss.strategy_id for ss in all_signals],
             consulted_paper_hashes=_paper_hashes_from_signals(all_signals),
