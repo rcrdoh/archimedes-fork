@@ -5,6 +5,7 @@ import Landing from './components/Landing'
 import Explore from './components/Explore'
 import Generate from './components/Generate'
 import Portfolio from './components/Portfolio'
+import Marketplace from './components/Marketplace'
 import Learnings from './components/Learnings'
 import Strategies from './components/Strategies'   // serves /library route ("Example Library")
 import StrategyPassport from './components/StrategyPassport'
@@ -27,6 +28,7 @@ const PAGE_TO_PATH = {
   library:   '/library',
   corpus:    '/corpus',
   portfolio: '/portfolio',
+  marketplace: '/marketplace',
   reasoning: '/reasoning',
   learnings: '/learnings',
   about:     '/about',
@@ -162,6 +164,7 @@ export default function App() {
       library:        'Library · Archimedes',
       corpus:         'Corpus · Archimedes',
       portfolio:      'Portfolio · Archimedes',
+      marketplace:    'Marketplace · Archimedes',
       reasoning:      'Reasoning · Archimedes',
       learnings:      'Learnings · Archimedes',
       'vault-detail': 'Vault · Archimedes',
@@ -210,9 +213,10 @@ export default function App() {
           description="Portfolio shows your AUM, your deployed vaults, and the autonomous agent's rebalance decisions. Connect a wallet to deposit USDC and start tracking — this is a non-custodial vault you control, not an account on our platform."
           onConnect={openConnectModal}
         >
-          <Portfolio walletAddr={walletAddr} onSelectVault={selectVault} onSelectTrace={selectTrace} />
+          <Portfolio walletAddr={walletAddr} onSelectVault={selectVault} onSelectTrace={selectTrace} onNavigate={navigateToPage} />
         </WalletGate>
       )
+      case 'marketplace':  return <Marketplace onNavigate={navigateToPage} />
       case 'reasoning':    return <Reasoning onNavigate={navigateToPage} />
       case 'learnings':    return (
         <WalletGate
