@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -44,7 +44,7 @@ async def test_health_amm_503_when_no_pools():
     mock_router.functions.getAllPools.return_value = mock_get_all_pools_call
 
     mock_loader = MagicMock()
-    mock_loader.amm_router.return_value = mock_router
+    type(mock_loader).amm_router = PropertyMock(return_value=mock_router)
 
     with (
         patch("archimedes.chain.client.chain_client.is_connected", new=AsyncMock(return_value=True)),
@@ -78,7 +78,7 @@ async def test_health_amm_200_when_pools_active():
     mock_router.functions.getAllPools.return_value = mock_get_all_pools_call
 
     mock_loader = MagicMock()
-    mock_loader.amm_router.return_value = mock_router
+    type(mock_loader).amm_router = PropertyMock(return_value=mock_router)
     mock_loader.amm_pool.return_value = mock_pool
 
     with (

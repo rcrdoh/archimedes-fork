@@ -297,7 +297,7 @@ async def health_amm():
         from archimedes.chain.contracts import get_contract_loader
 
         loader = get_contract_loader()
-        router = loader.amm_router()
+        router = loader.amm_router
 
         # getAllPools() returns list of pool addresses
         pool_addresses = await router.functions.getAllPools().call()
