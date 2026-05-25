@@ -86,8 +86,21 @@ async def runner_state() -> dict[str, Any]:
 
 @corpus_router.get("/overview")
 async def corpus_overview() -> dict[str, Any]:
-    """KB-aware corpus overview. Falls back to DB-only counts if no manifest."""
+    """KB-aware corpus overview. Falls back to DB-only counts if no manifest.
+
+    Returns both the legacy KB-pipeline fields (paper_count, cluster_count,
+    last_run_ts, pipeline_status) AND the fields the CorpusExplorer UI
+    needs to render Category Distribution + Year Distribution charts and
+    the stat chips at the top of the page (total_papers, categories,
+    year_distribution, source). Without those, the Overview tab + the
+    header chips render empty (observed live 2026-05-25 — Catalog tab
+    showed 10K papers, Overview tab showed only section titles).
+    """
     manifest = _load_manifest()
+    paper_count = 0
+    cluster_rows: list[tuple] = []
+    categories: list[dict[str, Any]] = []
+    year_distribution: list[dict[str, Any]] = []
     try:
         from sqlalchemy import func
 
@@ -104,17 +117,83 @@ async def corpus_overview() -> dict[str, Any]:
                 .group_by(PaperRecord.cluster_id)
                 .all()
             )
+            cat_rows = (
+                session.query(
+                    PaperRecord.primary_category,
+                    func.count(PaperRecord.arxiv_id),
+                )
+                .filter(PaperRecord.primary_category != "")
+                .group_by(PaperRecord.primary_category)
+                .order_by(func.count(PaperRecord.arxiv_id).desc())
+                .all()
+            )
+            # `primary_category` is the arxiv subject code (e.g. "q-fin.PM").
+            # `label` is what the UI displays in the chart row + filter chip;
+            # for now reuse the raw code — friendly mapping can be a follow-up.
+            categories = [
+                {"name": name, "label": _pretty_category(name), "count": int(count)} for name, count in cat_rows
+            ]
+            # `published` is stored as an ISO date string (YYYY-MM-DD…).
+            # Bucket by year via leftmost 4 chars; cheap GROUP BY without
+            # an extra index.
+            year_rows = (
+                session.query(
+                    func.substr(PaperRecord.published, 1, 4).label("yr"),
+                    func.count(PaperRecord.arxiv_id),
+                )
+                .filter(PaperRecord.published != "")
+                .group_by("yr")
+                .order_by("yr")
+                .all()
+            )
+            year_distribution = [
+                {"year": int(yr), "count": int(count)}
+                for yr, count in year_rows
+                if yr and yr.isdigit() and 1990 <= int(yr) <= 2030
+            ]
     except Exception as exc:
         logger.warning("corpus_routes: overview DB read failed: %s", exc)
-        paper_count = 0
-        cluster_rows = []
 
     return {
+        # Legacy KB-pipeline shape — kept for backward compatibility
         "paper_count": paper_count,
         "cluster_count": len([c for c, _ in cluster_rows if c is not None]),
         "last_run_ts": (manifest or {}).get("run_ts"),
         "pipeline_status": (manifest or {}).get("status", "never run"),
+        # UI shape — read by CorpusExplorer.jsx for header chips + Overview tab
+        "total_papers": paper_count,
+        "categories": categories,
+        "year_distribution": year_distribution,
+        "source": "arxiv q-fin + adjacent",
     }
+
+
+_CATEGORY_LABELS = {
+    "q-fin.PM": "Portfolio Mgmt",
+    "q-fin.RM": "Risk Mgmt",
+    "q-fin.TR": "Trading & Microstructure",
+    "q-fin.PR": "Pricing of Securities",
+    "q-fin.ST": "Statistical Finance",
+    "q-fin.CP": "Computational Finance",
+    "q-fin.MF": "Mathematical Finance",
+    "q-fin.GN": "General Finance",
+    "q-fin.EC": "Economics",
+    "cs.LG": "Machine Learning",
+    "stat.ML": "Machine Learning (statistics)",
+    "stat.AP": "Statistics — Applications",
+    "cs.AI": "AI",
+    "cs.CL": "NLP",
+    "math.OC": "Optimization & Control",
+    "math.PR": "Probability",
+    "math.ST": "Statistics Theory",
+    "econ.EM": "Econometrics",
+    "econ.GN": "General Economics",
+}
+
+
+def _pretty_category(arxiv_code: str) -> str:
+    """Friendly name for an arxiv subject code; falls back to the code."""
+    return _CATEGORY_LABELS.get(arxiv_code, arxiv_code)
 
 
 @corpus_router.get("/graph")
