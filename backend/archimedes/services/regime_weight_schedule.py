@@ -36,34 +36,34 @@ class RegimeMix(TypedDict):
 # Outer key: risk profile. Inner key: regime state.
 _SCHEDULE: dict[str, dict[str, RegimeMix]] = {
     "fixed_income": {
-        "risk_on":    {"bull": 0.30, "bear": 0.60, "neutral": 0.10},
-        "risk_off":   {"bull": 0.10, "bear": 0.80, "neutral": 0.10},
+        "risk_on": {"bull": 0.30, "bear": 0.60, "neutral": 0.10},
+        "risk_off": {"bull": 0.10, "bear": 0.80, "neutral": 0.10},
         "transition": {"bull": 0.20, "bear": 0.60, "neutral": 0.20},
-        "crisis":     {"bull": 0.05, "bear": 0.85, "neutral": 0.10},
+        "crisis": {"bull": 0.05, "bear": 0.85, "neutral": 0.10},
     },
     "conservative": {
-        "risk_on":    {"bull": 0.50, "bear": 0.40, "neutral": 0.10},
-        "risk_off":   {"bull": 0.20, "bear": 0.70, "neutral": 0.10},
+        "risk_on": {"bull": 0.50, "bear": 0.40, "neutral": 0.10},
+        "risk_off": {"bull": 0.20, "bear": 0.70, "neutral": 0.10},
         "transition": {"bull": 0.30, "bear": 0.50, "neutral": 0.20},
-        "crisis":     {"bull": 0.10, "bear": 0.80, "neutral": 0.10},
+        "crisis": {"bull": 0.10, "bear": 0.80, "neutral": 0.10},
     },
     "moderate": {
-        "risk_on":    {"bull": 0.70, "bear": 0.25, "neutral": 0.05},
-        "risk_off":   {"bull": 0.25, "bear": 0.70, "neutral": 0.05},
+        "risk_on": {"bull": 0.70, "bear": 0.25, "neutral": 0.05},
+        "risk_off": {"bull": 0.25, "bear": 0.70, "neutral": 0.05},
         "transition": {"bull": 0.40, "bear": 0.40, "neutral": 0.20},
-        "crisis":     {"bull": 0.15, "bear": 0.75, "neutral": 0.10},
+        "crisis": {"bull": 0.15, "bear": 0.75, "neutral": 0.10},
     },
     "aggressive": {
-        "risk_on":    {"bull": 0.85, "bear": 0.10, "neutral": 0.05},
-        "risk_off":   {"bull": 0.10, "bear": 0.85, "neutral": 0.05},
+        "risk_on": {"bull": 0.85, "bear": 0.10, "neutral": 0.05},
+        "risk_off": {"bull": 0.10, "bear": 0.85, "neutral": 0.05},
         "transition": {"bull": 0.50, "bear": 0.40, "neutral": 0.10},
-        "crisis":     {"bull": 0.05, "bear": 0.90, "neutral": 0.05},
+        "crisis": {"bull": 0.05, "bear": 0.90, "neutral": 0.05},
     },
     "hyper_risky": {
-        "risk_on":    {"bull": 0.95, "bear": 0.03, "neutral": 0.02},
-        "risk_off":   {"bull": 0.05, "bear": 0.93, "neutral": 0.02},
+        "risk_on": {"bull": 0.95, "bear": 0.03, "neutral": 0.02},
+        "risk_off": {"bull": 0.05, "bear": 0.93, "neutral": 0.02},
         "transition": {"bull": 0.55, "bear": 0.35, "neutral": 0.10},
-        "crisis":     {"bull": 0.02, "bear": 0.95, "neutral": 0.03},
+        "crisis": {"bull": 0.02, "bear": 0.95, "neutral": 0.03},
     },
 }
 
