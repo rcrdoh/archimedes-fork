@@ -50,7 +50,7 @@ make clean      # nuke __pycache__/.pytest_cache/.ruff_cache
 
 Foundry, Circle wallet, and oracle targets (`compile`, `test`, `wallet`, `feed`, …) are also there — see `make help`.
 
-## Status (2026-05-24)
+## Status (2026-05-25 — submission day)
 
 **Live on the Arc public testnet** (chain ID `5042002`): grab faucet USDC at <https://faucet.circle.com/> (20 USDC / 2h — on Arc, USDC *is* gas) and try the full flow with test funds. **No real money at risk, by design.** Arc has no mainnet yet (Circle's docs list mainnet as "upcoming"); mainnet launch, real-funds custody, and the regulatory architecture (off-chain redemptions, preset-strategy / RIA posture) are the **business-plan roadmap**, not hackathon scope — see [`docs/competitor-landscape.md`](docs/competitor-landscape.md).
 
@@ -65,7 +65,8 @@ Foundry, Circle wallet, and oracle targets (`compile`, `test`, `wallet`, `feed`,
 - On-chain reasoning trace anchoring via the deployed `ReasoningTraceRegistry`
 - 6-container docker stack: backend (FastAPI) + postgres + redis + nginx + oracle + agent
 - Multi-wallet UX (MetaMask + Coinbase + Circle passkey via EIP-6963 wallet discovery) with profile dropdown
-- 576 backend tests + 16 analytics-engine tests green
+- 806 backend tests + 16 analytics-engine tests collected
+- Server-side ruff format guard (`main-format-guard.yml`) — main self-heals if a direct-to-main commit lands unformatted; CI run stays red so the violation is visible
 
 ## Why Archimedes
 

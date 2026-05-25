@@ -1,20 +1,26 @@
 # Demo Script & Pitch Deck Outline
 
 > **Audience:** Archimedes hackathon team (deck owner + demo runner + Q&A primaries).
-> **Status:** Day-10 update (2026-05-22) on top of the 2026-05-19 rewrite to the
-> **locked product spine** ([`user-stories.md`](user-stories.md)) and the
-> **tiered competitive thesis** ([`competitor-landscape.md`](competitor-landscape.md)).
-> Day-10 deltas to fold into the deck on next pass: (a) the LLM-driven agentic
+> **Status:** Day-13 date-bump (2026-05-25 — submission day) on top of the Day-10
+> update (2026-05-22) atop the 2026-05-19 rewrite to the **locked product spine**
+> ([`user-stories.md`](user-stories.md)) and the **tiered competitive thesis**
+> ([`competitor-landscape.md`](competitor-landscape.md)). The Day-10 deltas — agentic
 > portfolio advisor ([`portfolio_agent.py`](../backend/archimedes/services/portfolio_agent.py))
-> now picks individual instruments + anchors each to a strategy passport — that's
-> a new demo beat; (b) the stress engine ([`stress_engine.py`](../backend/archimedes/services/stress_engine.py))
-> ships 6 canonical scenario shocks for any portfolio — judges-will-recognize-this
-> standard-at-every-shop tooling; (c) the multi-asset NAV vault upgrade means
-> `Vault.totalAssets()` now prices all synthetic holdings via oracles — fixes the
-> "what does my position actually mean" judge question; (d) Arc OSS Showcase
-> dimension added — see [`../ARC-OSS-SHOWCASE.md`](../ARC-OSS-SHOWCASE.md) and the
-> Day-10 rubric assessment in [`judging-rubric-assessment.md`](judging-rubric-assessment.md).
-> Supersedes the Day-4 "connect wallet → pick a risk profile" script entirely.
+> picking individual instruments anchored to passports, the stress engine
+> ([`stress_engine.py`](../backend/archimedes/services/stress_engine.py)) with 6
+> canonical shocks, the multi-asset NAV vault (`Vault.totalAssets()` oracle-priced),
+> and the Arc OSS Showcase dimension — are now baseline. **Day-12 → Day-13 deltas
+> folded as baseline:** PortfolioAdvisor preview-before-deploy banner on `/generate`
+> (#216), regime-conditional γ scaling citing Ang & Bekaert 2002 *RFS* (#217),
+> multi-wallet UX with profile dropdown (#213, #270 CSP for Circle modular-sdk
+> passkey discovery via EIP-6963), internal-agent auth guard with HMAC header (#255),
+> SSM-backed secret loading on backend startup (#260, #265), self-healing ruff format
+> enforcement on push to main (#267, #272), onboarding tour + landing-page honesty
+> pass (#262, #263), corpus pipeline rate-limit + retry (#268), Explore staleness
+> fix (#269), corpus catalog trailing-slash bug (#259). See the **Day-10 rubric
+> assessment** in [`judging-rubric-assessment.md`](judging-rubric-assessment.md) for
+> the running scoreboard. Supersedes the Day-4 "connect wallet → pick a risk profile"
+> script entirely.
 > **Length assumption:** ~3-minute pitch + ~2-minute live demo + Q&A. Adjust if Canteen says otherwise.
 >
 > **Honesty rules baked into this script (non-negotiable — they are our credibility):**
