@@ -204,7 +204,7 @@ class AssetMarketService:
             if _fetch_price_histories is not None:
                 histories = await asyncio.wait_for(
                     asyncio.to_thread(_fetch_price_histories, DEFAULT_SCAN_UNIVERSE, _HISTORY_LOOKBACK),
-                    timeout=20.0,
+                    timeout=45.0,  # 84 symbols can take 10-30s via yfinance
                 )
         except Exception as exc:
             logger.warning("explore: history fetch failed: %s", exc)
@@ -218,8 +218,15 @@ class AssetMarketService:
 
         for synth in all_symbols:
             oracle = oracle_data.get(synth, {})
-            hist = histories.get(synth, {}) if isinstance(histories.get(synth), dict) else {}
-            hist_prices = hist.get("close") or []
+            # _fetch_price_histories returns {symbol: pd.Series} (close prices)
+            # Convert Series to a plain list for downstream math.
+            raw_hist = histories.get(synth)
+            if raw_hist is not None and hasattr(raw_hist, 'tolist'):
+                hist_prices = [float(v) for v in raw_hist.tolist() if v == v]  # v==v filters NaN
+            elif isinstance(raw_hist, dict):
+                hist_prices = raw_hist.get("close") or []
+            else:
+                hist_prices = []
 
             # Current price: oracle primary, yfinance fallback
             current_price: float | None = oracle.get("price")
@@ -231,8 +238,8 @@ class AssetMarketService:
             oracle_updated_at = oracle.get("updated_at")
             if oracle_updated_at:
                 last_updated = datetime.fromtimestamp(oracle_updated_at, tz=UTC).isoformat()
-            elif hist.get("last_ts"):
-                last_updated = str(hist["last_ts"])
+            elif raw_hist is not None and hasattr(raw_hist, 'index') and len(raw_hist) > 0:
+                last_updated = str(raw_hist.index[-1])
             else:
                 last_updated = nowstamp
 
