@@ -67,12 +67,33 @@ class VaultService:
             logging.getLogger(__name__).error(f"Failed to get vault addresses: {e}")
             return VaultListResponse(vaults=[], total=0)
 
+        # Batch-read off-chain metadata so the marketplace shows real names,
+        # symbols, creators, and created_at instead of the "Vault T1"/now()
+        # placeholders that _metrics_to_summary defaults to. One query for all
+        # addresses, not one per vault.
+        metadata_by_address: dict[str, "VaultMetadata"] = {}
+        if vault_addresses:
+            try:
+                from archimedes.db import get_session
+                from archimedes.models.chat import VaultMetadata
+
+                session = get_session()
+                try:
+                    rows = session.query(VaultMetadata).filter(VaultMetadata.vault_address.in_(vault_addresses)).all()
+                    metadata_by_address = {m.vault_address: m for m in rows}
+                finally:
+                    session.close()
+            except Exception as exc:
+                import logging
+
+                logging.getLogger(__name__).warning("vault metadata batch read failed (non-fatal): %s", exc)
+
         summaries: list[VaultSummaryResponse] = []
 
         for addr in vault_addresses:
             try:
                 metrics = await chain_executor.get_vault_metrics(addr)
-                summary = self._metrics_to_summary(metrics)
+                summary = self._metrics_to_summary(metrics, meta=metadata_by_address.get(addr))
                 if tier is not None and summary.tier != tier:
                     continue
                 summaries.append(summary)
@@ -178,14 +199,34 @@ class VaultService:
             logging.getLogger(__name__).exception(f"Failed to get vault detail for {address}")
             return None
 
-    def _metrics_to_summary(self, metrics: dict) -> VaultSummaryResponse:
-        """Convert chain executor metrics to a summary response."""
+    def _metrics_to_summary(self, metrics: dict, meta=None) -> VaultSummaryResponse:
+        """Convert chain executor metrics + (optional) off-chain VaultMetadata
+        into a summary response. ``meta`` is the VaultMetadata row for this
+        vault if one exists; when missing, fields fall back to honest
+        placeholders (short-address slug for name) instead of the misleading
+        "Vault T1" / now() defaults the marketplace used to render."""
+        address = metrics["vault_address"]
+        short_address = f"{address[:6]}…{address[-4:]}" if len(address) > 14 else address
+
+        # Real off-chain metadata if the vault was deployed through the UI;
+        # otherwise honest fallbacks that don't pretend the vault has a name.
+        if meta is not None:
+            name = meta.name or f"Vault {short_address}"
+            symbol = meta.symbol or f"v{address[2:6]}"
+            creator = meta.creator_address or metrics["creator"]
+            created_at = meta.created_at.isoformat() if meta.created_at else ""
+        else:
+            name = f"Vault {short_address}"
+            symbol = f"v{address[2:6]}"
+            creator = metrics["creator"]
+            created_at = ""  # unknown — don't lie about it
+
         return VaultSummaryResponse(
-            address=metrics["vault_address"],
-            name=f"Vault T{metrics['tier']}",
-            symbol=f"v{metrics['vault_address'][:6]}",
+            address=address,
+            name=name,
+            symbol=symbol,
             tier=metrics["tier"],
-            creator=metrics["creator"],
+            creator=creator,
             aum_usdc=metrics["total_aum_usdc"],
             share_price=metrics["share_price_usdc"],
             return_24h=0.0,
@@ -196,7 +237,7 @@ class VaultService:
             performance_fee_pct=metrics["performance_fee_bps"] / 100,
             is_agent_assisted=metrics["is_agent_assisted"],
             depositors=0,
-            created_at=datetime.now(UTC).isoformat(),
+            created_at=created_at,
         )
 
     async def _compute_returns(self, vault_address: str, allocations: list[VaultHolding]) -> dict:

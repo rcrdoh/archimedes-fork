@@ -52,13 +52,38 @@ class TestMetricsToSummary:
         assert summary.management_fee_pct == 1.5
         assert summary.performance_fee_pct == 20.0
 
-    def test_name_uses_tier_template(self) -> None:
-        summary = VaultService()._metrics_to_summary(_metrics(tier=2))
-        assert summary.name == "Vault T2"
+    def test_name_falls_back_to_short_address_when_no_metadata(self) -> None:
+        """Without VaultMetadata, name shows the address slug — honest fallback
+        instead of the misleading 'Vault T2' shared by every tier-2 vault."""
+        summary = VaultService()._metrics_to_summary(_metrics(address="0xdeadbeef1234567890abcdef", tier=2))
+        assert summary.name == "Vault 0xdead…cdef"
 
-    def test_symbol_is_address_prefix(self) -> None:
+    def test_symbol_falls_back_to_address_prefix(self) -> None:
+        """Symbol fallback uses the 0x-stripped 4-char address slug."""
         summary = VaultService()._metrics_to_summary(_metrics(address="0xdeadbeef1234"))
-        assert summary.symbol == "v0xdead"
+        assert summary.symbol == "vdead"
+
+    def test_metadata_overrides_fallbacks(self) -> None:
+        """When VaultMetadata is provided, real name/symbol/creator/created_at
+        flow through — replacing the address-slug placeholders."""
+        from datetime import UTC, datetime
+
+        meta = SimpleNamespace(
+            name="Momentum Alpha",
+            symbol="vMOM",
+            creator_address="0xb0bb1e",
+            created_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+        )
+        summary = VaultService()._metrics_to_summary(_metrics(), meta=meta)
+        assert summary.name == "Momentum Alpha"
+        assert summary.symbol == "vMOM"
+        assert summary.creator == "0xb0bb1e"
+        assert summary.created_at == "2026-05-01T12:00:00+00:00"
+
+    def test_created_at_empty_when_no_metadata(self) -> None:
+        """No metadata → no fake `now()` timestamp; surface emptiness honestly."""
+        summary = VaultService()._metrics_to_summary(_metrics())
+        assert summary.created_at == ""
 
     def test_returns_default_to_zero(self) -> None:
         summary = VaultService()._metrics_to_summary(_metrics())
