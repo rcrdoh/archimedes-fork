@@ -73,6 +73,27 @@ export function hasStoredPasskey() {
   return loadStoredCredential() !== null
 }
 
+// Map raw passkey errors (viem RPC errors, DOMExceptions) to user-readable
+// strings. The default error.message for viem is "An unknown RPC error
+// occurred. Details: …. Version: viem@x.y.z" — informative for debugging,
+// hostile for the user. This converts the common cases.
+function friendlyPasskeyError(err) {
+  const msg = String(err?.message ?? err ?? '')
+  if (/NotAllowedError/i.test(msg) || /not allowed/i.test(msg)) {
+    return 'Sign-in cancelled or no passkey selected.'
+  }
+  if (/SecurityError/i.test(msg)) {
+    return 'Passkey blocked: this site\'s domain doesn\'t match the registered passkey origin.'
+  }
+  if (/username is duplicated/i.test(msg)) {
+    return 'A passkey for this site already exists on Circle\'s server but no passkey matched on your device. Use the device that originally created it, or click "Clear and try again" to register fresh.'
+  }
+  if (/no credentials available/i.test(msg) || /no passkey/i.test(msg)) {
+    return 'No passkey found on this device. Create a new one to continue.'
+  }
+  return msg || 'Passkey sign-in failed.'
+}
+
 // Single entry point for both flows. The caller passes `mode = 'register'`
 // for a new user; we default to 'login' if we already have a stored
 // credential. Returns the smart account + its address + the credential
@@ -90,7 +111,7 @@ export async function connectCirclePasskey({ mode = 'auto', username = 'archimed
   }
 
   const stored = loadStoredCredential()
-  const resolvedMode = mode === 'auto'
+  let resolvedMode = mode === 'auto'
     ? (stored ? WebAuthnMode.Login : WebAuthnMode.Register)
     : (mode === 'login' ? WebAuthnMode.Login : WebAuthnMode.Register)
 
@@ -99,12 +120,38 @@ export async function connectCirclePasskey({ mode = 'auto', username = 'archimed
 
   // Either issue a new P256 credential (Register) OR re-authenticate an
   // existing one (Login). Browser prompts the user for biometrics here.
-  const credential = await toWebAuthnCredential({
-    transport: passkeyTransport,
-    mode: resolvedMode,
-    username,
-    credentialId: resolvedMode === WebAuthnMode.Login ? stored?.id : undefined,
-  })
+  let credential
+  try {
+    credential = await toWebAuthnCredential({
+      transport: passkeyTransport,
+      mode: resolvedMode,
+      username,
+      credentialId: resolvedMode === WebAuthnMode.Login ? stored?.id : undefined,
+    })
+  } catch (err) {
+    // "Username is duplicated" — Circle server already has a credential for
+    // this username, but our localStorage is empty (typical: Safari ITP
+    // purged it, or user switched browsers). Retry as Login WITHOUT a
+    // credentialId — WebAuthn surfaces the user's existing passkeys for
+    // this origin via discoverable credentials, and the user re-auths.
+    // Only auto-retry when the caller didn't pin a specific mode.
+    const msg = String(err?.message ?? err ?? '')
+    const isDuplicate = /username is duplicated/i.test(msg)
+    if (mode === 'auto' && resolvedMode === WebAuthnMode.Register && isDuplicate) {
+      resolvedMode = WebAuthnMode.Login
+      try {
+        credential = await toWebAuthnCredential({
+          transport: passkeyTransport,
+          mode: WebAuthnMode.Login,
+          username,
+        })
+      } catch (retryErr) {
+        throw new Error(friendlyPasskeyError(retryErr), { cause: retryErr })
+      }
+    } else {
+      throw new Error(friendlyPasskeyError(err), { cause: err })
+    }
+  }
 
   // Persist for next-session login. Stores the credential ID + public key,
   // NOT the private key (the private key lives in the device's secure
