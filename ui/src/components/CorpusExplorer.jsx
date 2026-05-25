@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import CustomSelect from './CustomSelect'
 import CorpusGraph from './CorpusGraph'
+import { cleanLatex } from '../utils/latex'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -235,8 +236,8 @@ function CatalogTab({ papers, total, page, loading, search, setSearch, categoryF
                     <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: 'var(--mono, monospace)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
                       {p.published ? p.published.slice(0, 4) : '—'}
                     </td>
-                    <td style={{ padding: '8px 14px', color: 'var(--text-1)' }} title={p.title || p.arxiv_id}>
-                      {truncate(p.title || p.arxiv_id, 80)}
+                    <td style={{ padding: '8px 14px', color: 'var(--text-1)' }} title={cleanLatex(p.title) || p.arxiv_id}>
+                      {truncate(cleanLatex(p.title) || p.arxiv_id, 80)}
                     </td>
                     <td style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
                       {p.primary_category && (
@@ -276,7 +277,7 @@ function PaperDetail({ paper, onBack }) {
     <div className="corpus-explorer">
       <button className="back-btn flex items-center gap-1.5" onClick={onBack}><span className="i-lucide-arrow-left w-4 h-4" /> Back to Explorer</button>
       <div className="paper-detail" style={{ maxWidth: 820 }}>
-        <h2 className="leading-snug mb-2">{paper.title || paper.arxiv_id}</h2>
+        <h2 className="leading-snug mb-2">{cleanLatex(paper.title) || paper.arxiv_id}</h2>
 
         {paper.authors?.length > 0 && (
           <div className="caption mb-3 text-[0.92rem]">
@@ -322,7 +323,7 @@ function PaperDetail({ paper, onBack }) {
         {paper.abstract && (
           <div className="paper-abstract-full" style={{ marginBottom: 24 }}>
             <h4 style={{ marginBottom: 8, fontSize: '0.9rem', color: 'var(--text-3)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Abstract</h4>
-            <p style={{ lineHeight: 1.7, fontSize: '0.95rem', color: 'var(--text-2)' }}>{paper.abstract}</p>
+            <p style={{ lineHeight: 1.7, fontSize: '0.95rem', color: 'var(--text-2)' }}>{cleanLatex(paper.abstract)}</p>
           </div>
         )}
 
