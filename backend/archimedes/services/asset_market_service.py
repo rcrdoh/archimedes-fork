@@ -390,12 +390,21 @@ class AssetMarketService:
             asset_class = entry[2] if entry else "unknown"
             real_ticker = entry[0] if entry else synth.lstrip("s")
 
+            # oracle_address is a capability marker — populated from settings
+            # regardless of whether the oracle read succeeded (Issue #346).
+            try:
+                from archimedes.chain.client import chain_client as _cc
+
+                _oracle_addr = oracle.get("oracle_address") or (_cc.settings.oracle_addresses or {}).get(synth)
+            except Exception:
+                _oracle_addr = oracle.get("oracle_address")
+
             items.append(
                 AssetExploreItem(
                     symbol=synth,
                     name=f"Synthetic {real_ticker}",
                     asset_class=asset_class,
-                    oracle_address=oracle.get("oracle_address"),
+                    oracle_address=_oracle_addr,
                     last_updated=last_updated,
                     is_stale=displayed_is_stale,
                     price_source=price_source,
