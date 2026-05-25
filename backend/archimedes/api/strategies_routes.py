@@ -1122,15 +1122,112 @@ async def list_strategy_passports(
     return {"passports": passports, "total": len(passports), "source": "strategy_passports"}
 
 
+@strategies_router.get("/passports/{strategy_id}")
+async def get_strategy_passport(strategy_id: str):
+    """Get a single passport in its native dict shape from strategy_passports."""
+    from fastapi import HTTPException
+
+    from archimedes.db import get_session
+    from archimedes.services.passport_loader import get_passport
+
+    with get_session() as session:
+        record = get_passport(session, strategy_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Passport not found")
+        return record.to_dict()
+
+
+def _passport_to_strategy_response(record) -> StrategyResponse:
+    """Reshape a StrategyPassportRecord (fusion/architect output) into the
+    StrategyResponse schema that StrategyPassport.jsx expects. Curated
+    strategies still flow through LocalStrategyProvider above; this is the
+    fallback that makes generated strategies clickable from Library."""
+    from archimedes.api.schemas import PaperRefResponse
+
+    refs = list(record.paper_refs or [])
+    first = refs[0] if refs else None
+
+    papers_list = [
+        PaperRefResponse(
+            arxiv_id=r.arxiv_id,
+            title=r.title or "",
+            authors=json.loads(r.authors) if r.authors else [],
+            doi=r.doi,
+            venue=r.venue,
+            year=r.year,
+            citation_count=r.citation_count,
+            contribution=r.contribution,
+        )
+        for r in refs
+    ]
+
+    asset_universe = json.loads(record.asset_universe) if record.asset_universe else []
+
+    return StrategyResponse(
+        id=record.id,
+        papers=papers_list,
+        paper_arxiv_id=first.arxiv_id if first else None,
+        paper_title=first.title if first else None,
+        paper_authors=json.loads(first.authors) if first and first.authors else [],
+        paper_venue=first.venue if first else None,
+        paper_year=first.year if first else None,
+        paper_doi=first.doi if first else None,
+        paper_citation_count=first.citation_count if first else None,
+        methodology_summary=record.methodology_summary or "",
+        asset_universe=asset_universe,
+        position_sizing=record.position_sizing or "equal_weight",
+        rebalance_frequency=record.rebalance_frequency or "weekly",
+        status=record.status or "candidate",
+        methodology_hash=record.methodology_hash,
+        extraction_llm=record.extraction_llm,
+        curator_wallet=record.curator_wallet,
+        curator_note=record.curator_note,
+        on_chain_registration_tx=record.on_chain_registration_tx,
+        paper_claimed_sharpe=record.paper_claimed_sharpe,
+        paper_claim_blended_sharpe=record.paper_claim_blended_sharpe,
+        sharpe_ratio=record.sharpe_ratio,
+        sortino_ratio=record.sortino_ratio,
+        cagr=record.cagr,
+        max_drawdown=record.max_drawdown,
+        win_rate=record.win_rate,
+        calmar_ratio=record.calmar_ratio,
+        correlation_to_spy=record.correlation_to_spy,
+        total_trades=record.total_trades,
+        deflated_sharpe_ratio=record.deflated_sharpe_ratio,
+        dsr_p_value=record.dsr_p_value,
+        pbo_score=record.pbo_score,
+        out_of_sample_sharpe=record.out_of_sample_sharpe,
+        kelly_fraction=None,
+        passes_rigor_gate=bool(record.passes_rigor_gate),
+        is_backtest_placeholder=record.sharpe_ratio is None,
+        sharpe_ci_lower=None,
+        sharpe_ci_upper=None,
+        backtest_start=record.backtest_start,
+        backtest_end=record.backtest_end,
+        regime_tag=record.regime_tag,
+    )
+
+
 @strategies_router.get("/{strategy_id}", response_model=StrategyResponse)
 async def get_strategy(strategy_id: str):
-    """Get a single strategy by ID. Backed by LocalStrategyProvider."""
+    """Get a single strategy by ID. Tries LocalStrategyProvider (curated)
+    first; falls through to the strategy_passports table for fusion- and
+    architect-generated strategies so they're clickable from Library."""
     from fastapi import HTTPException
 
     strat = strategy_provider.get_strategy(strategy_id)
-    if strat is None:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-    return _to_strategy_response(strat)
+    if strat is not None:
+        return _to_strategy_response(strat)
+
+    from archimedes.db import get_session
+    from archimedes.services.passport_loader import get_passport
+
+    with get_session() as session:
+        record = get_passport(session, strategy_id)
+        if record is not None:
+            return _passport_to_strategy_response(record)
+
+    raise HTTPException(status_code=404, detail="Strategy not found")
 
 
 # ── Strategy generation (fusion / architect) ──────────────────
