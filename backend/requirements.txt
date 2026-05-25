@@ -27,7 +27,7 @@ requests>=2.32
 aiohttp>=3.10
 
 # Backtesting
-backtrader>=1.9.78
+backtrader>=1.9.78.123
 
 # LLM
 anthropic>=0.40
