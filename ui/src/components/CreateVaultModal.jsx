@@ -1,14 +1,23 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import DepositFlow from './DepositFlow'
+import {
+  getWalletClient,
+  publicClient,
+  VAULT_ABI,
+  VAULT_FACTORY_ABI,
+  NEW_CONTRACTS,
+} from '../config'
+import { decodeEventLog } from 'viem'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
 // Opens from StrategyPassport's "Deploy as Vault →" CTA.
-// Wires to existing POST /api/vaults/create which deploys a new vault on Arc
-// via VaultFactory. After deploy, persists vault metadata (off-chain) via
-// POST /api/vaults/metadata so the strategy↔vault link survives reloads.
-// On success, hands off to DepositFlow for the 3-step approve→deposit→allocate.
+// Client-side vault creation: user signs createVault() + setAgent() directly
+// so vault.creator == user wallet (not the backend operator). After deploy,
+// persists vault metadata (off-chain) via POST /api/vaults/metadata so the
+// strategy↔vault link survives reloads. On success, hands off to DepositFlow
+// for the 3-step approve→deposit→allocate.
 
 function nowPlusDays(days) {
   const d = new Date()
@@ -43,6 +52,8 @@ export default function CreateVaultModal({ strategy, walletAddr, onClose, onDepl
   const [error, setError] = useState('')
   const [deployedVault, setDeployedVault] = useState(null) // triggers DepositFlow
 
+  const [deployPhase, setDeployPhase] = useState('') // '', 'creating', 'authorizing', 'metadata'
+
   const handleDeploy = async () => {
     setError('')
     if (!name.trim() || !symbol.trim()) {
@@ -55,26 +66,63 @@ export default function CreateVaultModal({ strategy, walletAddr, onClose, onDepl
     }
     setSubmitting(true)
     try {
-      // Step 1: deploy vault on-chain
-      const createRes = await fetch(`${API_BASE}/api/vaults/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          symbol,
-          management_fee_bps: 0,
-          performance_fee_bps: 0,
-          agent_assisted: agentAssisted,
-          strategy_ids: strategy?.id ? [strategy.id] : [],
-        }),
-      })
-      if (!createRes.ok) throw new Error(await createRes.text() || `Vault create failed (${createRes.status})`)
-      const createData = await createRes.json()
-      const vaultAddress = createData.vault_address
-      if (!vaultAddress) throw new Error('Backend did not return a vault_address')
+      const walletClient = await getWalletClient()
 
-      // Step 2: persist off-chain metadata (strategy↔vault link, creator wallet,
-      // trade window stored as part of name suffix until Phase 4.5 schema lands).
+      // Step 1: Client-side createVault — user signs, so creator == user wallet
+      setDeployPhase('creating')
+      const createHash = await walletClient.writeContract({
+        address: NEW_CONTRACTS.vaultFactory,
+        abi: VAULT_FACTORY_ABI,
+        functionName: 'createVault',
+        args: [name, symbol, 0, 0, agentAssisted],
+      })
+
+      // Wait for receipt and extract vault address from VaultCreated event
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash })
+      let vaultAddress = null
+      for (const log of receipt.logs) {
+        try {
+          const decoded = decodeEventLog({
+            abi: VAULT_FACTORY_ABI,
+            data: log.data,
+            topics: log.topics,
+          })
+          if (decoded.eventName === 'VaultCreated') {
+            vaultAddress = decoded.args.vault
+            break
+          }
+        } catch { /* not our event */ }
+      }
+      if (!vaultAddress) throw new Error('VaultCreated event not found in tx receipt')
+
+      // Step 2: Authorize agent — user signs setAgent() so the autonomous
+      // agent can rebalance on behalf of the vault
+      if (agentAssisted) {
+        setDeployPhase('authorizing')
+        try {
+          // Read the factory's configured agent address
+          const agentAddr = await publicClient.readContract({
+            address: NEW_CONTRACTS.vaultFactory,
+            abi: VAULT_FACTORY_ABI,
+            functionName: 'agentAddress',
+          })
+          if (agentAddr && agentAddr !== '0x' + '0'.repeat(40)) {
+            const setAgentHash = await walletClient.writeContract({
+              address: vaultAddress,
+              abi: VAULT_ABI,
+              functionName: 'setAgent',
+              args: [agentAddr],
+            })
+            await publicClient.waitForTransactionReceipt({ hash: setAgentHash })
+          }
+        } catch (agentErr) {
+          // Non-fatal — vault is created, agent auth can be retried
+          console.warn('setAgent failed (non-fatal):', agentErr)
+        }
+      }
+
+      // Step 3: Persist off-chain metadata (strategy↔vault link, creator wallet)
+      setDeployPhase('metadata')
       try {
         await fetch(`${API_BASE}/api/vaults/metadata`, {
           method: 'POST',
@@ -91,11 +139,13 @@ export default function CreateVaultModal({ strategy, walletAddr, onClose, onDepl
         // Non-fatal — vault exists on-chain; metadata persistence is a UX hint.
       }
 
+      setDeployPhase('')
       if (onDeployed) onDeployed(vaultAddress)
       // Open DepositFlow instead of closing
       setDeployedVault(vaultAddress)
     } catch (e) {
       setError(e.message || 'Vault deployment failed')
+      setDeployPhase('')
     } finally {
       setSubmitting(false)
     }
@@ -213,9 +263,10 @@ export default function CreateVaultModal({ strategy, walletAddr, onClose, onDepl
         </div>
 
         <div className="info-box mt-4" style={{ fontSize: '0.8rem' }}>
-          <strong>Next step:</strong> after the vault is created on-chain, you'll complete a 3-step
-          deposit flow: <code>USDC.approve</code> → <code>vault.deposit</code> → <code>setTargetAllocations</code>.
-          Each step is signed by your wallet and confirmed on Arc.
+          <strong>You sign everything.</strong> Vault creation is a 2-step client-side flow:
+          <code>createVault</code> → <code>setAgent</code> (authorize rebalancer).
+          Then a 3-step deposit: <code>approve</code> → <code>deposit</code> → <code>setAllocations</code>.
+          Your wallet is the vault creator — non-custodial by design.
         </div>
 
         {error && <div className="info-box warning mt-3">{error}</div>}
@@ -230,7 +281,12 @@ export default function CreateVaultModal({ strategy, walletAddr, onClose, onDepl
             disabled={submitting || !walletAddr}
             title={!walletAddr ? 'Connect wallet to deploy' : ''}
           >
-            {submitting ? 'Deploying…' : 'Create Vault'}
+            {submitting
+              ? (deployPhase === 'creating' ? 'Creating vault… (sign in wallet)'
+                : deployPhase === 'authorizing' ? 'Authorizing agent… (sign in wallet)'
+                : deployPhase === 'metadata' ? 'Saving metadata…'
+                : 'Deploying…')
+              : 'Create Vault'}
           </button>
         </div>
       </div>

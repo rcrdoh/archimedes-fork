@@ -561,6 +561,9 @@ export const VAULT_ABI = [
   { name: 'getTargetAllocations', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address[]' }, { type: 'uint256[]' }] },
   { name: 'setTokenOracles', type: 'function', stateMutability: 'nonpayable', inputs: [{ type: 'address[]', name: 'tokens' }, { type: 'address[]', name: 'oracles' }], outputs: [] },
   { name: 'tokenOracle', type: 'function', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'address' }] },
+  { name: 'setAgent', type: 'function', stateMutability: 'nonpayable', inputs: [{ type: 'address', name: '_agent' }], outputs: [] },
+  { name: 'agent', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { name: 'isAgentAssisted', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'bool' }] },
 ]
 
 export const VAULT_FACTORY_ABI = [
