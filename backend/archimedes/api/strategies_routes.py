@@ -351,7 +351,11 @@ async def get_portfolio_advisor(
     usdc_floor = min(usdc_floor_base * deleverage, 0.95)
     synth_budget = max(0.0, 1.0 - usdc_floor)
 
-    strategies = [s for s in strategy_provider.list_strategies() if s.real_sharpe is not None]
+    all_strategies = [s for s in strategy_provider.list_strategies() if s.real_sharpe is not None]
+
+    # Apply regime-aware tilt to strategy ordering
+    from archimedes.services.regime_weight_schedule import apply_regime_tilt, regime_weight_schedule
+    strategies, regime_mix = apply_regime_tilt(all_strategies, regime_value, risk_profile)
 
     from archimedes.agents.portfolio_agent import get_portfolio_agent
     from archimedes.services.strategy_signal_evaluator import (
@@ -796,6 +800,11 @@ async def get_portfolio_advisor(
                 "diversification_ratio": round(opt.diversification_ratio, 4) if opt else None,
                 "risk_aversion_gamma": round(opt.risk_aversion, 2) if opt else None,
                 "optimizer_converged": opt.converged if opt else False,
+            },
+            "regime_breakdown": {
+                "bull_weight": round(regime_mix["bull"], 4),
+                "bear_weight": round(regime_mix["bear"], 4),
+                "neutral_weight": round(regime_mix["neutral"], 4),
             },
             "risk_decomposition": risk_decomp,
             "correlation_pairs": corr_pairs,
