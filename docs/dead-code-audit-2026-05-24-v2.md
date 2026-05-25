@@ -1,4 +1,10 @@
-# Dead-Code Audit v2 — 2026-05-24
+# Dead-Code Audit v2 — 2026-05-24 (refreshed 2026-05-25)
+
+> **Refresh 2026-05-25:** main moved by ~80 commits / 90+ files after the v2
+> baseline. Three v2 findings have been **resolved** by intermediate merges; no
+> new dead-code surfaced. The headline ("zero files safe to delete now")
+> is unchanged. New baseline: `main` @ `2195417` (Merge PR #263, 2026-05-25).
+> See § "Refresh delta" near the bottom of this doc.
 
 > **Supersedes:** the earlier same-day v1 audit, which was retracted as unsound.
 > v1 ran against a static snapshot of `main` and treated "no current importer" as
@@ -294,6 +300,83 @@ grep -rEn --include="*.py" -- '(from|import) archimedes\.[a-zA-Z0-9_.]+' \
 awk -F'|' '$6==0 { print $2 }' /tmp/audit-v2/module_importers.txt \
   | grep -Fvxf /tmp/audit-v2/protected_existing.txt
 ```
+
+---
+
+## Refresh delta — 2026-05-25 (main @ `2195417`)
+
+Re-ran the audit against latest origin/main after ~80 commits / 90+ files of
+merges. Verified each prior finding by `git cat-file -e` against `origin/main`
+and `git grep` for new importers. **No deletions. Headline unchanged.**
+
+### Three v2 findings resolved by intermediate merges (no action needed)
+
+| v2 finding | Merge that resolved | New status |
+|---|---|---|
+| **`backend/archimedes/tests/test_user_profile_privacy.py` → `backend/tests/`** (only actionable in v2) | **PR #229** (`[tests] Move test_user_profile_privacy.py into pytest collection path`) — landed 2026-05-25 03:03 UTC, cites v2 directly | ✅ done; pytest now collects it; Issue #181 privacy coverage restored |
+| **`services/source_tracker.py`** was test-only / plan-protected | **PR #235** (`onder/source-tracker-wiring`, `[quant] Wire source_tracker into reasoning trace — Xia § 4.3 runtime`) | ✅ now LIVE: `chain/agent_runner.py:40` imports `build_consulted_hashes`, called at 3 trace-publish sites; closes #219 |
+| **`ui/src/components/StressScenarioPanel.jsx`** was plan-protected zero-importer | **PR #258** (`moonshot/244-stress-panel`, `[frontend] Wire StressScenarioPanel into Portfolio`) | ✅ now LIVE: `ui/src/components/Portfolio.jsx:7` imports, `Portfolio.jsx:201` renders |
+
+### Other significant merges that touch the audit surface (status unchanged)
+
+| Merge | Effect on audit |
+|---|---|
+| **PR #239** (`onder/stockbench-consolidation`, "Option C") | Consolidated two parallel StockBench adapters into the canonical `evaluation/stockbench/adapter.py`; **deleted** `benchmarks/stockbench_adapter.py` (419 LOC) + `scripts/stockbench_run.py` (234 LOC). v2 didn't list those (they were added and deleted between v2 baseline and this refresh — net-zero against `d6afdca`), but worth recording. |
+| **PR #214** (`moonshot/147-aws-s3-dynamodb-iam`) | Added `services/dynamodb_paper_index.py` + `services/s3_artifact_store.py` + `api/auth_guard.py` + `services/secrets_service.py` to the tree. See "New zero-importer files" below. |
+| **PR #265** (`moonshot/fix-missing-secrets-service`) | Hotfix adding `services/secrets_service.py` (502 fix). Now LIVE: `main.py` imports it. |
+| **5× dependabot merges** (#247–#251) | Backend dep bumps; no audit impact. |
+| **PR #267, #272** ruff format work | Mechanical autofixes; no audit impact. |
+
+### New zero-importer files since v2 (all PLAN-PROTECTED / intentional foundation)
+
+PR #214 added two boto3-wrapper services as the AWS foundation per
+`docs/archive/launch-execution-plan-2026-05-23.md`. They're zero-importer at
+runtime today, but explicitly intended as foundation for downstream features
+(#148 HTTPS, #151 GPU EC2 + KB pipeline, #176 SSM secrets). 27 unit tests
+cover both. **Both are PLAN-PROTECTED** by the same pattern as `agents/base.py`:
+named in an active plan as a stub for upcoming work.
+
+| File | Lines (approx) | Test coverage | Why zero-importer is OK |
+|---|---:|---:|---|
+| `backend/archimedes/services/dynamodb_paper_index.py` | — | ✅ `test_dynamodb_paper_index.py` | Named in launch plan; foundation for #151 KB pipeline |
+| `backend/archimedes/services/s3_artifact_store.py` | — | ✅ `test_s3_artifact_store.py` | Named in launch plan; foundation for #151 KB pipeline + #148 HTTPS |
+
+### Refreshed bottom line (still zero deletions recommended)
+
+| File | v2 status | Refresh status |
+|---|---|---|
+| `agents/base.py` | PLAN-PROTECTED | unchanged |
+| `services/regime_detector.py` | PLAN-PROTECTED, zero-importer | unchanged (no consolidation PR yet) |
+| `services/_deprecated/portfolio_constructor.py` | PLAN-PROTECTED | unchanged |
+| `services/_deprecated/kelly_portfolio.py` | PLAN-PROTECTED (test-only) | unchanged |
+| `services/arxiv_corpus.py` | PLAN-PROTECTED (test-only) | unchanged (spine-plus-v2 #4 still open) |
+| `services/source_tracker.py` | PLAN-PROTECTED (test-only) | **RESOLVED — now runtime-wired (PR #235)** |
+| `services/statistical_regime.py` | PLAN-PROTECTED (test-only) | unchanged |
+| `chain/strategy_publisher.py` | PLAN-PROTECTED (test-only) | unchanged |
+| `tests/test_user_profile_privacy.py` | ORPHANED → MOVE | **RESOLVED — moved (PR #229)** |
+| `StressScenarioPanel.jsx` | PLAN-PROTECTED, zero-importer | **RESOLVED — now runtime-wired (PR #258)** |
+| `PortfolioAdvisor.jsx` | LIVE via Generate.jsx | unchanged |
+| `CorrelationMatrix.jsx` | LIVE via Reasoning.jsx + PROTECTED | unchanged |
+| `IPriceOracle.sol` | PLAN-PROTECTED, zero-importer | unchanged |
+| Operator entrypoints (oracle_runner, kb_runner, scripts/*, forge scripts, stockbench/__main__) | LIVE as entrypoints | unchanged |
+| `services/dynamodb_paper_index.py` (NEW) | n/a | PLAN-PROTECTED (launch plan), test-covered |
+| `services/s3_artifact_store.py` (NEW) | n/a | PLAN-PROTECTED (launch plan), test-covered |
+
+**Files safe-to-delete unilaterally: still 0.** Conditional deletion roadmap
+(arxiv_corpus / _deprecated / regime consolidation) is unchanged — the
+prerequisite PRs haven't shipped.
+
+### Other useful telemetry from the refresh
+
+- `backend/archimedes/tests/` directory was untouched by PR #229's `git mv`
+  (it deleted the file but left the dir). It is now empty on `origin/main`. The
+  dir itself can be `rmdir`'d in a tiny follow-up PR; leaving it is harmless.
+- Backend test coverage rose materially in this window: 15+ new `backend/tests/services/test_*.py`
+  files (PR #214's 60.66% coverage gate work). Several were for previously-untested
+  services flagged in the survey (`test_regime_detector.py`, `test_kb_runner.py`,
+  `test_amm_bootstrap.py`, etc.). None of those flip an audit verdict — they
+  add tests for files that were already LIVE-via-entrypoint or
+  PLAN-PROTECTED.
 
 ---
 
