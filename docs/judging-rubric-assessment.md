@@ -1,14 +1,27 @@
-# Judging-Rubric Self-Assessment — Day-10 (2026-05-22)
+# Judging-Rubric Self-Assessment — Day-13 (2026-05-25 — submission day)
 
-> **Status:** Day-10 rewrite (2026-05-22). The Day-3 version of this doc scored us
-> 13/40 ≈ 33%; almost every line item it called out as "missing" has since shipped.
-> This version re-scores against shipped reality, adds the new **Arc OSS Showcase**
-> dimension, and lays out the remaining gap-closure work for the final 3 days to
-> submission.
+> **Status:** Day-13 date-bump on top of the Day-10 rewrite (2026-05-22). The Day-3
+> version of this doc scored us 13/40 ≈ 33%; almost every line item it called out as
+> "missing" has since shipped. This version re-scores against shipped reality, adds
+> the new **Arc OSS Showcase** dimension, and tracks the final-hours gap-closure work
+> against the Monday-evening submission deadline.
+> **Day-12 → Day-13 ships now folded into baseline (not deltas anymore):** #216
+> PortfolioAdvisor surfaced on `/generate` as preview-before-deploy banner; #217
+> regime-conditional γ scaling in `kelly_optimize_from_prices` citing Ang & Bekaert
+> 2002 *RFS*; #213 wallet menu dropdown + Profile view/edit; #215 doc-prune + UX
+> leak-scrub; ESLint 0/0 + ruff cleanup. **Day-13 hardening:** #255 internal-agent
+> auth guard (`X-Internal-Agent-Key` HMAC); #260 + #265 SSM-backed secret loading on
+> backend startup; #267 + #272 server-side ruff-format enforcement on push to main
+> (self-healing); #261 environment.yml ↔ Dependabot floor alignment; #268 corpus
+> pipeline rate-limiting + retry; #269 Explore-page staleness fix; #270 CSP allow
+> for Circle modular-sdk passkey; #259 corpus catalog trailing-slash bug; #262/#263
+> onboarding-tour + landing-page honesty pass.
+> **Innovation 9/10 score stands**, with the Ang-Bekaert + Xia-2026 + StockBench
+> citations as named academic backstops.
 > **Audience:** Archimedes hackathon team.
-> **Purpose:** Honest assessment of where we stand against the rubric with 3 days
-> to go. Identifies the biggest *remaining* gaps and what's already done. Re-read
-> daily.
+> **Purpose:** Honest assessment of where we stand against the rubric with hours
+> to go before submission. Identifies the biggest *remaining* gaps and what's
+> already done.
 > **Source for rubric weights / categories:** original Canteen rubric (see
 > [`archive/agora_project_analysis.md`](archive/agora_project_analysis.md) § 1
 > for historical detail).
