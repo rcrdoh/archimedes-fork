@@ -109,11 +109,17 @@ async def get_profile(wallet: str, request: Request):
 async def upsert_profile(payload: UserProfileCreate, request: Request, response: Response):
     """Create or update a wallet's profile. All fields optional except wallet.
 
-    Email is encrypted at rest before storage.
+    Email is encrypted at rest before storage. Caller must supply an
+    `X-Wallet-Address` header matching `payload.wallet_address` — prevents one
+    wallet from writing another wallet's profile.
     """
+    caller = _extract_caller_wallet(request)
+    wallet = payload.wallet_address.lower()
+    if caller != wallet:
+        raise HTTPException(status_code=403, detail="Forbidden: X-Wallet-Address header must match payload wallet")
+
     session: Session = get_session()
     try:
-        wallet = payload.wallet_address.lower()
         profile = session.query(UserProfile).filter(UserProfile.wallet_address == wallet).first()
 
         interests_json = json.dumps(payload.interests) if payload.interests else "[]"

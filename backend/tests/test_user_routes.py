@@ -62,6 +62,7 @@ class TestUserProfileRoutes:
                 "display_name": "Alice",
                 "marketing_opt_in": False,
             },
+            headers={"X-Wallet-Address": _W_ALICE},
         )
         assert res.status_code == 200
         data = res.json()
@@ -76,6 +77,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_BOB,
                 "display_name": "Bob",
             },
+            headers={"X-Wallet-Address": _W_BOB},
         )
         # GET with owner header → full data
         res = client.get(
@@ -93,6 +95,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_BOB,
                 "display_name": "Bob",
             },
+            headers={"X-Wallet-Address": _W_BOB},
         )
         # GET without owner header → PII stripped
         res = client.get(f"/api/user/profile/{_W_BOB}")
@@ -111,6 +114,7 @@ class TestUserProfileRoutes:
                 "attribution": "Twitter",
                 "marketing_opt_in": True,
             },
+            headers={"X-Wallet-Address": _W_CHARLIE},
         )
         assert res.status_code == 200
         data = res.json()
@@ -129,6 +133,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_CHARLIE,
                 "email": email,
             },
+            headers={"X-Wallet-Address": _W_CHARLIE},
         )
         # Read directly from DB
         session = get_session()
@@ -148,6 +153,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_UPDATE,
                 "display_name": "Original",
             },
+            headers={"X-Wallet-Address": _W_UPDATE},
         )
         res = client.post(
             "/api/user/profile",
@@ -156,6 +162,7 @@ class TestUserProfileRoutes:
                 "display_name": "Updated",
                 "marketing_opt_in": True,
             },
+            headers={"X-Wallet-Address": _W_UPDATE},
         )
         assert res.status_code == 200
         assert res.json()["display_name"] == "Updated"
@@ -168,6 +175,7 @@ class TestUserProfileRoutes:
             json={
                 "wallet_address": _W_MINIMAL,
             },
+            headers={"X-Wallet-Address": _W_MINIMAL},
         )
         assert res.status_code == 200
         data = res.json()
@@ -194,6 +202,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_CASE,
                 "display_name": "CaseTest",
             },
+            headers={"X-Wallet-Address": _W_CASE},
         )
         # Query with lowercase + owner header
         res = client.get(
@@ -218,6 +227,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_CHARLIE,
                 "email": "secret@example.com",
             },
+            headers={"X-Wallet-Address": _W_CHARLIE},
         )
         res = client.get(f"/api/user/profile/{_W_CHARLIE}")
         assert res.status_code == 200
@@ -231,6 +241,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_CHARLIE,
                 "email": "owner@example.com",
             },
+            headers={"X-Wallet-Address": _W_CHARLIE},
         )
         res = client.get(
             f"/api/user/profile/{_W_CHARLIE}",
