@@ -181,7 +181,7 @@ class TestUpsertEncryption:
             # match payload.wallet_address. Match the payload so the auth check passes.
             mock_req.headers = {"X-Wallet-Address": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}
             mock_resp = _MagicMock(spec=StarletteResponse)
-            asyncio.get_event_loop().run_until_complete(upsert_profile(payload, request=mock_req, response=mock_resp))
+            asyncio.run(upsert_profile(payload, request=mock_req, response=mock_resp))
 
         # The stored email must be encrypted (not plaintext)
         assert added_obj is not None

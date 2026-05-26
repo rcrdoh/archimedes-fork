@@ -48,7 +48,7 @@ class TestVaultMetadataAnchor:
         assert resp.status_code == 200
 
         # Give the fire-and-forget task time to execute
-        asyncio.get_event_loop().run_until_complete(asyncio.sleep(0.1))
+        asyncio.run(asyncio.sleep(0.1))
 
         assert mock_publisher.anchor.call_count == 3
 
@@ -74,7 +74,7 @@ class TestVaultMetadataAnchor:
         )
         assert resp.status_code == 200
 
-        asyncio.get_event_loop().run_until_complete(asyncio.sleep(0.1))
+        asyncio.run(asyncio.sleep(0.1))
         # s2 skipped due to no methodology_hash
         assert mock_publisher.anchor.call_count == 2
 
@@ -113,6 +113,6 @@ class TestVaultMetadataAnchor:
         )
         assert resp.status_code == 200
 
-        asyncio.get_event_loop().run_until_complete(asyncio.sleep(0.1))
+        asyncio.run(asyncio.sleep(0.1))
         # anchor should NOT have been called for unknown strategy
         mock_publisher.anchor.assert_not_called()
