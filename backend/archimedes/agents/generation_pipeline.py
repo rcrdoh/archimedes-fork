@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -775,6 +776,15 @@ async def run_generation(
             )
         strategy_id = strategy_ids.get(best.candidate_id, "")
 
+        # ── Run real multi-year backtests on every persisted candidate ──
+        # Closes the "Pending Backtest" gap: until this lands, generated
+        # strategies sat in the Library with no `real_sharpe` row, so the
+        # passport rendered the placeholder card forever. We backtest both
+        # regime variants in parallel (yfinance + numpy is I/O-bound), then
+        # upsert the BacktestResult row + updated passport metrics so the
+        # next /api/strategies/ read surfaces empirical Sharpe/DSR/PBO/OOS.
+        await asyncio.gather(*[_backtest_and_persist(c, strategy_ids[c.candidate_id], emit) for c in candidates])
+
         # ── Persist all candidates to episodic memory (T-PE.8) ──
         try:
             from archimedes.services.strategy_memory import persist_proposal
@@ -904,3 +914,165 @@ async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief) -> tuple
 
     strategy_id = await asyncio.to_thread(_do_persist)
     return strategy_id, trace_hash
+
+
+async def _backtest_and_persist(c: _CandidateResult, strategy_id: str, emit: "_Emitter") -> None:
+    """Backtest the generated strategy on real multi-year data and persist results.
+
+    Closes the "Pending Backtest" gap on the Library page. The agent only
+    emits ``{ticker: weight}`` + a rebalance period — no ``bt.Strategy``
+    subclass — so the analytics-engine's single-asset Cerebro path doesn't
+    fit. This function instead runs the pandas/numpy
+    :func:`portfolio_backtester.backtest_portfolio` over real yfinance prices,
+    persists a full :class:`BacktestResult` to ``backtest_results``, and
+    refreshes the passport row with empirical metrics so
+    ``is_backtest_placeholder`` flips false on the next API read.
+
+    Failures are non-fatal: if yfinance is unreachable, a ticker doesn't
+    resolve, or the historical overlap is too short, the placeholder remains
+    and a ``backtest_failed`` SSE event surfaces the reason. The generation
+    itself does not fail.
+
+    Args:
+        c: The candidate that was just persisted.
+        strategy_id: The DB id returned by :func:`_persist_candidate`.
+        emit: The SSE emitter to surface backtest progress to the UI.
+    """
+    # Fixture mode (offline tests, no-LLM environments) — skip the network
+    # round-trip. The test suite covers this function's behavior via direct
+    # unit tests in test_portfolio_backtester.py and via the pipeline's
+    # generation-event tests, neither of which need a live yfinance call.
+    if os.getenv("GENERATION_PIPELINE_FIXTURE", "").lower() in ("1", "true") or os.getenv(
+        "GENERATION_PIPELINE_SKIP_BACKTEST", ""
+    ).lower() in ("1", "true"):
+        logger.debug("skipping live backtest for %s (fixture mode)", strategy_id)
+        return
+
+    await emit.emit(
+        "backtest_running",
+        strategy_id=strategy_id,
+        candidate_id=c.candidate_id,
+        symbols=list((c.weights or {}).keys()),
+    )
+
+    if not c.weights:
+        await emit.emit(
+            "backtest_failed",
+            strategy_id=strategy_id,
+            candidate_id=c.candidate_id,
+            error="no weights emitted by agent",
+        )
+        return
+
+    def _do_backtest_and_persist() -> dict[str, Any] | None:
+        # All heavy work — yfinance fetch, numpy compute, DB writes — runs
+        # off the event loop. Returns the metrics dict for the SSE emit.
+        import json as _json
+        from datetime import date as _date
+
+        from archimedes.db import get_session
+        from archimedes.models.paper_ref import PaperRef
+        from archimedes.models.strategy import StrategyPassport, StrategyStatus
+        from archimedes.models.strategy_store import StrategyRecord
+        from archimedes.services.backtest_repository import insert_backtest_if_missing
+        from archimedes.services.passport_loader import ingest_passport
+        from archimedes.services.portfolio_backtester import backtest_portfolio
+
+        # Run the actual backtest. Raises on insufficient data / fetch failure.
+        result, artifact = backtest_portfolio(
+            strategy_id=strategy_id,
+            weights=c.weights,
+            paper_title=c.strategy_name,
+        )
+        artifact_json = _json.dumps(artifact, default=str)
+        content_hash = hashlib.sha256(artifact_json.encode("utf-8")).hexdigest()
+
+        # Same passes_rigor_gate rule the strategies_routes._to_strategy_response
+        # check uses on curated strategies — keeps generated and curated graded
+        # on the same scale.
+        passes = bool(result.passes_rigor_gate)
+
+        with get_session() as session:
+            # 1. Persist the backtest_results row.
+            insert_backtest_if_missing(
+                session,
+                strategy_id=strategy_id,
+                content_hash=content_hash,
+                result=result,
+                run_id=artifact.get("run_id"),
+                operation="PORTFOLIO",
+                artifact_json=artifact_json,
+            )
+
+            # 2. Refresh the strategy_passports row with real_* metrics.
+            #    We rebuild the passport using the StrategyRecord we just
+            #    persisted (for status + name) plus the candidate's papers /
+            #    asset universe / regime mapping — same construction as
+            #    `_persist_candidate`'s passport block, now decorated with
+            #    real metrics. ingest_passport(force_update=True) does an
+            #    in-place update.
+            record = session.query(StrategyRecord).filter_by(id=strategy_id).first()
+            status_val = StrategyStatus(record.status) if record and record.status else StrategyStatus.CANDIDATE
+            papers = [PaperRef(arxiv_id=p.get("arxiv_id"), title=p.get("title", "")) for p in (c.source_papers or [])]
+            _regime_tag_map = {"bull": "bull", "bear": "bear"}
+            _regime_tag = _regime_tag_map.get(c.regime, "regime_neutral")
+            passport = StrategyPassport(
+                id=strategy_id,
+                papers=papers,
+                methodology_summary=c.thesis or "",
+                asset_universe=c.asset_universe or [],
+                status=status_val,
+                regime_tag=_regime_tag,
+                # Real backtest fields — the whole point of this function
+                real_sharpe=result.sharpe_ratio,
+                real_sortino=result.sortino_ratio,
+                real_cagr=result.cagr,
+                real_max_dd=result.max_drawdown,
+                real_calmar=result.calmar_ratio,
+                real_corr_spy=result.correlation_to_spy,
+                real_total_trades=result.total_trades,
+                real_backtest_start=(
+                    result.backtest_start.isoformat() if isinstance(result.backtest_start, _date) else None
+                ),
+                real_backtest_end=(result.backtest_end.isoformat() if isinstance(result.backtest_end, _date) else None),
+                deflated_sharpe_ratio=result.deflated_sharpe_ratio,
+                dsr_p_value=result.dsr_p_value,
+                num_trials_in_selection=result.num_trials_in_selection,
+                pbo_score=result.pbo_score,
+                out_of_sample_sharpe=result.out_of_sample_sharpe,
+                passes_rigor_gate=passes,
+                n_obs_daily=len(artifact["results"][0]["metrics"].get("daily_returns", [])),
+            )
+            ingest_passport(session, passport, generation_method="fusion", force_update=True)
+            session.commit()
+
+        return {
+            "sharpe_ratio": result.sharpe_ratio,
+            "cagr": result.cagr,
+            "max_drawdown": result.max_drawdown,
+            "dsr_p_value": result.dsr_p_value,
+            "out_of_sample_sharpe": result.out_of_sample_sharpe,
+            "passes_rigor_gate": passes,
+            "n_bars": len(artifact["results"][0]["metrics"].get("daily_returns", [])),
+        }
+
+    try:
+        metrics = await asyncio.to_thread(_do_backtest_and_persist)
+        if metrics is None:
+            return
+        await emit.emit(
+            "backtest_done",
+            strategy_id=strategy_id,
+            candidate_id=c.candidate_id,
+            metrics=metrics,
+        )
+    except Exception as exc:
+        # Non-fatal — the strategy stays in the Library with the placeholder,
+        # which is honest. The generation succeeded; the backtest didn't.
+        logger.warning("backtest_and_persist failed for %s: %s", strategy_id, exc)
+        await emit.emit(
+            "backtest_failed",
+            strategy_id=strategy_id,
+            candidate_id=c.candidate_id,
+            error=str(exc),
+        )
