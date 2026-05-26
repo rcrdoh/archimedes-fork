@@ -84,7 +84,7 @@ class TestTracePublishMocked:
             # Run the async publish
             import asyncio
 
-            tx_hash = asyncio.get_event_loop().run_until_complete(publisher.publish(trace))
+            tx_hash = asyncio.run(publisher.publish(trace))
 
             assert tx_hash == "0xabc123"
             assert trace.arc_tx_hash == "0xabc123"
@@ -107,7 +107,7 @@ class TestTracePublishMocked:
 
             import asyncio
 
-            tx_hash = asyncio.get_event_loop().run_until_complete(publisher.publish(trace))
+            tx_hash = asyncio.run(publisher.publish(trace))
             assert tx_hash is None
 
 
@@ -131,7 +131,7 @@ class TestTraceVerify:
 
             import asyncio
 
-            result = asyncio.get_event_loop().run_until_complete(publisher.verify(trace))
+            result = asyncio.run(publisher.verify(trace))
             assert result is False
 
     def test_verify_matching_hash(self):
@@ -160,7 +160,7 @@ class TestTraceVerify:
 
             import asyncio
 
-            result = asyncio.get_event_loop().run_until_complete(publisher.verify(trace))
+            result = asyncio.run(publisher.verify(trace))
             assert result is True
 
 
@@ -201,7 +201,7 @@ class TestGetTraceByTxHash:
 
             import asyncio
 
-            result = asyncio.get_event_loop().run_until_complete(publisher.get_trace_by_tx_hash("0xdeadbeef"))
+            result = asyncio.run(publisher.get_trace_by_tx_hash("0xdeadbeef"))
 
             assert result is not None
             assert result["agent"] == "0xagent"
@@ -235,7 +235,7 @@ class TestGetTraceByTxHash:
 
             import asyncio
 
-            result = asyncio.get_event_loop().run_until_complete(publisher.get_trace_by_tx_hash("0xdeadbeef"))
+            result = asyncio.run(publisher.get_trace_by_tx_hash("0xdeadbeef"))
             assert result is None
 
     def test_returns_none_when_receipt_fetch_fails(self):
@@ -252,7 +252,7 @@ class TestGetTraceByTxHash:
 
             import asyncio
 
-            result = asyncio.get_event_loop().run_until_complete(publisher.get_trace_by_tx_hash("0xdeadbeef"))
+            result = asyncio.run(publisher.get_trace_by_tx_hash("0xdeadbeef"))
             assert result is None
 
     def test_returns_none_for_empty_tx_hash(self):
@@ -269,6 +269,6 @@ class TestGetTraceByTxHash:
 
             import asyncio
 
-            result = asyncio.get_event_loop().run_until_complete(publisher.get_trace_by_tx_hash(""))
+            result = asyncio.run(publisher.get_trace_by_tx_hash(""))
             assert result is None
             mock_client.w3.eth.get_transaction_receipt.assert_not_awaited()

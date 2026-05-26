@@ -27,12 +27,40 @@ from httpx import ASGITransport, AsyncClient
 # ─── 1. Docs gate ─────────────────────────────────────────────────────
 
 
+_DOTENV_NEUTRALIZE = """
+# Neutralize load_dotenv before importing archimedes.main — otherwise the
+# developer's local .env (with DATABASE_URL=postgres:5432) overrides the
+# sqlite default. CI has no .env so it passed by environment luck.
+import dotenv as _dotenv
+_dotenv.load_dotenv = lambda *_a, **_kw: False
+"""
+
+
+def _clean_subprocess_env() -> dict[str, str]:
+    """Whitelist-only env for subprocess tests.
+
+    Inheriting os.environ leaks the developer's .env into the subprocess
+    (an earlier test in the suite triggers load_dotenv on the parent
+    process, populating DATABASE_URL etc. before the subprocess fires).
+    Pass only PATH/HOME/PYTHONPATH so archimedes.main gets the sqlite
+    default for DATABASE_URL — same posture CI runs in.
+    """
+    backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    return {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
+        "PYTHONPATH": backend_dir,
+    }
+
+
 def test_docs_disabled_when_public_domain_set():
     """/docs gated OFF when PUBLIC_DOMAIN is set and ENABLE_API_DOCS is unset.
 
     Uses subprocess to avoid module-reload side effects in the test process.
     """
-    script = """
+    script = (
+        _DOTENV_NEUTRALIZE
+        + """
 import os
 os.environ["PUBLIC_DOMAIN"] = "https://archimedes-arc.app"
 os.environ["EMAIL_ENCRYPTION_KEY"] = "test-key-32chars-for-ci"
@@ -44,11 +72,13 @@ assert app.openapi_url is None, f"openapi_url should be None, got {app.openapi_u
 assert app.docs_url is None, f"docs_url should be None, got {app.docs_url}"
 print("PASS")
 """
+    )
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         cwd=os.path.join(os.path.dirname(__file__), ".."),
+        env=_clean_subprocess_env(),
         timeout=30,
     )
     assert result.returncode == 0, f"Script failed: {result.stderr}"
@@ -57,7 +87,9 @@ print("PASS")
 
 def test_docs_enabled_when_flag_set():
     """/docs returns 200 when ENABLE_API_DOCS=1."""
-    script = """
+    script = (
+        _DOTENV_NEUTRALIZE
+        + """
 import os
 os.environ["PUBLIC_DOMAIN"] = "https://archimedes-arc.app"
 os.environ["EMAIL_ENCRYPTION_KEY"] = "test-key-32chars-for-ci"
@@ -69,11 +101,13 @@ assert app.docs_url == "/docs", f"docs_url should be /docs, got {app.docs_url}"
 assert app.openapi_url == "/openapi.json", f"openapi_url should be /openapi.json, got {app.openapi_url}"
 print("PASS")
 """
+    )
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         cwd=os.path.join(os.path.dirname(__file__), ".."),
+        env=_clean_subprocess_env(),
         timeout=30,
     )
     assert result.returncode == 0, f"Script failed: {result.stderr}"
@@ -82,7 +116,9 @@ print("PASS")
 
 def test_docs_enabled_in_local_dev():
     """/docs available when PUBLIC_DOMAIN is not set (local dev)."""
-    script = """
+    script = (
+        _DOTENV_NEUTRALIZE
+        + """
 import os
 os.environ.pop("PUBLIC_DOMAIN", None)
 os.environ.pop("ENABLE_API_DOCS", None)
@@ -92,11 +128,13 @@ from archimedes.main import app
 assert app.docs_url == "/docs", f"docs_url should be /docs, got {app.docs_url}"
 print("PASS")
 """
+    )
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         cwd=os.path.join(os.path.dirname(__file__), ".."),
+        env=_clean_subprocess_env(),
         timeout=30,
     )
     assert result.returncode == 0, f"Script failed: {result.stderr}"
@@ -111,7 +149,9 @@ def test_startup_fails_without_encryption_key_in_production():
 
     Uses subprocess to avoid leaving the module in a broken state.
     """
-    script = """
+    script = (
+        _DOTENV_NEUTRALIZE
+        + """
 import os
 os.environ["PUBLIC_DOMAIN"] = "https://archimedes-arc.app"
 os.environ.pop("EMAIL_ENCRYPTION_KEY", None)
@@ -126,11 +166,13 @@ except RuntimeError as e:
     else:
         print(f"FAIL: wrong error: {e}")
 """
+    )
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         cwd=os.path.join(os.path.dirname(__file__), ".."),
+        env=_clean_subprocess_env(),
         timeout=30,
     )
     assert "PASS" in result.stdout, f"Expected PASS, got stdout={result.stdout!r} stderr={result.stderr!r}"

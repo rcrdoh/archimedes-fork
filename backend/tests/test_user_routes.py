@@ -8,9 +8,11 @@ Updated for Issue #181 (user-data minimization):
 
 from __future__ import annotations
 
+import time
 from unittest.mock import patch
 
 import pytest
+from archimedes.api.auth_siwe import _COOKIE_NAME, _sign_session
 from archimedes.db import get_session
 from archimedes.models.user_profile import UserProfile
 from fastapi.testclient import TestClient
@@ -22,6 +24,16 @@ _W_CHARLIE = "0x3333333333333333333333333333333333333333"
 _W_UPDATE = "0x4444444444444444444444444444444444444444"
 _W_MINIMAL = "0x0000000000000000000000000000000000000002"
 _W_CASE = "0x5555555555555555555555555555555555555555"
+
+
+def _siwe_cookies(wallet: str) -> dict[str, str]:
+    """Build a valid SIWE session cookie for `wallet`.
+
+    PII reads (display_name, email) require a SIWE session — header alone is
+    no longer trusted. Tests that previously relied on X-Wallet-Address to
+    read owner-view PII must now establish a session via this helper.
+    """
+    return {_COOKIE_NAME: _sign_session(wallet, time.time())}
 
 
 @pytest.fixture
@@ -70,7 +82,7 @@ class TestUserProfileRoutes:
         assert data["wallet_address"] == _W_ALICE.lower()
 
     def test_get_profile_after_create_owner(self, client):
-        """GET with owner header returns full profile after POST."""
+        """GET with SIWE session returns full profile (PII included) after POST."""
         client.post(
             "/api/user/profile",
             json={
@@ -79,10 +91,10 @@ class TestUserProfileRoutes:
             },
             headers={"X-Wallet-Address": _W_BOB},
         )
-        # GET with owner header → full data
+        # GET with SIWE session cookie → full data including PII
         res = client.get(
             f"/api/user/profile/{_W_BOB}",
-            headers={"X-Wallet-Address": _W_BOB},
+            cookies=_siwe_cookies(_W_BOB),
         )
         assert res.status_code == 200
         assert res.json()["display_name"] == "Bob"
@@ -195,7 +207,7 @@ class TestUserProfileRoutes:
         assert res.status_code == 422
 
     def test_get_profile_case_insensitive(self, client):
-        """GET finds profile regardless of wallet case."""
+        """GET finds profile regardless of wallet case (with SIWE session for PII)."""
         client.post(
             "/api/user/profile",
             json={
@@ -204,17 +216,17 @@ class TestUserProfileRoutes:
             },
             headers={"X-Wallet-Address": _W_CASE},
         )
-        # Query with lowercase + owner header
+        # Query with lowercase + SIWE session
         res = client.get(
             f"/api/user/profile/{_W_CASE.lower()}",
-            headers={"X-Wallet-Address": _W_CASE},
+            cookies=_siwe_cookies(_W_CASE),
         )
         assert res.status_code == 200
         assert res.json()["display_name"] == "CaseTest"
-        # Query with original mixed case + owner header
+        # Query with original mixed case + SIWE session
         res2 = client.get(
             f"/api/user/profile/{_W_CASE}",
-            headers={"X-Wallet-Address": _W_CASE},
+            cookies=_siwe_cookies(_W_CASE),
         )
         assert res2.status_code == 200
         assert res2.json()["display_name"] == "CaseTest"
@@ -234,7 +246,7 @@ class TestUserProfileRoutes:
         assert res.json()["email"] is None, "Anonymous GET must not reveal email"
 
     def test_owner_get_decrypts_email(self, client):
-        """Owner GET with matching header decrypts email (Issue #181)."""
+        """Owner GET with SIWE session decrypts email (Issue #181 + SIWE auth)."""
         client.post(
             "/api/user/profile",
             json={
@@ -245,7 +257,7 @@ class TestUserProfileRoutes:
         )
         res = client.get(
             f"/api/user/profile/{_W_CHARLIE}",
-            headers={"X-Wallet-Address": _W_CHARLIE},
+            cookies=_siwe_cookies(_W_CHARLIE),
         )
         assert res.status_code == 200
         assert res.json()["email"] == "owner@example.com"
