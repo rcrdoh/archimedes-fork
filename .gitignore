@@ -74,5 +74,3 @@ htmlcov/
 !.loom/loom.config.json
 .venv/
 .claude/
-infra/*.pem
-infra/terraform.tfstate.backup
