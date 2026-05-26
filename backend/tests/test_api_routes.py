@@ -384,8 +384,18 @@ class TestAgentRoutes:
         assert "alive" in data
 
     def test_agent_status_redis_down_defaults(self, client):
-        """With Redis down alive=False and heartbeat fields are null/default."""
-        resp = client.get("/api/agent/status")
+        """With Redis down alive=False and heartbeat fields are null/default.
+
+        Mocks AgentStateStore so the test is hermetic — CI has no Redis,
+        but local dev usually does (with cached state from real activity).
+        """
+        from archimedes.services.redis_state import AgentStateStore
+
+        with patch.object(AgentStateStore, "get_heartbeat", AsyncMock(side_effect=ConnectionError("redis down"))), \
+             patch.object(AgentStateStore, "load_regime", AsyncMock(side_effect=ConnectionError("redis down"))), \
+             patch.object(AgentStateStore, "get_events", AsyncMock(side_effect=ConnectionError("redis down"))), \
+             patch.object(AgentStateStore, "close", AsyncMock(return_value=None)):
+            resp = client.get("/api/agent/status")
         assert resp.status_code == 200
         data = resp.json()
         assert data["alive"] is False
@@ -471,9 +481,16 @@ class TestAdvisorRoutes:
         assert resp.status_code == 422
 
     def test_advisor_redis_unavailable(self, client, seeded_db):
-        """Advisor falls back to transition regime when Redis is down."""
-        resp = client.get("/api/strategies/advisor?risk_profile=moderate")
-        # Redis is not running in unit tests; endpoint must not 500.
+        """Advisor falls back to transition regime when Redis is down.
+
+        Mocks AgentStateStore.load_regime so the test is hermetic — CI has
+        no Redis, but local dev usually does (with cached regime state).
+        """
+        from archimedes.services.redis_state import AgentStateStore
+
+        with patch.object(AgentStateStore, "load_regime", AsyncMock(side_effect=ConnectionError("redis down"))), \
+             patch.object(AgentStateStore, "close", AsyncMock(return_value=None)):
+            resp = client.get("/api/strategies/advisor?risk_profile=moderate")
         assert resp.status_code == 200
         data = resp.json()
         # Without Redis the regime defaults to "transition"
