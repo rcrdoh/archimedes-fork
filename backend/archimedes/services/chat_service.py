@@ -194,7 +194,7 @@ class ChatService:
             return self._canned_response(vault_address, user_message)
 
         try:
-            # Get recent chat context (last 10 messages)
+            # Get recent chat context (last 5 messages)
             recent = self.get_messages(vault_address, limit=10)
             lines = []
             for m in recent[-5:]:
@@ -203,6 +203,9 @@ class ChatService:
                 else:
                     lines.append(f"👤 {m['wallet_address'][:10]}...: {m['message']}")
             context = "\n".join(lines)
+
+            # Inject vault-specific context to prevent hallucination (#386)
+            vault_context = self._build_vault_context(vault_address)
 
             response = client.messages.create(
                 model="claude-sonnet-4-20250514",
@@ -213,6 +216,7 @@ class ChatService:
                         "role": "user",
                         "content": (
                             f"Vault: {vault_address}\n"
+                            f"{vault_context}\n"
                             f"<chat_history>\n{context}\n</chat_history>\n\n"
                             f"<user_message>{user_message}</user_message>"
                         ),
@@ -230,6 +234,47 @@ class ChatService:
         except Exception:
             logger.exception("Claude API call failed — falling back to canned response")
             return self._canned_response(vault_address, user_message)
+
+    def _build_vault_context(self, vault_address: str) -> str:
+        """Build vault-specific context for the LLM prompt (Issue #386).
+
+        Fetches strategy names, methodology, assets, and rigor verdict so the
+        model answers about THIS vault's actual holdings, not hallucinated ones.
+        Each lookup is fail-safe — missing data is omitted, never invented.
+        """
+        parts = []
+        try:
+            from archimedes.db import get_session
+            from archimedes.models.chat import VaultMetadata
+
+            session = get_session()
+            try:
+                meta = session.query(VaultMetadata).filter(VaultMetadata.vault_address == vault_address).first()
+                if meta:
+                    parts.append(f"Vault name: {meta.name or vault_address[:10]}")
+                    strategy_ids = meta.get_strategy_ids() if meta else []
+                    if strategy_ids:
+                        from archimedes.services.strategy_provider import default_provider
+
+                        provider = default_provider()
+                        for sid in strategy_ids[:3]:
+                            s = provider.get_strategy(sid)
+                            if s:
+                                parts.append(f"Strategy: {s.paper_title}")
+                                if s.methodology_summary:
+                                    parts.append(f"Methodology: {s.methodology_summary[:400]}")
+                                if s.asset_universe:
+                                    parts.append(f"Assets: {', '.join(s.asset_universe)}")
+                                rigor = "passed" if s.passes_rigor_gate else "not passed"
+                                parts.append(f"Rigor gate: {rigor}")
+            finally:
+                session.close()
+        except Exception as exc:
+            logger.debug("vault context fetch failed (non-fatal): %s", exc)
+
+        if not parts:
+            return "<vault_context>No metadata available for this vault.</vault_context>"
+        return "<vault_context>\n" + "\n".join(parts) + "\n</vault_context>"
 
     def _canned_response(self, vault_address: str, user_message: str) -> dict | None:
         """Fallback AI responses when Claude API is unavailable."""

@@ -278,7 +278,10 @@ export default function WalletConnect({ address, displayName, onConnect, onDisco
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>Connect Wallet</h3>
             <p style={{ fontSize: '0.98rem', color: 'var(--text-2)', lineHeight: 1.55, marginBottom: 14 }}>
-              Sign in with a passkey (Face ID / Touch ID), or connect a browser wallet to interact with Arc Testnet contracts.
+              {available.length > 1
+                ? 'Sign in with a passkey (Face ID / Touch ID), or connect a browser wallet to interact with Arc Testnet contracts.'
+                : 'Sign in with a passkey (Face ID / Touch ID) to interact with Arc Testnet contracts. No browser extension needed.'
+              }
             </p>
 
             <div

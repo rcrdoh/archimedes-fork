@@ -265,7 +265,7 @@ export default function App() {
       >
         {renderPage()}
       </Layout>
-      <OnboardingTour open={tourOpen} onClose={() => setTourOpen(false)} setPage={navigateToPage} />
+      <OnboardingTour open={tourOpen} onClose={() => { setTourOpen(false); try { localStorage.setItem('archimedes.onboarding.v1', 'completed') } catch {} }} setPage={navigateToPage} />
     </>
   )
 }
