@@ -133,41 +133,100 @@ function HeroStrip() {
   )
 }
 
-function PipelineCell({ title, sub }) {
+// The pipeline rendered as a single connected timeline. One continuous gold
+// rail threads numbered nodes top-to-bottom — reads as one flow, never the
+// cramped floating-arrow grid it replaced. The deploy step is accented as the
+// user's binding signing moment.
+const PIPELINE_STEPS = [
+  { title: 'Your brief', sub: 'plain English, optional asset classes + risk profile' },
+  { title: 'Strategy Generation', sub: 'paper retrieval · market context · synthesis · rigor gate' },
+  { title: 'Portfolio Construction', sub: 'asset selection · Kelly sizing · stress test' },
+  {
+    title: 'Deploy as Vault',
+    sub: '4 wallet signatures: create → approve → deposit → set allocations',
+    youAct: true,
+  },
+  { title: 'Live Execution', sub: '60s tick rebalance loop · on-chain trace per decision' },
+  { title: 'Verify on-chain', sub: 'recompute hash · check against Arc anchor' },
+]
+
+function PipelineStep({ index, title, sub, youAct, isLast }) {
   return (
-    <div className="card-flat p-3" style={{ minWidth: 0 }}>
-      <div className="font-semibold" style={{ fontSize: '0.92rem' }}>{title}</div>
-      <div className="caption mt-1" style={{ color: 'var(--text-3)' }}>{sub}</div>
+    <div style={{ display: 'grid', gridTemplateColumns: '34px 1fr', columnGap: 16 }}>
+      {/* Gutter: numbered node sitting on the continuous rail */}
+      <div className="flex flex-col items-center">
+        <div
+          className="flex items-center justify-center font-semibold"
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            flexShrink: 0,
+            fontSize: '0.85rem',
+            fontVariantNumeric: 'tabular-nums',
+            color: youAct ? 'var(--bg-1)' : 'var(--accent)',
+            background: youAct ? 'var(--accent)' : 'var(--surface-1)',
+            border: '1.5px solid var(--accent)',
+            boxShadow: youAct ? '0 0 0 4px var(--accent-glow)' : 'none',
+            zIndex: 1,
+          }}
+        >
+          {index + 1}
+        </div>
+        {!isLast && (
+          <div
+            style={{
+              flex: 1,
+              width: 2,
+              minHeight: 20,
+              background: 'linear-gradient(var(--accent), var(--accent-muted))',
+              opacity: 0.7,
+            }}
+          />
+        )}
+      </div>
+
+      {/* Content */}
+      <div style={{ paddingBottom: isLast ? 0 : 20 }}>
+        <div
+          className="font-semibold flex items-center flex-wrap gap-x-2"
+          style={{ fontSize: '0.95rem', minHeight: 32 }}
+        >
+          {title}
+          {youAct && (
+            <span className="label" style={{ color: 'var(--accent)' }}>
+              · you sign
+            </span>
+          )}
+        </div>
+        <div className="caption mt-0.5" style={{ color: 'var(--text-3)' }}>
+          {sub}
+        </div>
+      </div>
     </div>
   )
 }
 
-function PipelineArrow() {
-  return (
-    <div className="hidden md:flex items-center justify-center" style={{ color: 'var(--accent)', fontSize: '1.2rem' }}>→</div>
-  )
-}
-
 function PipelineFlow() {
-  // Two-row horizontal flow: brief → generation → construction; deploy → execution → verify.
   return (
     <div className="card p-5 mb-7">
-      <div className="label mb-3">The pipeline</div>
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-3 items-stretch">
-        <PipelineCell title="Your brief" sub="plain English, optional asset classes + risk profile" />
-        <PipelineArrow />
-        <PipelineCell title="Strategy Generation" sub="paper retrieval · market context · synthesis · rigor gate" />
-        <PipelineArrow />
-        <PipelineCell title="Portfolio Construction" sub="asset selection · Kelly sizing · stress test" />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-3 items-stretch mt-3">
-        <PipelineCell title="Deploy as Vault" sub="4 wallet signatures: create → approve → deposit → set allocations" />
-        <PipelineArrow />
-        <PipelineCell title="Live Execution" sub="60s tick rebalance loop · on-chain trace per decision" />
-        <PipelineArrow />
-        <PipelineCell title="Verify on-chain" sub="recompute hash · check against Arc anchor" />
-      </div>
-      <p className="caption mt-3" style={{ color: 'var(--text-3)' }}>
+      <div className="label mb-4">The pipeline</div>
+      {PIPELINE_STEPS.map((step, i) => (
+        <PipelineStep
+          key={step.title}
+          index={i}
+          isLast={i === PIPELINE_STEPS.length - 1}
+          {...step}
+        />
+      ))}
+      <p
+        className="caption mt-4"
+        style={{
+          color: 'var(--text-3)',
+          borderTop: '1px solid var(--glass-border)',
+          paddingTop: 14,
+        }}
+      >
         You stay in the loop at two binding moments: reviewing the passport and signing
         the four deploy transactions. The agent gains rebalance authority only — it cannot
         withdraw, cannot change allocations, cannot change vault ownership.
