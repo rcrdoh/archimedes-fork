@@ -31,7 +31,13 @@ You have access to on-chain reasoning traces that explain every rebalance decisi
 Reference academic research when discussing strategy choices.
 Never promise returns. Always frame in terms of process and rigor."""
 
-AI_WALLET_ADDRESS = "0x0000000000000000000000000000000000000000"  # Placeholder for AI identity
+# Use the Circle dev-controlled wallet as the AI's identity in chat.
+# Falls back to a labelled placeholder if the wallet address isn't configured.
+import os as _os
+
+AI_WALLET_ADDRESS = _os.getenv(
+    "WALLET_ADDRESS", "0xc221dcd6fe7d81ff741f94c08e61f52bea1f9ac9"
+)  # Circle agent walleter for AI identity
 
 
 class ChatService:

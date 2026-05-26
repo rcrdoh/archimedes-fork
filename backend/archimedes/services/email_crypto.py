@@ -22,12 +22,15 @@ import os
 
 from cryptography.fernet import Fernet
 
-_FIXED_SECRET = "archimedes-email-encryption-hackathon-v1-do-not-use-in-prod"
+# Local-dev fallback — production startup rejects missing EMAIL_ENCRYPTION_KEY
+# (fail-closed in main.py when PUBLIC_DOMAIN is set). This fallback only runs
+# in local dev / CI where no real user data is at risk.
+_LOCAL_DEV_FALLBACK = "archimedes-local-dev-only-not-for-production"
 
 
 def _derive_key() -> bytes:
-    """Derive a Fernet key from env var or fixed secret."""
-    secret = os.getenv("EMAIL_ENCRYPTION_KEY", _FIXED_SECRET)
+    """Derive a Fernet key from env var or local-dev fallback."""
+    secret = os.getenv("EMAIL_ENCRYPTION_KEY", _LOCAL_DEV_FALLBACK)
     # Fernet requires a URL-safe base64-encoded 32-byte key
     digest = hashlib.sha256(secret.encode("utf-8")).digest()
     return base64.urlsafe_b64encode(digest)

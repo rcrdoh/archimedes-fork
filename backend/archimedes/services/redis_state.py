@@ -72,9 +72,26 @@ class AgentStateStore:
                     "reason": s.reason,
                     "strategy": ss.paper_title[:40],
                 }
+        # Dynamic confidence from signal weights + dispersion (matches
+        # _compute_confidence in agent_runner — same formula, different caller).
+        if all_signals:
+            directional = [s for ss in all_signals for s in ss.signals if s.signal.value != "flat"]
+            vote_ratio = 1.0 - flat_pct
+            avg_strength = sum(abs(s.weight) for s in directional) / max(len(directional), 1) if directional else 0.0
+            avg_strength = min(avg_strength, 1.0)
+            all_weights = [s.weight for ss in all_signals for s in ss.signals]
+            if len(all_weights) >= 2:
+                mean_w = sum(all_weights) / len(all_weights)
+                variance = sum((w - mean_w) ** 2 for w in all_weights) / len(all_weights)
+                dispersion_penalty = min(variance**0.5 * 2, 0.3)
+            else:
+                dispersion_penalty = 0.0
+            dyn_confidence = max(0.05, min(0.99, vote_ratio * (0.5 + 0.5 * avg_strength) - dispersion_penalty))
+        else:
+            dyn_confidence = 0.5
         data = {
             "regime": regime,
-            "confidence": round(1.0 - flat_pct, 2),
+            "confidence": round(dyn_confidence, 4),
             "flat_pct": round(flat_pct, 2),
             "strategy_count": len(all_signals),
             "signals": signal_summary,
