@@ -1,6 +1,17 @@
 terraform {
   required_version = ">= 1.0"
 
+  # Remote state in S3 with S3-native locking (use_lockfile = true).
+  # Bootstrap: S3 bucket created out-of-band via AWS CLI.
+  # See infra/README.md for the bootstrap commands.
+  backend "s3" {
+    bucket         = "archimedes-tfstate-159903201072"
+    key            = "infra/terraform.tfstate"
+    region         = "eu-west-2"
+    encrypt        = true
+    use_lockfile   = true  # S3-native locking (Terraform 1.10+), no DynamoDB needed
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -55,6 +66,10 @@ data "aws_vpc" "default" {
 # SSH key pair — generated in Terraform, private key saved locally
 # ---------------------------------------------------------------------------
 
+# WARNING: tls_private_key puts the private key into Terraform state.
+# State is in S3 (encrypted, account-restricted, TLS-only bucket policy).
+# Long-term: generate keys out-of-band, only store public key in Terraform.
+# The key in state was rotated on 2026-05-26; the old key is revoked.
 resource "tls_private_key" "deploy" {
   algorithm = "ED25519"
 }

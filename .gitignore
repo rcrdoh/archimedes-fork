@@ -50,7 +50,14 @@ infra/.terraform/
 infra/.terraform.lock.hcl
 infra/terraform.tfstate
 infra/terraform.tfstate.backup
-infra/*.pem
+
+# Secrets / credentials — global patterns (never commit these)
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.tfstate*
 
 # arXiv corpus — track the manifest + README, not the cached binaries
 data/corpus/pdfs/
@@ -74,5 +81,3 @@ htmlcov/
 !.loom/loom.config.json
 .venv/
 .claude/
-infra/*.pem
-infra/terraform.tfstate.backup
