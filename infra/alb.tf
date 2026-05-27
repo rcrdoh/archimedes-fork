@@ -19,6 +19,25 @@ resource "aws_s3_bucket" "alb_logs" {
   }
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
   bucket = aws_s3_bucket.alb_logs.id
 
@@ -49,6 +68,19 @@ resource "aws_s3_bucket_policy" "alb_logs" {
         Principal = { AWS = data.aws_elb_service_account.main.arn }
         Action    = "s3:PutObject"
         Resource  = "${aws_s3_bucket.alb_logs.arn}/*"
+      },
+      {
+        Sid       = "DenyNonTLS"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [
+          aws_s3_bucket.alb_logs.arn,
+          "${aws_s3_bucket.alb_logs.arn}/*"
+        ]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
       }
     ]
   })
@@ -70,6 +102,36 @@ resource "aws_acm_certificate" "main" {
   lifecycle {
     create_before_destroy = true
   }
+}
+
+# Route 53 zone lookup (zone already exists from initial setup)
+data "aws_route53_zone" "main" {
+  name         = "archimedes-arc.app."
+  private_zone = false
+}
+
+# ACM DNS validation records
+resource "aws_route53_record" "acm_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = each.value.name
+  type    = each.value.type
+  records = [each.value.record]
+  ttl     = 60
+
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "main" {
+  certificate_arn         = aws_acm_certificate.main.arn
+  validation_record_fqdns = [for r in aws_route53_record.acm_validation : r.fqdn]
 }
 
 # ── Security Group ───────────────────────────────────────────
@@ -97,12 +159,13 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Outbound to targets
+  # Outbound to EC2 target only (port 80)
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "To EC2 backend"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.archimedes.id]
   }
 
   tags = {
@@ -120,7 +183,9 @@ resource "aws_lb" "main" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
 
-  idle_timeout = 300 # SSE /api/generate/stream/ needs long-lived connections
+  idle_timeout               = 300  # SSE /api/generate/stream/ needs long-lived connections
+  drop_invalid_header_fields = true  # Strip malformed headers before they reach the backend
+  enable_deletion_protection = true  # Require explicit console action to delete
 
   access_logs {
     bucket  = aws_s3_bucket.alb_logs.id
@@ -144,13 +209,13 @@ resource "aws_lb_target_group" "backend" {
   health_check {
     enabled             = true
     path                = "/health"
-    port                = "8080" # nginx listens on 8080 inside the container
+    port                = "traffic-port" # ALB sends health checks on the same port as traffic (80)
     protocol            = "HTTP"
     healthy_threshold   = 2
     unhealthy_threshold = 3
     interval            = 30
     timeout             = 5
-    matcher             = "200,301"
+    matcher             = "200"
   }
 
   tags = {

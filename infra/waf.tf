@@ -48,9 +48,13 @@ resource "aws_wafv2_web_acl" "main" {
     priority = 10
 
     override_action {
-      none {}
+      count {} # COUNT mode — observe before blocking
     }
 
+    # COUNT mode for initial rollout (24-48h observation).
+    # Core+SQLi will likely false-positive on LLM endpoints — users
+    # pasting prompts with SQL-like words ("select top strategies by sharpe")
+    # trip these rules. Flip to none {} (BLOCK) after observation period.
     statement {
       managed_rule_group_statement {
         vendor_name = "AWS"
@@ -70,7 +74,7 @@ resource "aws_wafv2_web_acl" "main" {
     priority = 20
 
     override_action {
-      none {}
+      count {} # COUNT mode — observe before blocking
     }
 
     statement {
@@ -92,7 +96,7 @@ resource "aws_wafv2_web_acl" "main" {
     priority = 30
 
     override_action {
-      none {}
+      none {} # IP reputation can block immediately — known-bad IPs
     }
 
     statement {
@@ -114,7 +118,7 @@ resource "aws_wafv2_web_acl" "main" {
     priority = 40
 
     override_action {
-      none {}
+      count {} # COUNT mode — LLM prompts with SQL-like words will false-positive
     }
 
     statement {
