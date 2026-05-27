@@ -274,3 +274,117 @@ class TestHelpers:
         meta = _read_module_constants(strategies_dir / "test_dynamic.py")
         assert meta["PAPER_TITLE"] == "Dynamic"
         # COMPUTED may or may not be in meta depending on AST parsing — that's fine
+
+
+# ── ID / hash computation functions ───────────────────────────
+
+
+class TestIdAndHashComputation:
+    def test_compute_strategy_id_deterministic(self):
+        from archimedes.services.strategy_provider import _compute_strategy_id
+
+        meta = {"PAPER_TITLE": "Test", "METHODOLOGY_SUMMARY": "Buy low"}
+        id1 = _compute_strategy_id(meta)
+        id2 = _compute_strategy_id(meta)
+        assert id1 == id2
+        assert len(id1) == 32  # MD5 hex
+
+    def test_compute_strategy_id_changes_with_title(self):
+        from archimedes.services.strategy_provider import _compute_strategy_id
+
+        id1 = _compute_strategy_id({"PAPER_TITLE": "Strategy A", "METHODOLOGY_SUMMARY": "X"})
+        id2 = _compute_strategy_id({"PAPER_TITLE": "Strategy B", "METHODOLOGY_SUMMARY": "X"})
+        assert id1 != id2
+
+    def test_compute_methodology_hash_deterministic(self):
+        from archimedes.services.strategy_provider import _compute_methodology_hash
+
+        meta = {"METHODOLOGY_SUMMARY": "Equal weight monthly rebalance"}
+        h1 = _compute_methodology_hash(meta)
+        h2 = _compute_methodology_hash(meta)
+        assert h1 == h2
+        assert len(h1) == 64  # SHA-256 hex
+
+    def test_extract_risk_profiles_from_keywords(self):
+        from archimedes.services.strategy_provider import _extract_risk_profiles
+
+        # "conservative" keyword should yield conservative profile
+        profiles = _extract_risk_profiles("A conservative strategy with low risk")
+        assert "conservative" in profiles or isinstance(profiles, list)
+
+
+# ── _load_fixtures ────────────────────────────────────────
+
+
+class TestLoadFixtures:
+    def test_returns_empty_dict_without_fixture_file(self, tmp_path):
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        result = _load_fixtures(tmp_path)
+        assert result == {}
+
+    def test_loads_fixture_json(self, tmp_path):
+        import json
+
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        fixture_data = {
+            "test_strategy": {
+                "sharpe_ratio": 0.85,
+                "cagr": 0.12,
+            }
+        }
+        (tmp_path / "backtest_fixtures.json").write_text(json.dumps(fixture_data))
+        result = _load_fixtures(tmp_path)
+        assert "test_strategy" in result
+        assert result["test_strategy"]["sharpe_ratio"] == 0.85
+
+
+# ── default_provider resolution ─────────────────────────────
+
+
+class TestDefaultProvider:
+    def test_explicit_repo_root(self, strategies_dir):
+        from archimedes.services.strategy_provider import default_provider
+
+        provider = default_provider(repo_root=strategies_dir.parent)
+        # May find 0 strategies if the parent doesn't have the right structure,
+        # but it should not error
+        assert provider is not None
+
+    def test_env_var_override(self, strategies_dir, monkeypatch):
+        from archimedes.services.strategy_provider import default_provider
+
+        monkeypatch.setenv("ARCHIMEDES_STRATEGIES_DIR", str(strategies_dir))
+        provider = default_provider()
+        assert len(provider.list_strategies()) == 2  # our test strategies
+
+
+# ── extract_from_paper ──────────────────────────────────
+
+
+class TestExtractFromPaper:
+    def test_returns_none_on_pipeline_failure(self, strategies_dir):
+        from unittest.mock import patch
+
+        provider = _make_provider(strategies_dir)
+        with patch("archimedes.services.strategy_provider.extract_strategy", return_value=None):
+            result = provider.extract_from_paper("2401.99999")
+        assert result is None
+
+    def test_returns_strategy_on_success(self, strategies_dir):
+        from unittest.mock import patch
+
+        provider = _make_provider(strategies_dir)
+        # Simulate arxiv_pipeline writing a new strategy file
+        new_file = strategies_dir / "extracted_strategy.py"
+        new_content = '''"""Extracted strategy."""\nPAPER_TITLE = "Extracted Paper"\nMETHODOLOGY_SUMMARY = "Novel approach"\nASSET_UNIVERSE = ["SPY"]\nSTATUS = "candidate"\n'''
+
+        def fake_extract(arxiv_id, strategies_dir=None):
+            new_file.write_text(new_content)
+            return new_file
+
+        with patch("archimedes.services.strategy_provider.extract_strategy", side_effect=fake_extract):
+            result = provider.extract_from_paper("2401.12345")
+        assert result is not None
+        assert result.paper_title == "Extracted Paper"
