@@ -1,8 +1,8 @@
 terraform {
   required_version = ">= 1.0"
 
-  # Remote state in S3 + DynamoDB lock.
-  # Bootstrap: these resources were created out-of-band via AWS CLI.
+  # Remote state in S3 with S3-native locking (use_lockfile = true).
+  # Bootstrap: S3 bucket created out-of-band via AWS CLI.
   # See infra/README.md for the bootstrap commands.
   backend "s3" {
     bucket         = "archimedes-tfstate-159903201072"
