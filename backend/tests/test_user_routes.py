@@ -261,3 +261,50 @@ class TestUserProfileRoutes:
         )
         assert res.status_code == 200
         assert res.json()["email"] == "owner@example.com"
+
+    def test_header_spoof_does_not_reveal_pii(self, client):
+        """X-Wallet-Address header alone must NOT reveal PII — SIWE session required."""
+        wallet = "0x6666666666666666666666666666666666666666"
+        client.post(
+            "/api/user/profile",
+            json={"wallet_address": wallet, "email": "private@example.com", "display_name": "Secret"},
+            headers={"X-Wallet-Address": wallet},
+        )
+        # Spoof with header only (no SIWE cookie)
+        res = client.get(f"/api/user/profile/{wallet}", headers={"X-Wallet-Address": wallet})
+        assert res.status_code == 200
+        assert res.json()["email"] is None, "Header spoof must not reveal email"
+        assert res.json()["display_name"] is None, "Header spoof must not reveal display_name"
+
+    def test_wrong_siwe_session_does_not_reveal_pii(self, client):
+        """SIWE session for wallet A must not reveal wallet B's PII."""
+        wallet_a = "0x7777777777777777777777777777777777777777"
+        wallet_b = "0x8888888888888888888888888888888888888888"
+        client.post(
+            "/api/user/profile",
+            json={"wallet_address": wallet_a, "email": "a@example.com"},
+            headers={"X-Wallet-Address": wallet_a},
+        )
+        # Session is for wallet_b, trying to read wallet_a
+        res = client.get(f"/api/user/profile/{wallet_a}", cookies=_siwe_cookies(wallet_b))
+        assert res.status_code == 200
+        assert res.json()["email"] is None, "Wrong wallet session must not reveal PII"
+
+    def test_write_without_any_auth_fails(self, client):
+        """POST without X-Wallet-Address or SIWE session returns 403."""
+        res = client.post(
+            "/api/user/profile",
+            json={"wallet_address": "0x9999999999999999999999999999999999999999"},
+        )
+        assert res.status_code == 403
+
+    def test_write_with_siwe_session_succeeds(self, client):
+        """POST with a valid SIWE session (no header) should succeed."""
+        wallet = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        res = client.post(
+            "/api/user/profile",
+            json={"wallet_address": wallet, "display_name": "SIWEUser"},
+            cookies=_siwe_cookies(wallet),
+        )
+        assert res.status_code == 200
+        assert res.json()["display_name"] == "SIWEUser"
