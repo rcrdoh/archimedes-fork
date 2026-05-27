@@ -280,36 +280,35 @@ class TestHelpers:
 
 
 class TestIdAndHashComputation:
-    def test_compute_strategy_id_deterministic(self):
-        from archimedes.services.strategy_provider import _compute_strategy_id
+    def test_strategy_id_deterministic(self):
+        from archimedes.services.strategy_provider import _strategy_id
 
         meta = {"PAPER_TITLE": "Test", "METHODOLOGY_SUMMARY": "Buy low"}
-        id1 = _compute_strategy_id(meta)
-        id2 = _compute_strategy_id(meta)
+        id1 = _strategy_id(meta, "fakehash")
+        id2 = _strategy_id(meta, "fakehash")
         assert id1 == id2
-        assert len(id1) == 32  # MD5 hex
+        assert len(id1) == 32  # SHA-256 hex truncated to 32
 
-    def test_compute_strategy_id_changes_with_title(self):
-        from archimedes.services.strategy_provider import _compute_strategy_id
+    def test_strategy_id_changes_with_title(self):
+        from archimedes.services.strategy_provider import _strategy_id
 
-        id1 = _compute_strategy_id({"PAPER_TITLE": "Strategy A", "METHODOLOGY_SUMMARY": "X"})
-        id2 = _compute_strategy_id({"PAPER_TITLE": "Strategy B", "METHODOLOGY_SUMMARY": "X"})
+        id1 = _strategy_id({"PAPER_TITLE": "Strategy A", "METHODOLOGY_SUMMARY": "X"}, "h1")
+        id2 = _strategy_id({"PAPER_TITLE": "Strategy B", "METHODOLOGY_SUMMARY": "X"}, "h2")
         assert id1 != id2
 
-    def test_compute_methodology_hash_deterministic(self):
-        from archimedes.services.strategy_provider import _compute_methodology_hash
+    def test_methodology_hash_deterministic(self):
+        from archimedes.services.strategy_provider import _methodology_hash
 
         meta = {"METHODOLOGY_SUMMARY": "Equal weight monthly rebalance"}
-        h1 = _compute_methodology_hash(meta)
-        h2 = _compute_methodology_hash(meta)
+        h1 = _methodology_hash(meta)
+        h2 = _methodology_hash(meta)
         assert h1 == h2
         assert len(h1) == 64  # SHA-256 hex
 
-    def test_extract_risk_profiles_from_keywords(self):
-        from archimedes.services.strategy_provider import _extract_risk_profiles
+    def test_infer_risk_profiles_from_keywords(self):
+        from archimedes.services.strategy_provider import _infer_risk_profiles
 
-        # "conservative" keyword should yield conservative profile
-        profiles = _extract_risk_profiles("A conservative strategy with low risk")
+        profiles = _infer_risk_profiles("A conservative strategy with low risk")
         assert "conservative" in profiles or isinstance(profiles, list)
 
 
@@ -368,7 +367,7 @@ class TestExtractFromPaper:
         from unittest.mock import patch
 
         provider = _make_provider(strategies_dir)
-        with patch("archimedes.services.strategy_provider.extract_strategy", return_value=None):
+        with patch("archimedes.services.arxiv_pipeline.extract_strategy", return_value=None):
             result = provider.extract_from_paper("2401.99999")
         assert result is None
 
@@ -376,15 +375,14 @@ class TestExtractFromPaper:
         from unittest.mock import patch
 
         provider = _make_provider(strategies_dir)
-        # Simulate arxiv_pipeline writing a new strategy file
         new_file = strategies_dir / "extracted_strategy.py"
-        new_content = '''"""Extracted strategy."""\nPAPER_TITLE = "Extracted Paper"\nMETHODOLOGY_SUMMARY = "Novel approach"\nASSET_UNIVERSE = ["SPY"]\nSTATUS = "candidate"\n'''
+        new_content = '"""Extracted strategy."""\nPAPER_TITLE = "Extracted Paper"\nMETHODOLOGY_SUMMARY = "Novel approach"\nASSET_UNIVERSE = ["SPY"]\nSTATUS = "candidate"\n'
 
         def fake_extract(arxiv_id, strategies_dir=None):
             new_file.write_text(new_content)
             return new_file
 
-        with patch("archimedes.services.strategy_provider.extract_strategy", side_effect=fake_extract):
+        with patch("archimedes.services.arxiv_pipeline.extract_strategy", side_effect=fake_extract):
             result = provider.extract_from_paper("2401.12345")
         assert result is not None
         assert result.paper_title == "Extracted Paper"
