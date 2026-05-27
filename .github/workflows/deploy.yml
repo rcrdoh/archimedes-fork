@@ -85,6 +85,7 @@ jobs:
               "#!/bin/bash",
               "set -eux",
               "cd /opt/archimedes",
+              "git config --global --add safe.directory /opt/archimedes",
               "mkdir -p analytics-engine/artifacts",
               "sudo chown -R ubuntu:ubuntu analytics-engine/artifacts/ 2>/dev/null || true",
               "git fetch origin main",
