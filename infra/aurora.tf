@@ -67,7 +67,12 @@ resource "aws_rds_cluster" "main" {
   vpc_security_group_ids = [aws_security_group.aurora.id]
 
   storage_encrypted = true
-  # deletion_protection = true  # Enable after migration is verified
+  # deletion_protection = true  # Enable after migration is verified — see follow-up note in PR
+  iam_database_authentication_enabled = true # enables IAM-based DB auth as alternative to password (no cost)
+
+  # Aurora automated backups — 7 days is the standard production retention.
+  # Backups are continuous; point-in-time recovery available within the window.
+  backup_retention_period = 7
 
   serverlessv2_scaling_configuration {
     min_capacity = 0.5
@@ -75,6 +80,8 @@ resource "aws_rds_cluster" "main" {
   }
 
   # Skip final snapshot during development (enable for production)
+  # Follow-up: flip skip_final_snapshot=false + deletion_protection=true
+  # BEFORE any real user data lands in the cluster.
   skip_final_snapshot = true
 
   tags = {

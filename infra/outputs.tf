@@ -57,7 +57,15 @@ output "redis_endpoint" {
 }
 
 output "database_url" {
-  description = "Full DATABASE_URL for backend .env"
+  description = <<-DESC
+    Full DATABASE_URL for backend .env. STATE-SENSITIVE: this output stores
+    the master password in Terraform state (which lives in the S3 backend).
+    The bucket policy restricts access to the AWS account principal and TLS-only,
+    but the password is still in the state file. Recommended pattern going forward:
+    backend fetches the password from AWS Secrets Manager / SSM Parameter Store at
+    runtime and constructs the URL from `aurora_endpoint` + password — that way
+    the secret never lands in Terraform state at all. Tracked as a follow-up.
+  DESC
   value       = "postgresql://archimedes:${var.aurora_master_password}@${aws_rds_cluster.main.endpoint}:5432/archimedes"
   sensitive   = true
 }
