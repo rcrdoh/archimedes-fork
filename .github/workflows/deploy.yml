@@ -84,6 +84,7 @@ jobs:
             --parameters commands='[
               "#!/bin/bash",
               "set -eux",
+              "export HOME=/root",
               "cd /opt/archimedes",
               "git config --global --add safe.directory /opt/archimedes",
               "mkdir -p analytics-engine/artifacts",
