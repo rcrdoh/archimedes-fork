@@ -376,7 +376,7 @@ class TestExtractFromPaper:
 
         provider = _make_provider(strategies_dir)
         new_file = strategies_dir / "extracted_strategy.py"
-        new_content = '"""Extracted strategy."""\nPAPER_TITLE = "Extracted Paper"\nMETHODOLOGY_SUMMARY = "Novel approach"\nASSET_UNIVERSE = ["SPY"]\nSTATUS = "candidate"\n'
+        new_content = '"""Extracted strategy."""\nPAPER_TITLE = "Extracted Paper"\nMETHODOLOGY_SUMMARY = "Novel approach"\nASSET_UNIVERSE = ["SPY"]\nSTATUS = "candidate"\nREGIME_TAG = "regime_neutral"\n'
 
         def fake_extract(arxiv_id, strategies_dir=None):
             new_file.write_text(new_content)
