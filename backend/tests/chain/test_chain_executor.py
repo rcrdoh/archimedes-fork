@@ -163,6 +163,9 @@ class TestExecuteTrades:
 
         with (
             patch.object(executor, "_validate_trade_liquidity", new=AsyncMock()) as mock_validate,
+            # _confirm_receipt added by #403 — must mock so the Circle path doesn't
+            # try to await the real wait_for_transaction_receipt chain on a MagicMock.
+            patch.object(executor, "_confirm_receipt", new=AsyncMock(return_value="0xtxhash")),
             patch("archimedes.chain.executor.circle_signer") as mock_signer,
         ):
             mock_signer.is_configured = True
@@ -182,11 +185,17 @@ class TestExecuteTrades:
                 asyncio.run(executor.execute_trades("0xvault", [trade]))
 
     def test_circle_signer_path(self, executor, mock_loader):
-        """When Circle signer is configured, uses circle_signer.execute_contract."""
+        """When Circle signer is configured, uses circle_signer.execute_contract.
+
+        After #403, execute_trades also awaits _confirm_receipt on the returned
+        tx_hash. _confirm_receipt is mocked here to return the hash unchanged
+        so we still assert the same end-to-end shape.
+        """
         trade = _make_trade()
 
         with (
             patch.object(executor, "_validate_trade_liquidity", new=AsyncMock()),
+            patch.object(executor, "_confirm_receipt", new=AsyncMock(return_value="0xdeadbeef")) as mock_confirm,
             patch("archimedes.chain.executor.circle_signer") as mock_signer,
         ):
             mock_signer.is_configured = True
@@ -195,6 +204,8 @@ class TestExecuteTrades:
             result = asyncio.run(executor.execute_trades("0xvault", [trade]))
             assert result == ["0xdeadbeef"]
             mock_signer.execute_contract.assert_called_once()
+            # Receipt-confirm must run after Circle submit (regression guard for #403)
+            mock_confirm.assert_called_once_with("0xdeadbeef")
 
     def test_no_signer_raises(self, executor):
         """No Circle signer + no raw key → RuntimeError."""

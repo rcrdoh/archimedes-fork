@@ -33,6 +33,15 @@ class InsufficientLiquidityError(RuntimeError):
     """Raised when an AMM pool's USDC reserve is below MIN_HEALTHY_LIQUIDITY_USDC."""
 
 
+class TradeRevertedError(RuntimeError):
+    """Raised when a submitted rebalance transaction reverts on-chain (status 0).
+
+    Without this, a reverted rebalance is logged as "sent" and returned as a
+    success hash — the agent then records a reasoning trace as if the trade
+    executed when it actually failed.
+    """
+
+
 class ChainExecutor:
     """Executes on-chain vault operations: read portfolio, rebalance, create vault."""
 
@@ -147,6 +156,26 @@ class ChainExecutor:
                     exc,
                 )
 
+    async def _confirm_receipt(self, tx_hash: str | bytes) -> str:
+        """Wait for a tx receipt and raise TradeRevertedError if it reverted.
+
+        Mirrors the receipt-wait already done in create_vault. Returns the
+        normalized 0x-prefixed hex hash on success.
+        """
+        if isinstance(tx_hash, str):
+            hexstr = tx_hash if tx_hash.startswith("0x") else "0x" + tx_hash
+            wait_arg = chain_client.w3.to_bytes(hexstr=hexstr)
+            norm = hexstr
+        else:
+            wait_arg = tx_hash
+            norm = tx_hash.hex() if not tx_hash.hex().startswith("0x") else tx_hash.hex()
+            norm = norm if norm.startswith("0x") else "0x" + norm
+
+        receipt = await chain_client.w3.eth.wait_for_transaction_receipt(wait_arg)
+        if receipt.get("status") == 0:
+            raise TradeRevertedError(f"Rebalance tx reverted on-chain: {norm}")
+        return norm
+
     async def execute_trades(
         self,
         vault_address: str,
@@ -203,8 +232,9 @@ class ChainExecutor:
                 abi_function="rebalance(address[],uint256[],address[],uint256[])",
                 abi_params=[checksummed_in, amounts_in, checksummed_out, amounts_out],
             )
-            logger.info(f"Rebalance tx via Circle: {tx_hash}")
-            return [tx_hash]
+            confirmed = await self._confirm_receipt(tx_hash)
+            logger.info(f"Rebalance tx via Circle confirmed: {confirmed}")
+            return [confirmed]
 
         # Fallback: raw private key
         account = chain_client.settings.agent_account
@@ -212,7 +242,9 @@ class ChainExecutor:
             raise RuntimeError("No agent account configured — set CIRCLE_API_KEY or ARC_AGENT_PRIVATE_KEY")
 
         vault = self.loader.vault(vault_address)
-        nonce = await chain_client.w3.eth.get_transaction_count(account.address)
+        # Use the pending-block nonce so a quick second rebalance doesn't reuse
+        # a nonce that's already in the mempool (reduces nonce-collision drops).
+        nonce = await chain_client.w3.eth.get_transaction_count(account.address, "pending")
 
         tx = await vault.functions.rebalance(tokens_in, amounts_in, tokens_out, amounts_out).build_transaction(
             {
@@ -227,8 +259,11 @@ class ChainExecutor:
         signed = account.sign_transaction(tx)
         tx_hash = await chain_client.w3.eth.send_raw_transaction(signed.raw_transaction)
 
-        logger.info(f"Rebalance tx sent: {tx_hash.hex()}")
-        return [tx_hash.hex()]
+        # Confirm the receipt and raise on revert — don't return a "success"
+        # hash for a transaction that failed on-chain.
+        confirmed = await self._confirm_receipt(tx_hash)
+        logger.info(f"Rebalance tx confirmed: {confirmed}")
+        return [confirmed]
 
     async def create_vault(
         self,
