@@ -83,7 +83,7 @@ jobs:
             --timeout-seconds 600 \
             --parameters commands='[
               "#!/bin/bash",
-              "set -euxo pipefail",
+              "set -eux",
               "cd /opt/archimedes",
               "mkdir -p analytics-engine/artifacts",
               "sudo chown -R ubuntu:ubuntu analytics-engine/artifacts/ 2>/dev/null || true",
