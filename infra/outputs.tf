@@ -74,3 +74,23 @@ output "redis_url" {
   description = "Full REDIS_URL for backend .env"
   value       = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379/0"
 }
+
+output "alb_dns_name" {
+  description = "ALB DNS name (for Route 53 ALIAS record)"
+  value       = aws_lb.main.dns_name
+}
+
+output "alb_zone_id" {
+  description = "ALB hosted zone ID (for Route 53 ALIAS record)"
+  value       = aws_lb.main.zone_id
+}
+
+output "acm_certificate_arn" {
+  description = "ACM certificate ARN"
+  value       = aws_acm_certificate.main.arn
+}
+
+output "waf_web_acl_arn" {
+  description = "WAF Web ACL ARN"
+  value       = aws_wafv2_web_acl.main.arn
+}
