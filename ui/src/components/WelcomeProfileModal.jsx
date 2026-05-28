@@ -64,8 +64,8 @@ export default function WelcomeProfileModal({ walletAddr, onDone, mode = 'welcom
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Wallet-Address': walletAddr,
         },
+        credentials: 'include',  // Issue #402: SIWE session cookie required for profile writes
         body: JSON.stringify(payload),
       })
       if (!res.ok) {

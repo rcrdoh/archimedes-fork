@@ -1,9 +1,11 @@
 """Tests for user profile API — WelcomeProfileModal backend.
 
-Updated for Issue #181 (user-data minimization):
-  - POST stores email encrypted at rest
-  - GET without owner header strips PII (display_name, email, marketing_opt_in)
-  - GET with X-Wallet-Address header matching the profile wallet returns full data
+Auth model (Issue #181 + Issue #402):
+  - POST requires a SIWE session matching payload.wallet_address.
+    The X-Wallet-Address header fallback was dropped per #402 (forgeable).
+  - GET strips PII when caller lacks SIWE session matching the queried wallet.
+  - GET with a valid SIWE session for the queried wallet returns full data.
+  - Email is encrypted at rest before storage.
 """
 
 from __future__ import annotations
@@ -74,7 +76,7 @@ class TestUserProfileRoutes:
                 "display_name": "Alice",
                 "marketing_opt_in": False,
             },
-            headers={"X-Wallet-Address": _W_ALICE},
+            cookies=_siwe_cookies(_W_ALICE),
         )
         assert res.status_code == 200
         data = res.json()
@@ -89,7 +91,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_BOB,
                 "display_name": "Bob",
             },
-            headers={"X-Wallet-Address": _W_BOB},
+            cookies=_siwe_cookies(_W_BOB),
         )
         # GET with SIWE session cookie → full data including PII
         res = client.get(
@@ -107,7 +109,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_BOB,
                 "display_name": "Bob",
             },
-            headers={"X-Wallet-Address": _W_BOB},
+            cookies=_siwe_cookies(_W_BOB),
         )
         # GET without owner header → PII stripped
         res = client.get(f"/api/user/profile/{_W_BOB}")
@@ -126,7 +128,7 @@ class TestUserProfileRoutes:
                 "attribution": "Twitter",
                 "marketing_opt_in": True,
             },
-            headers={"X-Wallet-Address": _W_CHARLIE},
+            cookies=_siwe_cookies(_W_CHARLIE),
         )
         assert res.status_code == 200
         data = res.json()
@@ -145,7 +147,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_CHARLIE,
                 "email": email,
             },
-            headers={"X-Wallet-Address": _W_CHARLIE},
+            cookies=_siwe_cookies(_W_CHARLIE),
         )
         # Read directly from DB
         session = get_session()
@@ -165,7 +167,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_UPDATE,
                 "display_name": "Original",
             },
-            headers={"X-Wallet-Address": _W_UPDATE},
+            cookies=_siwe_cookies(_W_UPDATE),
         )
         res = client.post(
             "/api/user/profile",
@@ -174,7 +176,7 @@ class TestUserProfileRoutes:
                 "display_name": "Updated",
                 "marketing_opt_in": True,
             },
-            headers={"X-Wallet-Address": _W_UPDATE},
+            cookies=_siwe_cookies(_W_UPDATE),
         )
         assert res.status_code == 200
         assert res.json()["display_name"] == "Updated"
@@ -187,7 +189,7 @@ class TestUserProfileRoutes:
             json={
                 "wallet_address": _W_MINIMAL,
             },
-            headers={"X-Wallet-Address": _W_MINIMAL},
+            cookies=_siwe_cookies(_W_MINIMAL),
         )
         assert res.status_code == 200
         data = res.json()
@@ -214,7 +216,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_CASE,
                 "display_name": "CaseTest",
             },
-            headers={"X-Wallet-Address": _W_CASE},
+            cookies=_siwe_cookies(_W_CASE),
         )
         # Query with lowercase + SIWE session
         res = client.get(
@@ -239,7 +241,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_CHARLIE,
                 "email": "secret@example.com",
             },
-            headers={"X-Wallet-Address": _W_CHARLIE},
+            cookies=_siwe_cookies(_W_CHARLIE),
         )
         res = client.get(f"/api/user/profile/{_W_CHARLIE}")
         assert res.status_code == 200
@@ -253,7 +255,7 @@ class TestUserProfileRoutes:
                 "wallet_address": _W_CHARLIE,
                 "email": "owner@example.com",
             },
-            headers={"X-Wallet-Address": _W_CHARLIE},
+            cookies=_siwe_cookies(_W_CHARLIE),
         )
         res = client.get(
             f"/api/user/profile/{_W_CHARLIE}",
@@ -268,7 +270,7 @@ class TestUserProfileRoutes:
         client.post(
             "/api/user/profile",
             json={"wallet_address": wallet, "email": "private@example.com", "display_name": "Secret"},
-            headers={"X-Wallet-Address": wallet},
+            cookies=_siwe_cookies(wallet),
         )
         # Spoof with header only (no SIWE cookie)
         res = client.get(f"/api/user/profile/{wallet}", headers={"X-Wallet-Address": wallet})
@@ -283,7 +285,7 @@ class TestUserProfileRoutes:
         client.post(
             "/api/user/profile",
             json={"wallet_address": wallet_a, "email": "a@example.com"},
-            headers={"X-Wallet-Address": wallet_a},
+            cookies=_siwe_cookies(wallet_a),
         )
         # Session is for wallet_b, trying to read wallet_a
         res = client.get(f"/api/user/profile/{wallet_a}", cookies=_siwe_cookies(wallet_b))
@@ -291,12 +293,35 @@ class TestUserProfileRoutes:
         assert res.json()["email"] is None, "Wrong wallet session must not reveal PII"
 
     def test_write_without_any_auth_fails(self, client):
-        """POST without X-Wallet-Address or SIWE session returns 403."""
+        """POST without any auth returns 403 (no SIWE session)."""
         res = client.post(
             "/api/user/profile",
             json={"wallet_address": "0x9999999999999999999999999999999999999999"},
         )
         assert res.status_code == 403
+
+    def test_write_with_header_only_fails(self, client):
+        """POST with X-Wallet-Address header but no SIWE session returns 403 (Issue #402)."""
+        wallet = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        res = client.post(
+            "/api/user/profile",
+            json={"wallet_address": wallet, "display_name": "HeaderOnly"},
+            headers={"X-Wallet-Address": wallet},
+        )
+        assert res.status_code == 403, "Header-only auth must be rejected for writes (Issue #402)"
+        assert "SIWE session required" in res.json().get("detail", "")
+
+    def test_write_with_wrong_siwe_session_fails(self, client):
+        """POST with SIWE session for wallet A claiming to write wallet B returns 403."""
+        session_wallet = "0xcccccccccccccccccccccccccccccccccccccccc"
+        payload_wallet = "0xdddddddddddddddddddddddddddddddddddddddd"
+        res = client.post(
+            "/api/user/profile",
+            json={"wallet_address": payload_wallet, "display_name": "Imposter"},
+            cookies=_siwe_cookies(session_wallet),
+        )
+        assert res.status_code == 403, "Session wallet must match payload wallet"
+        assert "does not match" in res.json().get("detail", "")
 
     def test_write_with_siwe_session_succeeds(self, client):
         """POST with a valid SIWE session (no header) should succeed."""

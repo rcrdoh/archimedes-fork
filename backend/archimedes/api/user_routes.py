@@ -76,23 +76,6 @@ def _extract_caller_wallet_siwe(request: Request) -> str | None:
     return get_verified_wallet(request)
 
 
-def _extract_caller_wallet(request: Request) -> str | None:
-    """Extract wallet from SIWE session or X-Wallet-Address header.
-
-    Used for write operations (profile upsert, chat posting) where the
-    caller is modifying their OWN data. The header is acceptable here
-    because the write check enforces caller == payload.wallet_address.
-
-    PII reads use _extract_caller_wallet_siwe() instead.
-    """
-    from archimedes.api.auth_siwe import get_verified_wallet
-
-    verified = get_verified_wallet(request)
-    if verified:
-        return verified
-    return request.headers.get("X-Wallet-Address", "").lower().strip() or None
-
-
 @user_router.get("/profile/{wallet}", response_model=UserProfileResponse)
 async def get_profile(wallet: str, request: Request):
     """Retrieve a wallet's profile. Returns 404 if not set.
@@ -128,14 +111,17 @@ async def get_profile(wallet: str, request: Request):
 async def upsert_profile(payload: UserProfileCreate, request: Request, response: Response):  # noqa: ARG001 — response param threaded for downstream cookie/header setting; not used in current body
     """Create or update a wallet's profile. All fields optional except wallet.
 
-    Email is encrypted at rest before storage. Caller must supply an
-    `X-Wallet-Address` header matching `payload.wallet_address` — prevents one
-    wallet from writing another wallet's profile.
+    Email is encrypted at rest before storage. Caller must hold a valid SIWE
+    session matching `payload.wallet_address` — prevents one wallet from
+    writing another wallet's profile. The X-Wallet-Address header fallback
+    was dropped per Issue #402 because it is forgeable.
     """
-    caller = _extract_caller_wallet(request)
+    caller = _extract_caller_wallet_siwe(request)
+    if caller is None:
+        raise HTTPException(status_code=403, detail="Forbidden: SIWE session required for profile writes")
     wallet = payload.wallet_address.lower()
     if caller != wallet:
-        raise HTTPException(status_code=403, detail="Forbidden: X-Wallet-Address header must match payload wallet")
+        raise HTTPException(status_code=403, detail="Forbidden: SIWE session wallet does not match payload wallet")
 
     session: Session = get_session()
     try:

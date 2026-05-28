@@ -177,11 +177,14 @@ class TestUpsertEncryption:
             from starlette.responses import Response as StarletteResponse
 
             mock_req = _MagicMock(spec=StarletteRequest)
-            # upsert_profile rejects writes where X-Wallet-Address header doesn't
-            # match payload.wallet_address. Match the payload so the auth check passes.
-            mock_req.headers = {"X-Wallet-Address": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}
             mock_resp = _MagicMock(spec=StarletteResponse)
-            asyncio.run(upsert_profile(payload, request=mock_req, response=mock_resp))
+            # upsert_profile (post Issue #402) requires a SIWE session matching
+            # payload.wallet_address. Patch get_verified_wallet to return the payload wallet.
+            with patch(
+                "archimedes.api.auth_siwe.get_verified_wallet",
+                return_value="0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            ):
+                asyncio.run(upsert_profile(payload, request=mock_req, response=mock_resp))
 
         # The stored email must be encrypted (not plaintext)
         assert added_obj is not None
