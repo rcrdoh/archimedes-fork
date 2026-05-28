@@ -101,6 +101,7 @@ jobs:
               "sed -i '"'"'/^VITE_CIRCLE_CLIENT_KEY=/d'"'"' .env",
               "echo \"VITE_CIRCLE_CLIENT_KEY=${{ secrets.VITE_CIRCLE_CLIENT_KEY }}\" >> .env",
               "docker compose build --no-cache",
+              "docker ps -aq --filter '"'"'name=^[0-9a-f]\\{12\\}_archimedes-'"'"' | xargs -r docker rm -f 2>/dev/null || true",
               "docker compose up -d --force-recreate --remove-orphans",
               "docker image prune -f",
               "docker compose exec -T backend python -m archimedes.scripts.seed_backtests_from_artifacts || echo WARN_SEED_SKIP",
