@@ -21,6 +21,32 @@ from archimedes.chain.executor import (
 from archimedes.models.portfolio import TradeDirection, TradeOrder
 from hexbytes import HexBytes
 
+# ── Helpers ───────────────────────────────────────────────────
+
+
+class _Awaitable:
+    """Re-awaitable value wrapper for attribute-access await patterns.
+
+    The executor reads `chain_client.w3.eth.gas_price` like a property —
+    that is, `await mock.gas_price` where `gas_price` is accessed by
+    attribute, not called. `AsyncMock` instances satisfy `await mock()`
+    (call pattern) but NOT `await mock` (attribute pattern); the call
+    pattern is what makes a method awaitable, the attribute pattern needs
+    the attribute *itself* to be awaitable. This helper wraps any value
+    so `await _Awaitable(x)` returns `x`, and is safe to await repeatedly
+    (each `__await__` creates a fresh coroutine).
+    """
+
+    def __init__(self, value):
+        self._value = value
+
+    def __await__(self):
+        async def _coro():
+            return self._value
+
+        return _coro().__await__()
+
+
 # ── Fixtures ──────────────────────────────────────────────────
 
 
@@ -56,7 +82,16 @@ def executor(mock_loader):
         mock_cc.to_checksum = lambda addr: addr  # pass-through
         mock_cc.w3 = MagicMock()
         mock_cc.w3.eth = MagicMock()
-        mock_cc.w3.eth.gas_price = AsyncMock(return_value=1000000000)
+        # Property pattern: `await w3.eth.gas_price` (attribute access, then await).
+        # _Awaitable satisfies this; AsyncMock does not (latent bug in prior fixture
+        # versions; surfaced and worked around in PR #430, fixed properly here).
+        mock_cc.w3.eth.gas_price = _Awaitable(1000000000)
+        # Method pattern: `await w3.eth.method(args)` (call, then await). AsyncMock
+        # is the right shape here. Set defaults so raw-key path tests don't have to
+        # re-spell common values; individual tests can override per-scenario.
+        mock_cc.w3.eth.get_transaction_count = AsyncMock(return_value=1)
+        mock_cc.w3.eth.send_raw_transaction = AsyncMock(return_value=HexBytes(b"\x00" * 32))
+        mock_cc.w3.eth.wait_for_transaction_receipt = AsyncMock(return_value={"status": 1})
 
         ex = ChainExecutor(loader=mock_loader)
         ex._mock_cc = mock_cc  # expose for test access
@@ -229,67 +264,14 @@ class TestExecuteTrades:
 # ── execute_trades depth coverage (#408) ──────────────────────
 
 
-class _Awaitable:
-    """A re-awaitable value wrapper. Needed because the executor awaits
-    `chain_client.w3.eth.gas_price` like a property, which means the
-    attribute itself must be awaitable. AsyncMock instances are only
-    awaitable when *called*, not on attribute access, so they don't fit
-    this access pattern. This helper wraps any value so `await wrapper`
-    returns it, and is safe to await repeatedly.
-    """
-
-    def __init__(self, value):
-        self._value = value
-
-    def __await__(self):
-        async def _coro():
-            return self._value
-
-        return _coro().__await__()
-
-
-def _install_raw_key_eth(executor, tx_hash):
-    """Replace `executor._mock_cc.w3.eth` with a minimal real namespace that
-    correctly supports the production raw-key path's await pattern.
-
-    Returns the namespace so callers can override individual attrs per-test
-    (e.g. swap send_raw_transaction for a side_effect-raising async fn).
-    """
-    import types
-
-    async def _get_tx_count(addr, when=None):
-        return 1
-
-    async def _send_raw_transaction(raw):
-        return tx_hash
-
-    async def _wait_for_receipt(wait_arg):  # not used by these tests — _confirm_receipt is mocked
-        return {"status": 1}
-
-    ns = types.SimpleNamespace(
-        chain_id=5042002,
-        gas_price=_Awaitable(1_000_000_000),
-        get_transaction_count=_get_tx_count,
-        send_raw_transaction=_send_raw_transaction,
-        wait_for_transaction_receipt=_wait_for_receipt,
-    )
-    executor._mock_cc.w3.eth = ns
-    return ns
-
-
 def _install_raw_key_vault(mock_loader, mock_account):
     """Wire up vault.functions.rebalance(...).build_transaction(...) to
-    return a plausible tx dict via real async functions (not AsyncMock),
-    because the AsyncMock-on-attribute pattern bites the same way
-    gas_price does.
+    return a plausible tx dict. Per-test helper because each test's
+    mock_account.address differs.
     """
-
-    async def _build_transaction(tx_dict):
-        return {"from": mock_account.address, "nonce": 1, "gas": 2_000_000, **tx_dict}
-
-    inner = MagicMock()
-    inner.build_transaction = _build_transaction
-    mock_loader.vault.return_value.functions.rebalance.return_value = inner
+    mock_loader.vault.return_value.functions.rebalance.return_value.build_transaction = AsyncMock(
+        return_value={"from": mock_account.address, "nonce": 1, "gas": 2_000_000}
+    )
 
 
 class TestExecuteTradesDepth:
@@ -441,7 +423,7 @@ class TestExecuteTradesDepth:
         mock_account.sign_transaction.return_value = signed
 
         executor._mock_cc.settings.agent_account = mock_account
-        _install_raw_key_eth(executor, hex_hash)
+        executor._mock_cc.w3.eth.send_raw_transaction = AsyncMock(return_value=hex_hash)
         _install_raw_key_vault(mock_loader, mock_account)
 
         with (
@@ -469,7 +451,7 @@ class TestExecuteTradesDepth:
         mock_account.sign_transaction.return_value = MagicMock(raw_transaction=b"\x04\x05\x06")
 
         executor._mock_cc.settings.agent_account = mock_account
-        _install_raw_key_eth(executor, hex_hash)
+        executor._mock_cc.w3.eth.send_raw_transaction = AsyncMock(return_value=hex_hash)
         _install_raw_key_vault(mock_loader, mock_account)
 
         with (
@@ -495,7 +477,7 @@ class TestExecuteTradesDepth:
         mock_account.sign_transaction.return_value = MagicMock(raw_transaction=b"\x07\x08\x09")
 
         executor._mock_cc.settings.agent_account = mock_account
-        _install_raw_key_eth(executor, hex_hash)
+        executor._mock_cc.w3.eth.send_raw_transaction = AsyncMock(return_value=hex_hash)
         _install_raw_key_vault(mock_loader, mock_account)
 
         with (
@@ -520,14 +502,8 @@ class TestExecuteTradesDepth:
         mock_account.sign_transaction.return_value = MagicMock(raw_transaction=b"\x0a\x0b\x0c")
 
         executor._mock_cc.settings.agent_account = mock_account
-        eth_ns = _install_raw_key_eth(executor, HexBytes("0x" + "ff" * 32))
+        executor._mock_cc.w3.eth.send_raw_transaction = AsyncMock(side_effect=ConnectionError("RPC down"))
         _install_raw_key_vault(mock_loader, mock_account)
-
-        # Override send_raw_transaction to raise instead of returning a hash
-        async def _failing_send(raw):
-            raise ConnectionError("RPC down")
-
-        eth_ns.send_raw_transaction = _failing_send
 
         with (
             patch.object(executor, "_validate_trade_liquidity", new=AsyncMock()),
