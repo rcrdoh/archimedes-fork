@@ -36,7 +36,7 @@ backtrader>=1.9.78.123
 anthropic>=0.104.1
 
 # On-chain / Web3
-web3>=7.0
+web3>=7.16.0
 eth-account>=0.13
 eth-utils>=5.0
 cryptography>=42.0
