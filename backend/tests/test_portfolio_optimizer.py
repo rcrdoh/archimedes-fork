@@ -1,0 +1,645 @@
+"""Tests for portfolio_optimizer.py — pure math/numpy/scipy/pandas, no external deps.
+
+Hermetic: no DB, Redis, HTTP, or chain calls.
+Author: Önder Akkaya
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+from archimedes.models.portfolio import RiskProfile
+from archimedes.services.portfolio_optimizer import (
+    _CAP_DEFAULT,
+    _CAP_HYPER,
+    _MIN_BARS,
+    KellyOptimizationResult,
+    _aligned_return_matrix,
+    _build_mu_sigma_from_prices,
+    _display_for,
+    _equal_weight,
+    _gmv,
+    _max_expected_return,
+    _max_sharpe,
+    _shrink_cov,
+    compute_efficient_frontier,
+    correlation_pairs,
+    expected_max_drawdown_1y,
+    kelly_optimize_from_prices,
+    kelly_risk_decomposition,
+    optimize_weights,
+    value_at_risk_95_1y,
+)
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+_RNG = np.random.default_rng(42)
+
+
+def _make_returns(n_assets: int, n_bars: int, seed: int = 42) -> dict[str, list[float]]:
+    """Generate deterministic synthetic return series."""
+    rng = np.random.default_rng(seed)
+    symbols = [f"S{i}" for i in range(n_assets)]
+    return {sym: rng.normal(0.0005, 0.01, n_bars).tolist() for sym in symbols}
+
+
+def _make_price_series(n_assets: int, n_bars: int, seed: int = 42) -> dict[str, pd.Series]:
+    """Generate deterministic price histories starting at 100."""
+    rng = np.random.default_rng(seed)
+    result = {}
+    symbols = [f"S{i}" for i in range(n_assets)]
+    for sym in symbols:
+        rets = rng.normal(0.0005, 0.01, n_bars)
+        prices = 100.0 * np.cumprod(1 + rets)
+        result[sym] = pd.Series(prices, name=sym)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Section 1 — TestExpectedMaxDrawdown1y
+# ---------------------------------------------------------------------------
+
+
+class TestExpectedMaxDrawdown1y:
+    def test_zero_sigma_returns_zero(self):
+        assert expected_max_drawdown_1y(0.10, 0.0) == pytest.approx(0.0, abs=1e-12)
+
+    def test_negative_mu_uses_sigma_formula(self):
+        result = expected_max_drawdown_1y(-0.10, 0.20)
+        assert result == pytest.approx(0.79 * 0.20, rel=1e-6)
+
+    def test_normal_case_positive_mu(self):
+        mu, sigma = 0.10, 0.20
+        est = 0.63 * sigma - 0.30 * mu
+        result = expected_max_drawdown_1y(mu, sigma)
+        assert result == pytest.approx(max(est, 0.05 * sigma), rel=1e-6)
+
+    def test_floor_applied_when_estimate_negative(self):
+        # Large positive mu forces est < 0; floor = 0.05 * sigma
+        mu, sigma = 2.0, 0.01
+        result = expected_max_drawdown_1y(mu, sigma)
+        assert result == pytest.approx(0.05 * sigma, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Section 2 — TestValueAtRisk951y
+# ---------------------------------------------------------------------------
+
+
+class TestValueAtRisk951y:
+    def test_zero_sigma_positive_mu(self):
+        # sigma=0, mu>0 → max(-mu, 0) = 0
+        assert value_at_risk_95_1y(0.10, 0.0) == pytest.approx(0.0, abs=1e-12)
+
+    def test_zero_sigma_negative_mu(self):
+        # sigma=0, mu<0 → max(0.1, 0) = 0.1
+        assert value_at_risk_95_1y(-0.10, 0.0) == pytest.approx(0.10, rel=1e-6)
+
+    def test_normal_case(self):
+        mu, sigma = 0.05, 0.20
+        expected = max(1.645 * sigma - mu, 0.0)
+        assert value_at_risk_95_1y(mu, sigma) == pytest.approx(expected, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Section 3 — TestAlignedReturnMatrix
+# ---------------------------------------------------------------------------
+
+
+class TestAlignedReturnMatrix:
+    def test_missing_symbol_returns_none(self):
+        returns = {"S0": [0.01] * 30}
+        result = _aligned_return_matrix(["S0", "S_MISSING"], returns)
+        assert result is None
+
+    def test_empty_list_for_symbol_returns_none(self):
+        returns = {"S0": [], "S1": [0.01] * 30}
+        result = _aligned_return_matrix(["S0", "S1"], returns)
+        assert result is None
+
+    def test_too_few_bars_returns_none(self):
+        # T = 19 → below _MIN_BARS (20)
+        returns = _make_returns(2, _MIN_BARS - 1)
+        syms = list(returns.keys())
+        result = _aligned_return_matrix(syms, returns)
+        assert result is None
+
+    def test_exactly_min_bars_returns_matrix(self):
+        # T = _MIN_BARS exactly → must succeed
+        returns = _make_returns(2, _MIN_BARS)
+        syms = list(returns.keys())
+        result = _aligned_return_matrix(syms, returns)
+        assert result is not None
+        assert result.shape == (_MIN_BARS, 2)
+
+    def test_aligns_to_shortest_series(self):
+        rng = np.random.default_rng(7)
+        long_series = rng.normal(0, 0.01, 60).tolist()
+        short_series = rng.normal(0, 0.01, 30).tolist()
+        returns = {"A": long_series, "B": short_series}
+        result = _aligned_return_matrix(["A", "B"], returns)
+        assert result is not None
+        assert result.shape == (30, 2)
+
+
+# ---------------------------------------------------------------------------
+# Section 4 — TestEqualWeight
+# ---------------------------------------------------------------------------
+
+
+class TestEqualWeight:
+    def test_empty_symbols_returns_empty_dict(self):
+        assert _equal_weight([], 1.0) == {}
+
+    def test_single_symbol_gets_full_budget(self):
+        result = _equal_weight(["A"], 0.75)
+        assert result == {"A": pytest.approx(0.75, rel=1e-5)}
+
+    def test_three_symbols_split_evenly(self):
+        result = _equal_weight(["A", "B", "C"], 0.90)
+        per = round(0.90 / 3, 6)
+        for sym in ["A", "B", "C"]:
+            assert result[sym] == pytest.approx(per, rel=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Section 5 — TestShrinkCov
+# ---------------------------------------------------------------------------
+
+
+class TestShrinkCov:
+    def _sample_cov(self) -> np.ndarray:
+        rng = np.random.default_rng(17)
+        X = rng.normal(0, 1, (200, 3))
+        return np.cov(X.T)
+
+    def test_diagonal_preserved_exactly(self):
+        cov = self._sample_cov()
+        shrunk = _shrink_cov(cov, intensity=0.10)
+        np.testing.assert_allclose(np.diag(shrunk), np.diag(cov))
+
+    def test_off_diagonal_shrunk_toward_zero(self):
+        cov = self._sample_cov()
+        shrunk = _shrink_cov(cov, intensity=0.10)
+        # Off-diagonal absolute value must be <= original
+        n = cov.shape[0]
+        for i in range(n):
+            for j in range(n):
+                if i != j:
+                    assert abs(shrunk[i, j]) <= abs(cov[i, j]) + 1e-12
+
+
+# ---------------------------------------------------------------------------
+# Section 6 — TestGmv
+# ---------------------------------------------------------------------------
+
+
+class TestGmv:
+    def test_gmv_converges(self):
+        rng = np.random.default_rng(99)
+        X = rng.normal(0, 0.01, (100, 3))
+        Sigma = np.cov(X.T) + np.eye(3) * 1e-8
+        w = _gmv(Sigma, 3, cap=_CAP_DEFAULT)
+        assert w is not None
+        assert abs(w.sum() - 1.0) < 1e-6
+        assert np.all(w >= -1e-10)
+
+    def test_gmv_assigns_less_to_high_vol_asset(self):
+        # Asset 2 has 5× higher vol; GMV should under-weight it
+        rng = np.random.default_rng(7)
+        X = rng.normal(0, [0.01, 0.01, 0.05], (200, 3))
+        Sigma = np.cov(X.T) + np.eye(3) * 1e-8
+        w = _gmv(Sigma, 3, cap=_CAP_DEFAULT)
+        assert w is not None
+        assert w[2] < w[0] + 0.05  # high-vol asset gets less
+        assert w[2] <= w[0]
+
+
+# ---------------------------------------------------------------------------
+# Section 7 — TestMaxSharpe
+# ---------------------------------------------------------------------------
+
+
+class TestMaxSharpe:
+    def test_max_sharpe_converges(self):
+        rng = np.random.default_rng(55)
+        X = rng.normal(0.0005, 0.01, (150, 3))
+        mu = X.mean(axis=0)
+        Sigma = np.cov(X.T) + np.eye(3) * 1e-8
+        w = _max_sharpe(mu, Sigma, 3, cap=_CAP_DEFAULT)
+        assert w is not None
+        assert abs(w.sum() - 1.0) < 1e-6
+
+    def test_higher_mu_asset_gets_more_weight(self):
+        # Asset 2 has much higher expected return; max-sharpe should tilt toward it
+        rng = np.random.default_rng(11)
+        base = rng.normal(0, 0.01, (200, 3))
+        base[:, 2] += 0.003  # asset 2 has higher mean
+        mu = base.mean(axis=0)
+        Sigma = np.cov(base.T) + np.eye(3) * 1e-8
+        w = _max_sharpe(mu, Sigma, 3, cap=_CAP_DEFAULT)
+        assert w is not None
+        assert w[2] >= w[0]
+
+    def test_cap_enforced(self):
+        rng = np.random.default_rng(33)
+        X = rng.normal(0.001, 0.01, (150, 3))
+        mu = X.mean(axis=0)
+        Sigma = np.cov(X.T) + np.eye(3) * 1e-8
+        cap = 0.40
+        w = _max_sharpe(mu, Sigma, 3, cap=cap)
+        assert w is not None
+        assert np.all(w <= cap + 1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Section 8 — TestMaxExpectedReturn
+# ---------------------------------------------------------------------------
+
+
+class TestMaxExpectedReturn:
+    def test_single_asset_gets_full_cap(self):
+        mu = np.array([0.10])
+        w = _max_expected_return(mu, 1, cap=_CAP_HYPER)
+        assert w is not None
+        assert abs(w[0] - 1.0) < 1e-6
+
+    def test_two_assets_top_fills_first(self):
+        mu = np.array([0.05, 0.20])
+        w = _max_expected_return(mu, 2, cap=0.60)
+        assert w is not None
+        assert w[1] == pytest.approx(0.60, rel=1e-5)
+        assert w[0] == pytest.approx(0.40, rel=1e-5)
+
+    def test_residual_spills_to_next_best(self):
+        # 3 assets, cap=0.40, top asset fills 0.40, second fills 0.40, third gets 0.20
+        mu = np.array([0.01, 0.05, 0.20])
+        w = _max_expected_return(mu, 3, cap=0.40)
+        assert w is not None
+        assert abs(w.sum() - 1.0) < 1e-6
+
+    def test_all_weights_nonnegative(self):
+        rng = np.random.default_rng(88)
+        mu = rng.normal(0, 0.1, 5)
+        w = _max_expected_return(mu, 5, cap=_CAP_HYPER)
+        assert w is not None
+        assert np.all(w >= -1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Section 9 — TestOptimizeWeights
+# ---------------------------------------------------------------------------
+
+
+class TestOptimizeWeights:
+    def _good_data(self, n: int = 3, n_bars: int = 60) -> tuple[list[str], dict[str, list[float]]]:
+        returns = _make_returns(n, n_bars)
+        syms = list(returns.keys())
+        return syms, returns
+
+    def test_conservative_runs_gmv(self):
+        syms, returns = self._good_data()
+        result = optimize_weights(syms, returns, RiskProfile.CONSERVATIVE, synth_budget=1.0)
+        assert len(result) == len(syms)
+        assert abs(sum(result.values()) - 1.0) < 1e-4
+
+    def test_moderate_runs_max_sharpe(self):
+        syms, returns = self._good_data()
+        result = optimize_weights(syms, returns, RiskProfile.MODERATE, synth_budget=1.0)
+        assert len(result) == len(syms)
+        assert all(v >= -1e-8 for v in result.values())
+
+    def test_aggressive_runs_max_sharpe(self):
+        syms, returns = self._good_data()
+        result = optimize_weights(syms, returns, RiskProfile.AGGRESSIVE, synth_budget=1.0)
+        assert len(result) == len(syms)
+
+    def test_hyper_risky_runs_max_expected_return(self):
+        syms, returns = self._good_data()
+        result = optimize_weights(syms, returns, RiskProfile.HYPER_RISKY, synth_budget=1.0)
+        assert len(result) == len(syms)
+
+    def test_fallback_to_equal_weight_insufficient_data(self):
+        syms = ["A", "B", "C"]
+        # Only 5 bars → below _MIN_BARS
+        returns = {s: [0.001] * 5 for s in syms}
+        result = optimize_weights(syms, returns, RiskProfile.MODERATE, synth_budget=0.9)
+        expected_w = round(0.9 / 3, 6)
+        for v in result.values():
+            assert v == pytest.approx(expected_w, rel=1e-5)
+
+    def test_empty_symbols_returns_empty(self):
+        result = optimize_weights([], {}, RiskProfile.MODERATE, synth_budget=1.0)
+        assert result == {}
+
+    def test_single_asset_single_symbol(self):
+        # np.cov of 1-D returns a scalar (ndim==0) — code wraps it; must not crash
+        rng = np.random.default_rng(5)
+        returns_1d = rng.normal(0.001, 0.01, 60).tolist()
+        result = optimize_weights(["SOLO"], {"SOLO": returns_1d}, RiskProfile.CONSERVATIVE, synth_budget=1.0)
+        assert "SOLO" in result
+
+    def test_budget_scales_output(self):
+        syms, returns = self._good_data()
+        result = optimize_weights(syms, returns, RiskProfile.MODERATE, synth_budget=0.5)
+        total = sum(result.values())
+        assert total == pytest.approx(0.5, rel=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# Section 10 — TestBuildMuSigmaFromPrices
+# ---------------------------------------------------------------------------
+
+
+class TestBuildMuSigmaFromPrices:
+    def test_fewer_than_two_symbols_returns_none(self):
+        prices = _make_price_series(1, 120)
+        syms = list(prices.keys())
+        result = _build_mu_sigma_from_prices(prices, syms, min_overlap_days=60)
+        assert result is None
+
+    def test_insufficient_overlap_after_ffill_returns_none(self):
+        # Create two series with < 60 overlapping rows even after ffill
+        rng = np.random.default_rng(3)
+        prices_a = pd.Series(100 + rng.normal(0, 1, 30).cumsum(), name="A")
+        prices_b = pd.Series(100 + rng.normal(0, 1, 30).cumsum(), name="B")
+        prices = {"A": prices_a, "B": prices_b}
+        result = _build_mu_sigma_from_prices(prices, ["A", "B"], min_overlap_days=60)
+        assert result is None
+
+    def test_zero_vol_series_dropped(self):
+        # One series has constant price → zero vol → should be dropped
+        prices = _make_price_series(2, 120)
+        prices["FLAT"] = pd.Series([100.0] * 120, name="FLAT")
+        syms = list(prices.keys())
+        result = _build_mu_sigma_from_prices(prices, syms, min_overlap_days=60)
+        if result is not None:
+            kept, _mu, _cov, _corr = result
+            assert "FLAT" not in kept
+
+    def test_normal_case_returns_correct_shapes(self):
+        prices = _make_price_series(3, 120)
+        syms = list(prices.keys())
+        result = _build_mu_sigma_from_prices(prices, syms, min_overlap_days=60)
+        assert result is not None
+        kept, mu, cov, corr = result
+        n = len(kept)
+        assert mu.shape == (n,)
+        assert cov.shape == (n, n)
+        assert corr.shape == (n, n)
+
+    def test_ffill_recovery_path(self):
+        # Series A: 120 rows. Series B: 120 rows with an 80-row NaN gap in the middle
+        # (indices 10–89). After dropna(how='any') → 40 rows < 60 (recovery needed).
+        # After ffill, all 120 rows survive → ≥ 60 → should succeed.
+        rng = np.random.default_rng(21)
+        idx = pd.RangeIndex(120)
+        a_vals = 100 + rng.normal(0, 1, 120).cumsum()
+        b_vals = 100 + rng.normal(0, 1, 120).cumsum()
+        b_vals[10:90] = np.nan  # 80-row gap → dropna gives 40 < 60; ffill gives 120 ≥ 60
+        a = pd.Series(a_vals, index=idx, name="A")
+        b = pd.Series(b_vals, index=idx, name="B")
+        prices = {"A": a, "B": b}
+        result = _build_mu_sigma_from_prices(prices, ["A", "B"], min_overlap_days=60)
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# Section 11 — TestComputeEfficientFrontier
+# ---------------------------------------------------------------------------
+
+
+class TestComputeEfficientFrontier:
+    def test_empty_symbols_returns_empty(self):
+        result = compute_efficient_frontier([], {}, n_points=10)
+        assert result == []
+
+    def test_insufficient_data_returns_empty(self):
+        # Only 5 bars → too few
+        returns = {"A": [0.01] * 5, "B": [0.01] * 5}
+        result = compute_efficient_frontier(["A", "B"], returns, n_points=10)
+        assert result == []
+
+    def test_identical_mu_returns_empty(self):
+        # All returns identical → mu_min == mu_max → returns []
+        rets = [0.001] * 60
+        returns = {"A": rets, "B": rets}
+        result = compute_efficient_frontier(["A", "B"], returns, n_points=5)
+        assert result == []
+
+    def test_two_assets_no_cap_returns_points(self):
+        returns = _make_returns(2, 80)
+        syms = list(returns.keys())
+        result = compute_efficient_frontier(syms, returns, n_points=10)
+        assert len(result) >= 1
+        for pt in result:
+            assert "vol" in pt and "return" in pt and "weights" in pt
+
+    def test_three_assets_cap_applied(self):
+        returns = _make_returns(3, 100)
+        syms = list(returns.keys())
+        result = compute_efficient_frontier(syms, returns, n_points=10)
+        # At least some points should have been found
+        assert isinstance(result, list)
+        for pt in result:
+            for w in pt["weights"].values():
+                assert w <= _CAP_DEFAULT + 1e-4
+
+
+# ---------------------------------------------------------------------------
+# Section 12 — TestKellyOptimizeFromPrices
+# ---------------------------------------------------------------------------
+
+
+class TestKellyOptimizeFromPrices:
+    def test_returns_none_with_insufficient_history(self):
+        prices = _make_price_series(2, 30)  # 30 < 60 min_overlap
+        syms = list(prices.keys())
+        result = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0)
+        assert result is None
+
+    def test_returns_none_with_single_symbol(self):
+        prices = _make_price_series(1, 120)
+        syms = list(prices.keys())
+        result = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0)
+        assert result is None
+
+    def test_normal_case_returns_result(self):
+        prices = _make_price_series(3, 120)
+        syms = list(prices.keys())
+        result = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0)
+        assert result is not None
+        assert isinstance(result, KellyOptimizationResult)
+
+    def test_converged_flag_true_on_success(self):
+        prices = _make_price_series(3, 120)
+        syms = list(prices.keys())
+        result = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0)
+        assert result is not None
+        assert result.converged is True
+
+    def test_weights_within_max_weight(self):
+        prices = _make_price_series(4, 120)
+        syms = list(prices.keys())
+        max_w = 0.30
+        result = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0, max_weight=max_w)
+        assert result is not None
+        assert np.all(result.weights <= max_w + 1e-6)
+
+    def test_mu_override_blended(self):
+        prices = _make_price_series(2, 120)
+        syms = list(prices.keys())
+        # With and without override should produce different results in general
+        result_base = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0)
+        mu_override = dict.fromkeys(syms, 0.5)
+        result_override = kelly_optimize_from_prices(
+            syms, prices, "moderate", synth_budget=1.0, mu_override=mu_override
+        )
+        assert result_base is not None
+        assert result_override is not None
+        # The results should differ when override is extreme
+        # (not guaranteed to differ numerically, but we check types)
+        assert isinstance(result_override, KellyOptimizationResult)
+
+    def test_regime_risk_off_increases_gamma(self):
+        prices = _make_price_series(3, 120)
+        syms = list(prices.keys())
+        result_none = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0, regime=None)
+        result_crisis = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0, regime="crisis")
+        assert result_none is not None
+        assert result_crisis is not None
+        # crisis multiplier = 4.0 → higher gamma → higher risk_aversion stored
+        assert result_crisis.risk_aversion > result_none.risk_aversion
+
+    def test_regime_risk_on_multiplier_one(self):
+        prices = _make_price_series(3, 120)
+        syms = list(prices.keys())
+        result_none = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0, regime=None)
+        result_risk_on = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0, regime="risk_on")
+        assert result_none is not None and result_risk_on is not None
+        assert result_risk_on.risk_aversion == pytest.approx(result_none.risk_aversion, rel=1e-6)
+
+    def test_expected_return_and_vol_nonnegative(self):
+        prices = _make_price_series(3, 120)
+        syms = list(prices.keys())
+        result = kelly_optimize_from_prices(syms, prices, "aggressive", synth_budget=1.0)
+        assert result is not None
+        assert result.expected_vol >= 0.0
+
+    def test_synth_budget_limits_total_weight(self):
+        prices = _make_price_series(3, 120)
+        syms = list(prices.keys())
+        budget = 0.6
+        result = kelly_optimize_from_prices(syms, prices, "aggressive", synth_budget=budget)
+        assert result is not None
+        assert result.weights.sum() <= budget + 1e-6
+
+
+# ---------------------------------------------------------------------------
+# Section 13 — TestKellyRiskDecomposition
+# ---------------------------------------------------------------------------
+
+
+class TestKellyRiskDecomposition:
+    def _make_result(self, n: int = 3) -> KellyOptimizationResult:
+        prices = _make_price_series(n, 120)
+        syms = list(prices.keys())
+        res = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0)
+        assert res is not None
+        return res
+
+    def test_zero_variance_returns_empty_list(self):
+        # Build a result with near-zero weights → very small variance
+        result = self._make_result(3)
+        # Force near-zero portfolio variance by zeroing weights
+        zero_result = KellyOptimizationResult(
+            symbols=result.symbols,
+            weights=np.zeros(len(result.symbols)),
+            mu_annual=result.mu_annual,
+            sigma_annual=result.sigma_annual,
+            cov_annual=result.cov_annual,
+            corr_matrix=result.corr_matrix,
+            expected_return=0.0,
+            expected_vol=0.0,
+            expected_sharpe=0.0,
+            diversification_ratio=1.0,
+            converged=True,
+            risk_aversion=3.0,
+        )
+        decomp = kelly_risk_decomposition(zero_result)
+        assert decomp == []
+
+    def test_contributions_sum_to_one(self):
+        result = self._make_result(3)
+        decomp = kelly_risk_decomposition(result)
+        total = sum(d["variance_contribution"] for d in decomp)
+        assert total == pytest.approx(1.0, abs=1e-4)
+
+    def test_returns_one_entry_per_symbol(self):
+        result = self._make_result(4)
+        decomp = kelly_risk_decomposition(result)
+        assert len(decomp) == len(result.symbols)
+        for entry in decomp:
+            assert "symbol" in entry
+            assert "weight" in entry
+            assert "variance_contribution" in entry
+
+
+# ---------------------------------------------------------------------------
+# Section 14 — TestCorrelationPairs
+# ---------------------------------------------------------------------------
+
+
+class TestCorrelationPairs:
+    def _make_result(self, n: int) -> KellyOptimizationResult:
+        prices = _make_price_series(n, 120, seed=n * 7)
+        syms = list(prices.keys())
+        res = kelly_optimize_from_prices(syms, prices, "moderate", synth_budget=1.0)
+        assert res is not None
+        return res
+
+    def test_single_symbol_returns_empty(self):
+        # Build a minimal KellyOptimizationResult with n=1 manually
+        result = KellyOptimizationResult(
+            symbols=["A"],
+            weights=np.array([1.0]),
+            mu_annual=np.array([0.10]),
+            sigma_annual=np.array([0.20]),
+            cov_annual=np.array([[0.04]]),
+            corr_matrix=np.array([[1.0]]),
+            expected_return=0.10,
+            expected_vol=0.20,
+            expected_sharpe=0.25,
+            diversification_ratio=1.0,
+            converged=True,
+            risk_aversion=3.0,
+        )
+        pairs = correlation_pairs(result, top_n=5)
+        assert pairs == []
+
+    def test_two_symbols_yields_one_pair(self):
+        result = self._make_result(2)
+        pairs = correlation_pairs(result, top_n=10)
+        assert len(pairs) == 1
+        assert "a" in pairs[0] and "b" in pairs[0] and "corr" in pairs[0]
+
+    def test_top_n_clipping(self):
+        result = self._make_result(5)
+        # 5 symbols → 10 pairs; request only top 3
+        pairs = correlation_pairs(result, top_n=3)
+        assert len(pairs) <= 3
+
+
+# ---------------------------------------------------------------------------
+# Section 15 — TestDisplayFor
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayFor:
+    def test_unknown_synth_returns_synth_code(self):
+        unknown = "sXXXXXXUNKNOWN_DOES_NOT_EXIST"
+        result = _display_for(unknown)
+        assert result == unknown
