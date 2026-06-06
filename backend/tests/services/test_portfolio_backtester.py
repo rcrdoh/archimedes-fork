@@ -14,7 +14,6 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import pytest
-
 from archimedes.services.portfolio_backtester import (
     ANNUALIZATION,
     DEFAULT_REBALANCE_DAYS,
@@ -25,26 +24,31 @@ from archimedes.services.portfolio_backtester import (
 )
 
 
-def _flat_panel(symbols: list[str], n_bars: int, daily_drift: float = 0.0005) -> pd.DataFrame:
-    """Build a deterministic two-symbol price panel with mild upward drift."""
+def _flat_panel(symbols: list[str], n_bars: int, daily_drift: float = 0.0005) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build a deterministic price and volume panel with mild upward drift."""
     idx = pd.bdate_range("2018-01-02", periods=n_bars)
     data = {}
+    vols = {}
     for i, s in enumerate(symbols):
-        # Distinct drifts per symbol so the simulator isn't degenerate.
-        prices = 100.0 * np.cumprod(1.0 + (daily_drift + i * 0.0001) * np.ones(n_bars))
+        # Distinct drifts and deterministic noise so variance > 0 for Almgren impact
+        noise = (i + 1) * 0.005 * np.sin(np.arange(n_bars))
+        prices = 100.0 * np.cumprod(1.0 + (daily_drift + i * 0.0001) + noise)
         data[s] = pd.Series(prices, index=idx)
-    return pd.DataFrame(data)
+        # Constant volume
+        vols[s] = pd.Series(1_000_000.0 * np.ones(n_bars), index=idx)
+    return pd.DataFrame(data), pd.DataFrame(vols)
 
 
 class TestSimulate:
     def test_two_asset_rebalance_produces_dense_return_series(self) -> None:
-        panel = _flat_panel(["SPY", "TLT"], n_bars=500)
+        panel, vols = _flat_panel(["SPY", "TLT"], n_bars=500)
         rets, eq = _simulate_portfolio(
-            panel,
-            {"SPY": 0.6, "TLT": 0.4},
+            panel=panel,
+            volume_panel=vols,
+            target_weights={"SPY": 0.6, "TLT": 0.4},
             rebalance_days=21,
             initial_cash=100_000.0,
-            tx_cost_bps=10,
+            gamma=0.1,
         )
         assert len(rets) == 500
         assert len(eq) == 500
@@ -54,54 +58,104 @@ class TestSimulate:
         assert abs(rets[0]) < 1e-6
 
     def test_negative_weights_clamped_to_zero(self) -> None:
-        panel = _flat_panel(["SPY", "TLT"], n_bars=120)
+        panel, vols = _flat_panel(["SPY", "TLT"], n_bars=120)
         # SPY has negative weight; should be treated as 0 → 100% TLT
         rets_neg, _ = _simulate_portfolio(
-            panel,
-            {"SPY": -0.5, "TLT": 1.0},
+            panel=panel,
+            volume_panel=vols,
+            target_weights={"SPY": -0.5, "TLT": 1.0},
             rebalance_days=21,
             initial_cash=100_000.0,
-            tx_cost_bps=10,
+            gamma=0.1,
         )
         rets_pure_tlt, _ = _simulate_portfolio(
-            panel,
-            {"SPY": 0.0, "TLT": 1.0},
+            panel=panel,
+            volume_panel=vols,
+            target_weights={"SPY": 0.0, "TLT": 1.0},
             rebalance_days=21,
             initial_cash=100_000.0,
-            tx_cost_bps=10,
+            gamma=0.1,
         )
         # Long-only enforcement: -0.5 SPY is dropped, TLT renormalizes to 1.0
         np.testing.assert_allclose(rets_neg, rets_pure_tlt, atol=1e-12)
 
     def test_rebalance_charges_turnover_cost(self) -> None:
-        panel = _flat_panel(["SPY", "TLT"], n_bars=120, daily_drift=0.001)
-        rets_with_cost, eq_with_cost = _simulate_portfolio(
-            panel,
-            {"SPY": 0.5, "TLT": 0.5},
+        panel, vols = _flat_panel(["SPY", "TLT"], n_bars=120, daily_drift=0.001)
+        _, eq_with_cost = _simulate_portfolio(
+            panel=panel,
+            volume_panel=vols,
+            target_weights={"SPY": 0.5, "TLT": 0.5},
             rebalance_days=21,
             initial_cash=100_000.0,
-            tx_cost_bps=100,  # 1% turnover cost — exaggerated to make signal clear
+            gamma=0.1,  # Market impact cost
         )
-        rets_no_cost, eq_no_cost = _simulate_portfolio(
-            panel,
-            {"SPY": 0.5, "TLT": 0.5},
+        _, eq_no_cost = _simulate_portfolio(
+            panel=panel,
+            volume_panel=vols,
+            target_weights={"SPY": 0.5, "TLT": 0.5},
             rebalance_days=21,
             initial_cash=100_000.0,
-            tx_cost_bps=0,
+            gamma=0.0,  # Zero impact
         )
         # Cost must drag terminal equity strictly below the zero-cost run.
         assert eq_with_cost[-1] < eq_no_cost[-1]
 
     def test_all_zero_weights_raises(self) -> None:
-        panel = _flat_panel(["SPY", "TLT"], n_bars=120)
+        panel, vols = _flat_panel(["SPY", "TLT"], n_bars=120)
         with pytest.raises(ValueError, match="non-positive"):
             _simulate_portfolio(
-                panel,
-                {"SPY": 0.0, "TLT": 0.0},
+                panel=panel,
+                volume_panel=vols,
+                target_weights={"SPY": 0.0, "TLT": 0.0},
                 rebalance_days=21,
                 initial_cash=100_000.0,
-                tx_cost_bps=10,
+                gamma=0.1,
             )
+
+    def test_negative_equity_stops_trading(self) -> None:
+        panel, vols = _flat_panel(["SPY", "TLT"], n_bars=120)
+        rets, eq = _simulate_portfolio(
+            panel=panel,
+            volume_panel=vols,
+            target_weights={"SPY": 0.5, "TLT": 0.5},
+            rebalance_days=21,
+            initial_cash=10.0,  # Tiny starting cash
+            tx_cost_bps=10_000_000,  # Massive transaction costs to trigger bankruptcy on first rebalance
+            gamma=1.0,
+        )
+        assert min(eq) == 0.0
+        assert -1.0 in rets
+
+    def test_zero_volume_fallback(self) -> None:
+        panel, vols = _flat_panel(["SPY", "TLT"], n_bars=120)
+        vols["SPY"] = 0.0
+        vols["TLT"] = 0.0
+        _rets, eq = _simulate_portfolio(
+            panel=panel,
+            volume_panel=vols,
+            target_weights={"SPY": 0.5, "TLT": 0.5},
+            rebalance_days=21,
+            initial_cash=100_000.0,
+            tx_cost_bps=0,
+            gamma=0.1,
+        )
+        assert len(eq) == 120
+
+    def test_zero_volatility_fallback(self) -> None:
+        panel, vols = _flat_panel(["SPY", "TLT"], n_bars=120, daily_drift=0.0)
+        panel["SPY"] = 100.0
+        panel["TLT"] = 100.0
+        _rets, eq = _simulate_portfolio(
+            panel=panel,
+            volume_panel=vols,
+            target_weights={"SPY": 0.5, "TLT": 0.5},
+            rebalance_days=21,
+            initial_cash=100_000.0,
+            tx_cost_bps=0,
+            gamma=0.1,
+        )
+        assert len(eq) == 120
+        assert eq[-1] == 100_000.0
 
 
 class TestAnnualizedMetrics:
@@ -153,19 +207,18 @@ class TestBacktestPortfolioIntegration:
     """Integration-style test that stubs the fetcher to avoid yfinance hits."""
 
     def test_end_to_end_with_stubbed_panel(self) -> None:
-        panel = _flat_panel(["SPY", "TLT"], n_bars=2520)  # ~10y of daily bars
+        panel, vols = _flat_panel(["SPY", "TLT"], n_bars=2520)  # ~10y of daily bars
 
         with patch(
             "archimedes.services.portfolio_backtester._fetch_price_panel",
-            return_value=panel,
+            return_value=(panel, vols),
         ):
             result, artifact = backtest_portfolio(
                 strategy_id="test-strategy-1",
                 weights={"SPY": 0.6, "TLT": 0.4},
-                start="2016-01-04",
-                end="2026-01-02",
+                start_date="2016-01-04",
+                end_date="2026-01-02",
                 num_trials_for_dsr=6,
-                paper_title="Test 60/40",
             )
 
         # Hard contract checks the strategies_routes wiring depends on
@@ -203,6 +256,20 @@ class TestBacktestPortfolioIntegration:
         with pytest.raises(ValueError, match="No positive weights"):
             backtest_portfolio(strategy_id="x", weights={"SPY": 0.0, "TLT": 0.0})
 
+    def test_empty_dataframe_vector(self) -> None:
+        import sys
+        from unittest.mock import MagicMock
+        from archimedes.services.portfolio_backtester import _fetch_price_panel
+
+        mock_data = MagicMock()
+        mock_data.fetch_ohlcv.return_value = pd.DataFrame()
+
+        sys.modules["archimedes_analytics_engine"] = MagicMock()
+        sys.modules["archimedes_analytics_engine.data"] = mock_data
+
+        with pytest.raises(ValueError, match="Insufficient overlapping history"):
+            _fetch_price_panel(["SPY", "TLT"], "2020-01-01", "2021-01-01")
+
     def test_rigor_metrics_match_evaluator(self) -> None:
         """DSR/OOS values returned by the backtester must come from the
         canonical rigor_evaluator — same functions the curated strategies'
@@ -210,17 +277,17 @@ class TestBacktestPortfolioIntegration:
         curated strategies are graded on the same scale."""
         from archimedes.services.rigor_evaluator import compute_dsr, compute_oos_sharpe
 
-        panel = _flat_panel(["SPY"], n_bars=1500)
+        panel, vols = _flat_panel(["SPY"], n_bars=1500)
 
         with patch(
             "archimedes.services.portfolio_backtester._fetch_price_panel",
-            return_value=panel,
+            return_value=(panel, vols),
         ):
             result, artifact = backtest_portfolio(
                 strategy_id="rigor-test",
                 weights={"SPY": 1.0},
-                start="2018-01-02",
-                end="2024-01-02",
+                start_date="2018-01-02",
+                end_date="2024-01-02",
                 num_trials_for_dsr=1,
             )
 
