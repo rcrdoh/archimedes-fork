@@ -23,7 +23,6 @@ import sys
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-
 # ─── 1. Docs gate ─────────────────────────────────────────────────────
 
 

@@ -13,8 +13,6 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
 from archimedes.api.auth_siwe import (
     _COOKIE_NAME,
     _NONCE_TTL_SECONDS,
@@ -25,6 +23,7 @@ from archimedes.api.auth_siwe import (
     get_verified_wallet,
     require_verified_wallet,
 )
+from httpx import ASGITransport, AsyncClient
 
 # ── Unit tests for session token functions ─────────────────────
 
@@ -221,10 +220,9 @@ async def test_verify_rejects_expired_nonce():
 @pytest.mark.asyncio
 async def test_verify_with_valid_signature():
     """Full SIWE flow: nonce → sign → verify → session cookie."""
+    from archimedes.main import app
     from eth_account import Account
     from eth_account.messages import encode_defunct
-
-    from archimedes.main import app
 
     # Create a test wallet
     acct = Account.create()
@@ -271,10 +269,9 @@ async def test_verify_with_valid_signature():
 @pytest.mark.asyncio
 async def test_verify_rejects_wrong_signer():
     """Signature from wallet A cannot authenticate as wallet B."""
+    from archimedes.main import app
     from eth_account import Account
     from eth_account.messages import encode_defunct
-
-    from archimedes.main import app
 
     acct_real = Account.create()
     acct_fake = "0x" + "1" * 40  # claimed wallet (not the signer)
@@ -304,10 +301,9 @@ async def test_verify_rejects_wrong_signer():
 @pytest.mark.asyncio
 async def test_nonce_is_single_use():
     """A nonce consumed by one verify attempt cannot be reused."""
+    from archimedes.main import app
     from eth_account import Account
     from eth_account.messages import encode_defunct
-
-    from archimedes.main import app
 
     acct = Account.create()
 

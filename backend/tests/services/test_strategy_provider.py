@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ── Minimal strategy file content ────────────────────────────
 
 _MINIMAL_STRATEGY = textwrap.dedent('''\

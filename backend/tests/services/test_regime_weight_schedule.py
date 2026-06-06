@@ -1,7 +1,6 @@
 """Tests for regime_weight_schedule — weight mixes sum to 1.0, tilt ordering works."""
 
 import pytest
-
 from archimedes.services.regime_weight_schedule import (
     apply_regime_tilt,
     regime_weight_schedule,

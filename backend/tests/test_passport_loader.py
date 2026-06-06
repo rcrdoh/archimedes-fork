@@ -8,9 +8,6 @@ from __future__ import annotations
 import json
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-
 from archimedes.models.chat import Base
 from archimedes.models.paper_ref import PaperRef
 from archimedes.models.strategy import (
@@ -28,6 +25,8 @@ from archimedes.services.passport_loader import (
     ingest_passport,
     list_passports,
 )
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 
 @pytest.fixture

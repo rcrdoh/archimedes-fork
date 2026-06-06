@@ -885,7 +885,6 @@ class TestRunRigorGatePaths:
 # ─── CPCV Edge Cases ──────────────────────────────────────────────────
 
 from archimedes.services.rigor_evaluator import compute_cpcv_oos_sharpe
-import numpy as np
 
 
 def test_cpcv_returns_none_for_empty_array():
