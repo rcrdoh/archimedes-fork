@@ -465,3 +465,419 @@ class TestRigorGate:
             look_ahead_audit_passed=True,
         )
         assert result.look_ahead_passed is True
+
+
+# ─── Additional coverage: gate_details branches + run_rigor_gate paths ──────
+# New symbols used below that are not in the existing import block:
+import ast
+
+from archimedes.services.rigor_evaluator import _dsr_from_stats, _get_func_name, _sharpe_per_col
+
+# Deterministic return series (no np.random to avoid VoidDType issue).
+# _RETURNS_50: DSR p=0.917 (below 0.95 gate) — used for structural tests.
+# _RETURNS_80: DSR p=1.0 (clears gate) — used where a strong series is needed.
+_RETURNS_50 = [0.01 * ((-1) ** i) * 0.5 + 0.001 for i in range(50)]
+_RETURNS_80 = [0.01, -0.005, 0.008, 0.003] * 20
+
+
+# ─── DSR edge-cases not hit by the first 40 tests ────────────────────
+
+
+def test_dsr_from_stats_returns_none_for_t_less_than_4():
+    """_dsr_from_stats with T < 4 must return (None, None) before any math."""
+    assert _dsr_from_stats(0.01, 3, 0.0, 3.0, 1) == (None, None)
+    assert _dsr_from_stats(0.05, 1, 0.0, 3.0, 5) == (None, None)
+    assert _dsr_from_stats(0.02, 2, -0.2, 5.0, 10) == (None, None)
+
+
+def test_dsr_from_stats_returns_none_when_denom_sq_nonpositive():
+    """denom_sq = 1 - gamma_3*SR + (gamma_4-1)/4*SR^2 <= 0 must return (None, None).
+
+    With SR_hat=1.0, gamma_3=3.0, gamma_4=3.0 (raw Pearson kurtosis):
+      denom_sq = 1 - 3*1 + (3-1)/4*1^2 = 1 - 3 + 0.5 = -1.5 <= 0
+    """
+    result = _dsr_from_stats(1.0, 100, 3.0, 3.0, 1)
+    assert result == (None, None)
+
+
+def test_dsr_from_stats_returns_none_when_denom_sq_strictly_negative():
+    """A larger SR amplifies the negative denom_sq further.
+
+    With SR_hat=2.0, gamma_3=3.0, gamma_4=3.0:
+      denom_sq = 1 - 3*2 + (3-1)/4*4 = 1 - 6 + 2 = -3.0 (unambiguously < 0)
+    This is a distinct parameter set from the SR=1.0 case, verifying that the
+    guard fires for different magnitudes of negative denom_sq.
+    """
+    result = _dsr_from_stats(2.0, 100, 3.0, 3.0, 1)
+    assert result == (None, None)
+
+
+def test_compute_dsr_minimal_valid_series():
+    """compute_dsr with exactly T=4 non-constant returns must produce a result."""
+    returns = [0.01, 0.02, -0.01, 0.03]
+    dsr, p_val = compute_dsr(returns, num_trials=1)
+    assert dsr is not None
+    assert p_val is not None
+    # Pinned reference: T=4 with these values yields p=0.855 (verified manually).
+    assert p_val == pytest.approx(0.855, abs=0.01)
+
+
+def test_compute_dsr_with_five_returns_and_multiple_trials():
+    """compute_dsr with a slightly larger series exercises the full lines 85-88 path."""
+    returns = [0.005, -0.003, 0.010, -0.002, 0.007]
+    dsr, p_val = compute_dsr(returns, num_trials=3)
+    assert dsr is not None
+    assert p_val is not None
+    assert isinstance(dsr, float)
+    assert isinstance(p_val, float)
+
+
+# ─── OOS Sharpe edge-cases ────────────────────────────────────────────
+
+
+def test_oos_sharpe_returns_none_when_oos_slice_too_short():
+    """Line 246: OOS slice < 5 bars after split must return None.
+
+    T=12, train_fraction=0.7 -> split=8, oos=4 items < 5.
+    """
+    returns = [0.01, 0.02] * 6  # 12 items
+    result = compute_oos_sharpe(returns, train_fraction=0.7)
+    assert result is None
+
+
+def test_oos_sharpe_returns_none_for_constant_oos_slice():
+    """Line 249: OOS slice with zero variance (ptp == 0) must return None.
+
+    T=20, train_fraction=0.6 -> split=12, oos=8 items all identical.
+    """
+    returns = [0.01] * 12 + [1.0] * 8  # oos is constant 1.0
+    result = compute_oos_sharpe(returns, train_fraction=0.6)
+    assert result is None
+
+
+def test_oos_sharpe_returns_none_for_constant_oos_slice_with_varied_train():
+    """Variant: varied IS slice but constant OOS still hits the ptp==0 guard."""
+    is_part = [0.01 * (i % 5 - 2) for i in range(15)]  # 15 varied items
+    oos_part = [0.005] * 5  # exactly 5 constant items
+    returns = is_part + oos_part  # T=20, split=15 with fraction=0.75
+    result = compute_oos_sharpe(returns, train_fraction=0.75)
+    assert result is None
+
+
+# ─── _sharpe_per_col single-row guard ────────────────────────────────
+
+
+def test_sharpe_per_col_single_row_returns_zeros():
+    """Line 338: R.shape[0] < 2 must return zero vector of length n_cols."""
+    R = np.array([[0.01, 0.02, 0.03]])  # shape (1, 3)
+    result = _sharpe_per_col(R)
+    assert result.shape == (3,)
+    assert np.all(result == 0.0)
+
+
+def test_sharpe_per_col_single_row_single_col():
+    """Single-row, single-column matrix also returns [0.0]."""
+    R = np.array([[0.05]])  # shape (1, 1)
+    result = _sharpe_per_col(R)
+    assert result.shape == (1,)
+    assert result[0] == 0.0
+
+
+# ─── _get_func_name — all three branches ─────────────────────────────
+
+
+def test_get_func_name_ast_name_returns_id():
+    """Line 407: _get_func_name(ast.Name) must return the identifier string."""
+    call_node = ast.parse("future(x)").body[0].value
+    assert isinstance(call_node.func, ast.Name)
+    assert _get_func_name(call_node.func) == "future"
+
+
+def test_get_func_name_ast_attribute_returns_attr():
+    """Line 410: _get_func_name(ast.Attribute) must return the attribute name."""
+    call_node = ast.parse("self.predict(x)").body[0].value
+    assert isinstance(call_node.func, ast.Attribute)
+    assert _get_func_name(call_node.func) == "predict"
+
+
+def test_get_func_name_unknown_node_returns_none():
+    """Line 411: _get_func_name with a non-Name, non-Attribute node must return None."""
+    const_node = ast.Constant(value=42)
+    assert _get_func_name(const_node) is None
+
+
+def test_look_ahead_audit_bare_function_name_triggers_warning():
+    """Bare function named 'future' (ast.Name path) must be flagged."""
+    code = "result = future(prices)"
+    passed, warnings = look_ahead_audit(code)
+    assert not passed
+    assert any("future" in w for w in warnings)
+
+
+def test_look_ahead_audit_bare_look_ahead_function():
+    """Bare function named 'look_ahead' (ast.Name) must be flagged."""
+    code = "val = look_ahead(bar)"
+    passed, warnings = look_ahead_audit(code)
+    assert not passed
+    assert len(warnings) == 1
+
+
+# ─── RigorGateResult.passes_all — every early-return branch ─────────
+
+
+class TestPassesAllBranches:
+    def test_dsr_p_value_none_returns_false(self):
+        """Line 444: dsr_p_value is None -> passes_all is False."""
+        r = RigorGateResult("s", dsr_p_value=None)
+        assert r.passes_all is False
+
+    def test_dsr_p_value_below_threshold_returns_false(self):
+        """Line 446: dsr_p_value < 0.95 -> passes_all is False."""
+        r = RigorGateResult("s", dsr_p_value=0.80)
+        assert r.passes_all is False
+
+    def test_dsr_p_value_exactly_threshold_not_blocked_by_dsr(self):
+        """dsr_p_value == 0.95 clears the DSR gate (does not hit line 446 return)."""
+        r = RigorGateResult("s", dsr_p_value=0.95, pbo_score=None)
+        # Falls through DSR check but blocked by missing pbo -> still False
+        assert r.passes_all is False
+
+    def test_pbo_score_none_returns_false(self):
+        """Line 448: pbo_score is None (even with passing DSR) -> passes_all is False."""
+        r = RigorGateResult("s", dsr_p_value=0.97, pbo_score=None)
+        assert r.passes_all is False
+
+    def test_pbo_score_at_boundary_fails(self):
+        """pbo_score == 0.5 hits the >= 0.5 branch -> passes_all is False."""
+        r = RigorGateResult("s", dsr_p_value=0.97, pbo_score=0.5)
+        assert r.passes_all is False
+
+    def test_oos_sharpe_none_returns_false(self):
+        """Line 452: oos_sharpe is None (passing DSR + PBO) -> passes_all is False."""
+        r = RigorGateResult("s", dsr_p_value=0.97, pbo_score=0.2, oos_sharpe=None)
+        assert r.passes_all is False
+
+    def test_look_ahead_passed_true_returns_true(self):
+        """Line 455: all checks clear + look_ahead_passed=True -> passes_all is True."""
+        r = RigorGateResult(
+            "s",
+            dsr_p_value=0.97,
+            pbo_score=0.2,
+            oos_sharpe=1.5,
+            look_ahead_passed=True,
+            in_sample_sharpe=2.0,  # ratio 0.75 >= 0.5
+        )
+        assert r.passes_all is True
+
+    def test_look_ahead_passed_false_returns_false_at_line_455(self):
+        """Line 455: all checks clear but look_ahead_passed=False -> passes_all is False."""
+        r = RigorGateResult(
+            "s",
+            dsr_p_value=0.97,
+            pbo_score=0.2,
+            oos_sharpe=1.5,
+            look_ahead_passed=False,
+            in_sample_sharpe=2.0,
+        )
+        assert r.passes_all is False
+
+    def test_passes_all_no_in_sample_sharpe_skips_ratio_check(self):
+        """When in_sample_sharpe is None the OOS/IS ratio check is skipped entirely."""
+        r = RigorGateResult(
+            "s",
+            dsr_p_value=0.97,
+            pbo_score=0.2,
+            oos_sharpe=0.1,  # very low, but ratio check is skipped
+            look_ahead_passed=True,
+            in_sample_sharpe=None,
+        )
+        assert r.passes_all is True
+
+    def test_passes_all_negative_in_sample_sharpe_skips_ratio_check(self):
+        """When in_sample_sharpe <= 0 the condition in_sample_sharpe > 0 is False,
+        so the OOS/IS ratio check is bypassed."""
+        r = RigorGateResult(
+            "s",
+            dsr_p_value=0.97,
+            pbo_score=0.2,
+            oos_sharpe=0.1,
+            look_ahead_passed=True,
+            in_sample_sharpe=-0.5,  # negative -> ratio check skipped
+        )
+        assert r.passes_all is True
+
+
+# ─── RigorGateResult.gate_details — every branch ─────────────────────
+
+
+class TestGateDetailsBranches:
+    def test_dsr_pass_branch(self):
+        """dsr_p_value >= 0.95 renders 'PASS (p=...)'."""
+        r = RigorGateResult("s", dsr_p_value=0.9700)
+        assert r.gate_details["dsr"] == "PASS (p=0.9700)"
+
+    def test_dsr_fail_branch(self):
+        """dsr_p_value < 0.95 but not None renders 'FAIL (p=..., need >= 0.95)'
+        using the Unicode greater-than-or-equal sign (U+2265) as in the source."""
+        r = RigorGateResult("s", dsr_p_value=0.8000)
+        assert r.gate_details["dsr"] == "FAIL (p=0.8000, need ≥ 0.95)"
+
+    def test_dsr_missing_branch(self):
+        """dsr_p_value is None renders 'MISSING'."""
+        r = RigorGateResult("s", dsr_p_value=None)
+        assert r.gate_details["dsr"] == "MISSING"
+
+    def test_pbo_pass_branch(self):
+        """pbo_score < 0.5 renders 'PASS (PBO=...)'."""
+        r = RigorGateResult("s", pbo_score=0.3000)
+        assert r.gate_details["pbo"] == "PASS (PBO=0.3000)"
+
+    def test_pbo_fail_branch(self):
+        """pbo_score >= 0.5 but not None renders 'FAIL (PBO=..., need < 0.5)'."""
+        r = RigorGateResult("s", pbo_score=0.6000)
+        assert r.gate_details["pbo"] == "FAIL (PBO=0.6000, need < 0.5)"
+
+    def test_pbo_missing_branch(self):
+        """pbo_score is None renders 'MISSING'."""
+        r = RigorGateResult("s", pbo_score=None)
+        assert r.gate_details["pbo"] == "MISSING"
+
+    def test_oos_sharpe_pass_ratio(self):
+        """oos_sharpe set, in_sample_sharpe > 0, ratio >= 0.5 renders 'PASS (OOS/IS=...)'."""
+        r = RigorGateResult("s", oos_sharpe=1.5, in_sample_sharpe=2.0)
+        detail = r.gate_details["oos_sharpe"]
+        assert detail.startswith("PASS (OOS/IS=")
+        assert "0.75" in detail
+
+    def test_oos_sharpe_fail_ratio(self):
+        """oos_sharpe set, in_sample_sharpe > 0, ratio < 0.5 renders 'FAIL (OOS/IS=...)'
+        using the Unicode >= sign (U+2265) as in the source f-string."""
+        r = RigorGateResult("s", oos_sharpe=0.3, in_sample_sharpe=2.0)
+        detail = r.gate_details["oos_sharpe"]
+        assert detail.startswith("FAIL (OOS/IS=")
+        assert "need ≥ 0.50" in detail
+
+    def test_oos_sharpe_set_no_is_reference(self):
+        """Line 482: oos_sharpe is set but in_sample_sharpe is None renders 'SET (OOS=...)'."""
+        r = RigorGateResult("s", oos_sharpe=1.5, in_sample_sharpe=None)
+        detail = r.gate_details["oos_sharpe"]
+        assert detail == "SET (OOS=1.5000, no IS reference)"
+
+    def test_oos_sharpe_set_with_negative_in_sample(self):
+        """oos_sharpe is set but in_sample_sharpe <= 0 falls through to SET branch."""
+        r = RigorGateResult("s", oos_sharpe=0.8, in_sample_sharpe=-0.5)
+        detail = r.gate_details["oos_sharpe"]
+        assert detail.startswith("SET (OOS=")
+        assert "no IS reference" in detail
+
+    def test_oos_sharpe_missing_branch(self):
+        """Line 484: oos_sharpe is None renders 'MISSING'."""
+        r = RigorGateResult("s", oos_sharpe=None)
+        assert r.gate_details["oos_sharpe"] == "MISSING"
+
+    def test_look_ahead_pass(self):
+        """look_ahead_passed=True renders 'PASS'."""
+        r = RigorGateResult("s", look_ahead_passed=True)
+        assert r.gate_details["look_ahead"] == "PASS"
+
+    def test_look_ahead_fail(self):
+        """look_ahead_passed=False (default) renders 'FAIL'."""
+        r = RigorGateResult("s")
+        assert r.gate_details["look_ahead"] == "FAIL"
+
+    def test_gate_details_returns_all_four_keys(self):
+        """gate_details must always contain all four gate keys."""
+        r = RigorGateResult("s")
+        keys = set(r.gate_details.keys())
+        assert keys == {"dsr", "pbo", "oos_sharpe", "look_ahead"}
+
+
+# ─── run_rigor_gate — all branches in lines 509-555 ──────────────────
+
+
+class TestRunRigorGatePaths:
+    def test_strategy_code_none_sets_la_passed_false(self):
+        """Line 521: strategy_code=None -> la_passed defaults to False."""
+        result = run_rigor_gate("s", _RETURNS_50, strategy_code=None)
+        assert result.look_ahead_passed is False
+
+    def test_look_ahead_audit_passed_override_true(self):
+        """Line 524: look_ahead_audit_passed=True overrides the computed la_passed."""
+        result = run_rigor_gate("s", _RETURNS_50, strategy_code=None, look_ahead_audit_passed=True)
+        assert result.look_ahead_passed is True
+
+    def test_look_ahead_audit_passed_override_false_overrides_clean_code(self):
+        """Line 524: look_ahead_audit_passed=False overrides even clean code audit."""
+        clean_code = "class S:\n    def next(self):\n        self.buy()"
+        result = run_rigor_gate("s", _RETURNS_80, strategy_code=clean_code, look_ahead_audit_passed=False)
+        assert result.look_ahead_passed is False
+
+    def test_strategy_code_with_look_ahead_warning_logs_and_fails(self):
+        """Lines 517-519: code with a look-ahead warning -> la_passed=False + logged."""
+        code_with_warning = "price = data[2]"  # positive index triggers warning
+        result = run_rigor_gate("s", _RETURNS_80, strategy_code=code_with_warning)
+        assert result.look_ahead_passed is False
+
+    def test_in_sample_sharpe_derived_when_not_provided(self):
+        """Lines 527-531: in_sample_sharpe is None and returns have variance -> derived."""
+        result = run_rigor_gate("s", _RETURNS_80, in_sample_sharpe=None)
+        assert result.in_sample_sharpe is not None
+        assert isinstance(result.in_sample_sharpe, float)
+
+    def test_in_sample_sharpe_explicit_not_overwritten(self):
+        """When in_sample_sharpe is provided explicitly it must be preserved unchanged."""
+        result = run_rigor_gate("s", _RETURNS_80, in_sample_sharpe=2.5)
+        assert result.in_sample_sharpe == 2.5
+
+    def test_in_sample_sharpe_none_for_single_item_series(self):
+        """Lines 527: len(daily_returns) < 2 -> in_sample_sharpe remains None."""
+        result = run_rigor_gate("s", [0.01])
+        assert result.in_sample_sharpe is None
+
+    def test_in_sample_sharpe_none_for_zero_variance_series(self):
+        """Lines 529-531: sigma == 0.0 exactly -> in_sample_sharpe remains None.
+
+        [1.0]*20 gives std(ddof=1) == 0.0 exactly (exact IEEE-754 representation).
+        """
+        result = run_rigor_gate("s", [1.0] * 20)
+        assert result.in_sample_sharpe is None
+
+    def test_pbo_score_looked_up_from_dict(self):
+        """Line 509: pbo_scores dict present -> pbo_score is fetched by strategy_id."""
+        result = run_rigor_gate("my_strat", _RETURNS_80, pbo_scores={"my_strat": 0.3})
+        assert result.pbo_score == 0.3
+
+    def test_pbo_score_none_when_id_missing_from_dict(self):
+        """pbo_scores dict present but strategy_id absent -> pbo_score is None."""
+        result = run_rigor_gate("missing_id", _RETURNS_80, pbo_scores={"other_strat": 0.3})
+        assert result.pbo_score is None
+
+    def test_pbo_score_none_when_no_dict(self):
+        """pbo_scores=None -> pbo_score is None."""
+        result = run_rigor_gate("s", _RETURNS_80, pbo_scores=None)
+        assert result.pbo_score is None
+
+    def test_paper_claimed_sharpe_stored(self):
+        """paper_claimed_sharpe is passed through to the result object unchanged."""
+        result = run_rigor_gate("s", _RETURNS_80, paper_claimed_sharpe=1.8)
+        assert result.paper_claimed_sharpe == 1.8
+
+    def test_result_has_strategy_id(self):
+        """run_rigor_gate result.strategy_id must match the input strategy_id."""
+        result = run_rigor_gate("unique_id_xyz", _RETURNS_50)
+        assert result.strategy_id == "unique_id_xyz"
+
+    def test_result_is_rigor_gate_result_instance(self):
+        """run_rigor_gate must always return a RigorGateResult."""
+        result = run_rigor_gate("s", _RETURNS_50)
+        assert isinstance(result, RigorGateResult)
+
+    def test_gate_details_populated_by_run_rigor_gate(self):
+        """gate_details on the returned result must have all four keys."""
+        result = run_rigor_gate("s", _RETURNS_80)
+        assert set(result.gate_details.keys()) == {"dsr", "pbo", "oos_sharpe", "look_ahead"}
+
+    def test_num_trials_stored_on_result(self):
+        """num_trials argument must be stored on the result."""
+        result = run_rigor_gate("s", _RETURNS_80, num_trials=7)
+        assert result.num_trials == 7
