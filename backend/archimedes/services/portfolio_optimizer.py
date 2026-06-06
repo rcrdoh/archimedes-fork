@@ -395,18 +395,74 @@ def _equal_weight(symbols: list[str], budget: float) -> dict[str, float]:
 # ─── Kelly mean-variance from price-history dict ──────────────────
 
 
+def ledoit_wolf_shrinkage(returns: np.ndarray) -> tuple[np.ndarray, float]:
+    """Ledoit-Wolf (2004) analytic shrinkage toward a scaled-identity target.
+
+    Reference: Ledoit & Wolf (2004), "A well-conditioned estimator for
+    large-dimensional covariance matrices", J. Multivariate Analysis 88(2),
+    pp. 365-411.
+
+    The sample covariance S is the maximum-likelihood estimate but is badly
+    conditioned — and often singular — when the asset count N is not small
+    relative to the number of observations T.  Mean-variance optimisation has
+    to invert Σ, and inverting an ill-conditioned S amplifies estimation error
+    into wild, unstable corner weights.  LW shrink S toward the structured
+    target F = μ·I (μ = average sample variance), picking the intensity δ* that
+    minimises the expected Frobenius loss E‖Σ* − Σ‖²:
+
+        Σ* = δ·μ·I + (1 − δ)·S,    δ* = b² / d²  ∈ [0, 1]
+
+    where d² = ‖S − μI‖²_F / N is how far S sits from the target and b² is the
+    (clamped) estimation error of S — so a short, noisy sample shrinks hard
+    toward the target while a long, clean one barely shrinks at all.  Unlike a
+    fixed shrinkage intensity, δ* is derived entirely from the data.
+
+    Args:
+        returns: (T, N) array of per-period returns. Demeaning is handled
+            internally. Requires T ≥ 2.
+
+    Returns:
+        (shrunk_cov, delta) — the (N, N) shrunk covariance on the same period
+        as the input returns, and the chosen intensity δ ∈ [0, 1].
+    """
+    X = np.asarray(returns, dtype=float)
+    if X.ndim != 2:
+        raise ValueError("returns must be a 2-D (T, N) array")
+    T, N = X.shape
+    if T < 2:
+        raise ValueError(f"need at least 2 observations, got T={T}")
+
+    X = X - X.mean(axis=0, keepdims=True)
+    S = (X.T @ X) / T  # MLE sample covariance (1/T convention, per LW2004)
+
+    mu = float(np.trace(S)) / N  # ⟨S, I⟩ — average sample variance
+    tr_s2 = float(np.trace(S @ S))
+    d2 = tr_s2 / N - mu**2  # ‖S − μI‖²_F / N — dispersion of S around target
+
+    if d2 <= 0.0:
+        # S is already isotropic (e.g. N == 1): nothing to shrink.
+        return S, 0.0
+
+    # b̄² = (1/T²)·Σ_k‖x_k x_kᵀ − S‖²_F / N, via the closed form
+    #      Σ_k‖x_k‖⁴ − T·tr(S²)  (avoids the per-observation outer-product loop).
+    sq_norms = np.sum(X**2, axis=1)  # ‖x_k‖² for each observation k
+    b_bar2 = (float(np.sum(sq_norms**2)) - T * tr_s2) / (T**2 * N)
+    b2 = max(0.0, min(b_bar2, d2))  # clamp to [0, d²] so δ ∈ [0, 1]
+
+    delta = b2 / d2
+    shrunk = delta * mu * np.eye(N) + (1.0 - delta) * S
+    return shrunk, float(delta)
+
+
 def _shrink_cov(cov: np.ndarray, intensity: float = 0.10) -> np.ndarray:
-    """Fixed-intensity diagonal shrinkage (NOT Ledoit-Wolf).
+    """Fixed-intensity diagonal shrinkage — fallback for ``ledoit_wolf_shrinkage``.
 
-    True Ledoit-Wolf (LW 2003) solves analytically for the optimal
-    intensity from the data; we use a fixed α=0.10 toward the diagonal
-    target (preserve per-asset variances, zero off-diagonals).  Cheaper
-    and deterministic; keeps the matrix positive-definite even on short
-    windows; under-shrinks for short samples and over-shrinks for long.
-
-    TODO: swap in `sklearn.covariance.LedoitWolf().fit(returns)` so
-    intensity is data-derived; tracked separately so the trade-off is
-    explicit instead of hidden in this function name.
+    Used only when the data-driven LW estimator can't run (degenerate input).
+    Shrinks a fixed α=0.10 toward the diagonal target (preserve per-asset
+    variances, zero off-diagonals): cheap, deterministic, and keeps the matrix
+    positive-definite even on short windows, at the cost of a non-optimal,
+    hard-coded intensity. Prefer :func:`ledoit_wolf_shrinkage`, whose intensity
+    is derived from the data.
     """
     diag = np.diag(np.diag(cov))
     return (1 - intensity) * cov + intensity * diag
@@ -440,9 +496,16 @@ def _build_mu_sigma_from_prices(
     returns = returns[keep]
 
     daily_mean = returns.mean().values
-    daily_cov = np.cov(returns.values, rowvar=False)
     mu_annual = daily_mean * _ANNUALIZATION
-    cov_annual = _shrink_cov(daily_cov * _ANNUALIZATION, intensity=0.10)
+    # Data-driven Ledoit-Wolf shrinkage (preferred); fall back to fixed-intensity
+    # diagonal shrinkage only if the analytic estimator can't run.
+    try:
+        daily_cov, lw_delta = ledoit_wolf_shrinkage(returns.values)
+        logger.debug("Ledoit-Wolf shrinkage: δ=%.4f (N=%d, T=%d)", lw_delta, returns.shape[1], len(returns))
+        cov_annual = daily_cov * _ANNUALIZATION
+    except Exception as exc:
+        logger.warning("Ledoit-Wolf shrinkage failed (%s); using fixed diagonal shrinkage", exc)
+        cov_annual = _shrink_cov(np.cov(returns.values, rowvar=False) * _ANNUALIZATION, intensity=0.10)
     sigma_annual = np.sqrt(np.diag(cov_annual))
     sigma_safe = np.where(sigma_annual > 1e-9, sigma_annual, 1e-9)
     corr = cov_annual / np.outer(sigma_safe, sigma_safe)

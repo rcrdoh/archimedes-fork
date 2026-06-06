@@ -28,6 +28,7 @@ from archimedes.services.portfolio_optimizer import (
     expected_max_drawdown_1y,
     kelly_optimize_from_prices,
     kelly_risk_decomposition,
+    ledoit_wolf_shrinkage,
     optimize_weights,
     value_at_risk_95_1y,
 )
@@ -190,6 +191,67 @@ class TestShrinkCov:
             for j in range(n):
                 if i != j:
                     assert abs(shrunk[i, j]) <= abs(cov[i, j]) + 1e-12
+
+
+class TestLedoitWolfShrinkage:
+    """Ledoit-Wolf (2004) analytic shrinkage toward a scaled-identity target."""
+
+    def _correlated_returns(self, T: int, N: int, seed: int = 7) -> np.ndarray:
+        """T×N returns with a non-trivial correlation structure (single factor)."""
+        rng = np.random.default_rng(seed)
+        factor = rng.normal(0, 1, (T, 1))
+        loadings = rng.uniform(0.5, 1.5, (1, N))
+        idio = rng.normal(0, 0.5, (T, N))
+        return factor @ loadings + idio
+
+    def test_delta_in_unit_interval(self):
+        X = self._correlated_returns(T=60, N=5)
+        _, delta = ledoit_wolf_shrinkage(X)
+        assert 0.0 <= delta <= 1.0
+
+    def test_symmetric_and_positive_definite(self):
+        X = self._correlated_returns(T=40, N=6)
+        shrunk, _ = ledoit_wolf_shrinkage(X)
+        np.testing.assert_allclose(shrunk, shrunk.T, atol=1e-12)
+        eigvals = np.linalg.eigvalsh(shrunk)
+        assert eigvals.min() > 0, f"not PD: min eigenvalue {eigvals.min()}"
+
+    def test_better_conditioned_than_sample_cov(self):
+        # Short sample relative to N: the raw sample covariance is poorly
+        # conditioned; LW shrinkage must reduce the condition number.
+        X = self._correlated_returns(T=30, N=10)
+        sample = np.cov(X, rowvar=False)
+        shrunk, delta = ledoit_wolf_shrinkage(X)
+        cond_sample = np.linalg.cond(sample)
+        cond_shrunk = np.linalg.cond(shrunk)
+        assert delta > 0.0, "expected non-trivial shrinkage on a short sample"
+        assert cond_shrunk < cond_sample, f"LW did not improve conditioning: {cond_shrunk} vs {cond_sample}"
+
+    def test_shrinks_harder_on_shorter_samples(self):
+        # More noise (fewer observations) ⇒ larger optimal shrinkage intensity.
+        _, delta_short = ledoit_wolf_shrinkage(self._correlated_returns(T=20, N=8))
+        _, delta_long = ledoit_wolf_shrinkage(self._correlated_returns(T=2000, N=8))
+        assert delta_short > delta_long
+
+    def test_approaches_sample_cov_on_large_T(self):
+        # With T ≫ N the sample cov is reliable, so δ → 0 and Σ* ≈ S.
+        X = self._correlated_returns(T=5000, N=4)
+        shrunk, delta = ledoit_wolf_shrinkage(X)
+        sample_mle = (lambda x: (x - x.mean(0)).T @ (x - x.mean(0)) / len(x))(X)
+        assert delta < 0.1
+        np.testing.assert_allclose(shrunk, sample_mle, rtol=0.15, atol=1e-3)
+
+    def test_single_asset_returns_variance_no_shrinkage(self):
+        rng = np.random.default_rng(3)
+        X = rng.normal(0, 1, (100, 1))
+        shrunk, delta = ledoit_wolf_shrinkage(X)
+        assert delta == 0.0
+        assert shrunk.shape == (1, 1)
+        assert shrunk[0, 0] > 0
+
+    def test_raises_on_insufficient_observations(self):
+        with pytest.raises(ValueError):
+            ledoit_wolf_shrinkage(np.array([[0.01, 0.02, 0.03]]))  # T=1
 
 
 # ---------------------------------------------------------------------------
