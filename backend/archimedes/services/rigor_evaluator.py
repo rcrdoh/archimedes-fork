@@ -255,6 +255,113 @@ def compute_oos_sharpe(
     return round(float((oos.mean() / sigma) * math.sqrt(_ANNUALIZATION)), 6)
 
 
+def _annualized_sharpe_arr(arr: np.ndarray) -> float | None:
+    """Annualized Sharpe of a 1-D return array, or None if degenerate."""
+    if len(arr) < 2:
+        return None
+    if float(np.ptp(arr)) == 0.0:
+        return None
+    sigma = float(arr.std(ddof=1))
+    if sigma <= 0.0:
+        return None
+    return float((arr.mean() / sigma) * math.sqrt(_ANNUALIZATION))
+
+
+# ─── 3b. Combinatorial Purged Cross-Validation OOS Sharpe ────────────
+
+
+def compute_cpcv_oos_sharpe(
+    cv_returns_matrix: np.ndarray | list[list[float]] | None = None,
+    n_groups: int = 6,
+    test_groups: int = 2,
+    test_bounds: list[np.ndarray] | list[list[int]] | None = None,
+    cv_splits: list[tuple[int, ...]] | None = None,
+) -> dict[str, float] | None:
+    """Combinatorial Purged Cross-Validation OOS Sharpe (López de Prado, AFML ch. 12).
+
+    Unlike naive block subsampling on a static returns array, true CPCV requires
+    a matrix of out-of-sample predictions from models trained on C(N, k) splits.
+    This function assembles C(N-1, k-1) continuous backtest paths from those
+    splits, preventing artificial variance and evaluating path-to-path stability.
+
+    Note on embargo: Embargoing (dropping bars after test sets) must be applied
+    upstream during the generation of `cv_returns_matrix` to prevent serial
+    correlation leakage into the training sets. Path assembly only combines
+    the resulting OOS test blocks.
+
+    Args:
+        cv_returns_matrix: Shape (S, T) where S = C(n_groups, test_groups).
+            If a 1D array of static returns is passed (e.g. from a single backtest),
+            this correctly rejects the calculation, as static CPCV is mathematically
+            invalid (it generates identical paths).
+        n_groups: Number of contiguous partitions (N). Must be >= 2.
+        test_groups: Blocks held out per split (k), 1 <= k < N.
+        test_bounds: Explicit list of N arrays containing the exact time indices for
+            each block to prevent look-ahead bias from misaligned uniform splits.
+        cv_splits: Explicit list of S tuples mapping each matrix row to the test
+            blocks it held out, preventing lexicographical misalignment.
+
+    Returns:
+        Dict with metrics, or None if invalid matrix or static returns provided.
+    """
+    if cv_returns_matrix is None or len(cv_returns_matrix) == 0:
+        return None
+
+    arr = np.asarray(cv_returns_matrix, dtype=float)
+    if arr.ndim != 2:
+        return None
+
+    S, T = arr.shape
+    if n_groups < 2 or not (1 <= test_groups < n_groups):
+        return None
+    if T < n_groups * 5:  # need >= ~5 bars per block to form a Sharpe
+        return None
+
+    if cv_splits is not None:
+        splits = cv_splits
+    else:
+        splits = list(combinations(range(n_groups), test_groups))
+        
+    if S != len(splits):
+        return None
+
+    if test_bounds is not None:
+        bounds = [np.asarray(b, dtype=int) for b in test_bounds]
+        if len(bounds) != n_groups:
+            return None
+    else:
+        bounds = np.array_split(np.arange(T), n_groups)
+        
+    n_paths = math.comb(n_groups - 1, test_groups - 1)
+
+    paths = np.zeros((n_paths, T))
+
+    for i in range(n_groups):
+        splits_with_i = [s_idx for s_idx, combo in enumerate(splits) if i in combo]
+        paths[:, bounds[i]] = arr[np.ix_(splits_with_i, bounds[i])]
+
+    oos_sharpes: list[float] = []
+    for p in range(n_paths):
+        s = _annualized_sharpe_arr(paths[p])
+        if s is not None and math.isfinite(s):
+            oos_sharpes.append(s)
+
+    if not oos_sharpes:
+        return None
+
+    mean_oos = float(np.mean(oos_sharpes))
+    positive_fraction = float(sum(s > 0.0 for s in oos_sharpes) / len(oos_sharpes))
+
+    return {
+        "mean_oos_sharpe": round(mean_oos, 6),
+        "std_oos_sharpe": round(float(np.std(oos_sharpes, ddof=1)) if len(oos_sharpes) > 1 else 0.0, 6),
+        "positive_fraction": round(positive_fraction, 6),
+        "mean_is_sharpe": 0.0,
+        "oos_is_ratio": 0.0,
+        "n_paths": len(oos_sharpes),
+    }
+
+
 # ─── 4. Kelly Criterion position sizing ─────────────────────────────
 
 
@@ -427,6 +534,8 @@ class RigorGateResult:
         look_ahead_passed: bool = False,
         in_sample_sharpe: float | None = None,
         paper_claimed_sharpe: float | None = None,
+        cpcv_mean_oos_sharpe: float | None = None,
+        cpcv_positive_fraction: float | None = None,
     ) -> None:
         self.strategy_id = strategy_id
         self.deflated_sharpe = deflated_sharpe
@@ -437,6 +546,11 @@ class RigorGateResult:
         self.look_ahead_passed = look_ahead_passed
         self.in_sample_sharpe = in_sample_sharpe
         self.paper_claimed_sharpe = paper_claimed_sharpe
+        # Combinatorial Purged CV results (None when the series is too short to
+        # partition). When present, the gate additionally requires that the
+        # strategy's edge holds OOS across a majority of CPCV paths.
+        self.cpcv_mean_oos_sharpe = cpcv_mean_oos_sharpe
+        self.cpcv_positive_fraction = cpcv_positive_fraction
 
     @property
     def passes_all(self) -> bool:
@@ -451,6 +565,10 @@ class RigorGateResult:
         if self.oos_sharpe is None:
             return False
         if self.in_sample_sharpe and self.in_sample_sharpe > 0 and self.oos_sharpe / self.in_sample_sharpe < 0.5:
+            return False
+        # Combinatorial Purged CV: when computed, the edge must hold OOS across a
+        # majority of held-out paths (not just the single 70/30 tail above).
+        if self.cpcv_positive_fraction is not None and self.cpcv_positive_fraction < 0.5:
             return False
         return self.look_ahead_passed
 
@@ -483,6 +601,17 @@ class RigorGateResult:
         else:
             details["oos_sharpe"] = "MISSING"
 
+        if self.cpcv_positive_fraction is not None:
+            if self.cpcv_positive_fraction >= 0.5:
+                details["cpcv"] = (
+                    f"PASS (OOS+ {self.cpcv_positive_fraction:.0%} of paths, "
+                    f"mean OOS SR={self.cpcv_mean_oos_sharpe:.2f})"
+                )
+            else:
+                details["cpcv"] = f"FAIL (OOS+ only {self.cpcv_positive_fraction:.0%} of paths, need ≥ 50%)"
+        else:
+            details["cpcv"] = "MISSING"
+
         details["look_ahead"] = "PASS" if self.look_ahead_passed else "FAIL"
 
         return details
@@ -508,8 +637,9 @@ def run_rigor_gate(
     # 2. PBO — use pre-computed library-level score
     pbo_score = pbo_scores.get(strategy_id) if pbo_scores else None
 
-    # 3. Walk-forward OOS Sharpe
+    # 3. Walk-forward OOS Sharpe (single holdout) + Combinatorial Purged CV
     oos_sharpe = compute_oos_sharpe(daily_returns)
+    cpcv = compute_cpcv_oos_sharpe(daily_returns)
 
     # 4. Look-ahead audit
     if strategy_code is not None:
@@ -540,15 +670,18 @@ def run_rigor_gate(
         look_ahead_passed=la_passed,
         in_sample_sharpe=in_sample_sharpe,
         paper_claimed_sharpe=paper_claimed_sharpe,
+        cpcv_mean_oos_sharpe=cpcv["mean_oos_sharpe"] if cpcv else None,
+        cpcv_positive_fraction=cpcv["positive_fraction"] if cpcv else None,
     )
 
     logger.info(
-        "Rigor gate [%s]: %s (DSR p=%s, PBO=%s, OOS=%s, LA=%s)",
+        "Rigor gate [%s]: %s (DSR p=%s, PBO=%s, OOS=%s, CPCV+=%s, LA=%s)",
         strategy_id,
         "PASS" if result.passes_all else "FAIL",
         dsr_p_value,
         pbo_score,
         oos_sharpe,
+        cpcv["positive_fraction"] if cpcv else None,
         la_passed,
     )
 
