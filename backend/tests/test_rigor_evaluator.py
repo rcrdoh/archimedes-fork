@@ -20,6 +20,7 @@ No network, no database, no on-chain dependencies.
 
 from __future__ import annotations
 
+import ast
 import math
 
 import numpy as np
@@ -27,6 +28,8 @@ import pytest
 from archimedes.services.rigor_evaluator import (
     RigorGateResult,
     _dsr_from_stats,
+    _get_func_name,
+    _sharpe_per_col,
     compute_dsr,
     compute_kelly_fraction,
     compute_oos_sharpe,
@@ -468,10 +471,6 @@ class TestRigorGate:
 
 
 # ─── Additional coverage: gate_details branches + run_rigor_gate paths ──────
-# New symbols used below that are not in the existing import block:
-import ast
-
-from archimedes.services.rigor_evaluator import _dsr_from_stats, _get_func_name, _sharpe_per_col
 
 # Deterministic return series (no np.random to avoid VoidDType issue).
 # _RETURNS_50: DSR p=0.917 (below 0.95 gate) — used for structural tests.
