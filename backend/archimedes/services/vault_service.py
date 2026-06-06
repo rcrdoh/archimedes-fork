@@ -71,7 +71,7 @@ class VaultService:
         # symbols, creators, and created_at instead of the "Vault T1"/now()
         # placeholders that _metrics_to_summary defaults to. One query for all
         # addresses, not one per vault.
-        metadata_by_address: dict[str, "VaultMetadata"] = {}
+        metadata_by_address: dict[str, VaultMetadata] = {}
         if vault_addresses:
             try:
                 from archimedes.db import get_session

@@ -122,7 +122,7 @@ class StrategyPassportRecord(Base):
         Index("ix_passport_method", "generation_method"),
     )
 
-    def to_strategy_passport(self) -> "StrategyPassport":
+    def to_strategy_passport(self) -> StrategyPassport:
         """Convert ORM record to the StrategyPassport dataclass."""
         from archimedes.models.strategy import (
             PositionSizing,

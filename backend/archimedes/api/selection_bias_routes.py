@@ -10,7 +10,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, Response
 
 from archimedes.api.limiter import limiter
-
 from archimedes.services.rigor_evaluator import (
     compute_pbo,
     run_rigor_gate,

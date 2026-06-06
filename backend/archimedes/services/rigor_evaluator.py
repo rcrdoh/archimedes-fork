@@ -492,6 +492,7 @@ def look_ahead_audit(strategy_code: str) -> tuple[bool, list[str]]:
     1. Forward data access patterns (e.g., self.data.close[+N])
     2. Calls to functions with look-ahead-suggestive names
     3. Direct indexing into data feeds beyond current bar
+    4. Negative shifts (e.g., pandas df.shift(-1)) which leak future data.
 
     Args:
         strategy_code: Python source code of the strategy.
@@ -511,6 +512,35 @@ def look_ahead_audit(strategy_code: str) -> tuple[bool, list[str]]:
             func_name = _get_func_name(node.func)
             if func_name and func_name.lower() in _LOOK_AHEAD_FUNCTIONS:
                 warnings.append(f"Line {node.lineno}: call to '{func_name}' may indicate look-ahead bias")
+
+            # Check for pandas negative shifts, e.g., shift(-1)
+            if func_name == "shift":
+
+                def _is_negative(val_node: ast.AST) -> bool | int | float:
+                    if isinstance(val_node, ast.UnaryOp) and isinstance(val_node.op, ast.USub):
+                        if isinstance(val_node.operand, ast.Constant) and isinstance(
+                            val_node.operand.value, (int, float)
+                        ):
+                            return val_node.operand.value
+                    elif (
+                        isinstance(val_node, ast.Constant)
+                        and isinstance(val_node.value, (int, float))
+                        and val_node.value < 0
+                    ):
+                        return abs(val_node.value)
+                    return False
+
+                # The first positional argument is 'periods'
+                if len(node.args) > 0:
+                    val = _is_negative(node.args[0])
+                    if val is not False:
+                        warnings.append(f"Line {node.lineno}: negative shift(-{val}) references future data")
+                # Alternatively, check keyword arguments for 'periods'
+                for kw in node.keywords:
+                    if kw.arg == "periods":
+                        val = _is_negative(kw.value)
+                        if val is not False:
+                            warnings.append(f"Line {node.lineno}: negative shift(-{val}) references future data")
 
         if isinstance(node, ast.Subscript):
             slice_val = node.slice

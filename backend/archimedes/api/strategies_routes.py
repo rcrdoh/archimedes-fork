@@ -19,13 +19,13 @@ from archimedes.api._route_helpers import (
     persist_trace_off_chain,
     strategy_provider,
 )
-from archimedes.api.limiter import limiter
 from archimedes.api.architect_schemas import (
     ConstructionSelectionResponse,
     ConstructionTraceResponse,
     StrategyConstructionRequest,
     StrategyConstructionResponse,
 )
+from archimedes.api.limiter import limiter
 from archimedes.api.schemas import (
     SignalResponse,
     StrategyListResponse,

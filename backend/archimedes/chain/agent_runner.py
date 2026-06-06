@@ -990,7 +990,7 @@ class StrategyRunner:
         all_signals: list[StrategySignals],
         regime: str,
         trades: list[TradeOrder],
-        portfolio: "Portfolio | None" = None,
+        portfolio: Portfolio | None = None,
     ) -> str:
         """Build human-readable reasoning from strategy signals.
 

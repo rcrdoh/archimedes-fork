@@ -916,7 +916,7 @@ async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief) -> tuple
     return strategy_id, trace_hash
 
 
-async def _backtest_and_persist(c: _CandidateResult, strategy_id: str, emit: "_Emitter") -> None:
+async def _backtest_and_persist(c: _CandidateResult, strategy_id: str, emit: _Emitter) -> None:
     """Backtest the generated strategy on real multi-year data and persist results.
 
     Closes the "Pending Backtest" gap on the Library page. The agent only
