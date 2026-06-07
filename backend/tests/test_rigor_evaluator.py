@@ -357,6 +357,20 @@ def test_sharpe_ci_rejects_invalid_confidence():
 
 class TestLookAheadAudit:
     def test_clean_code(self) -> None:
+        # Only index [0] (current bar) — no negative indices, no positive indices.
+        code = """
+class MyStrategy(bt.Strategy):
+    def next(self):
+        if self.data.close[0] > 100:
+            self.buy()
+"""
+        passed, warnings = look_ahead_audit(code)
+        assert passed
+        assert len(warnings) == 0
+
+    def test_negative_index_emits_warning(self) -> None:
+        # Negative indices are safe in backtrader (bars-ago) but would be
+        # last-row future data in pandas.  The audit flags them for human review.
         code = """
 class MyStrategy(bt.Strategy):
     def next(self):
@@ -364,8 +378,8 @@ class MyStrategy(bt.Strategy):
             self.buy()
 """
         passed, warnings = look_ahead_audit(code)
-        assert passed
-        assert len(warnings) == 0
+        assert not passed
+        assert any("negative index" in w.lower() for w in warnings)
 
     def test_positive_index(self) -> None:
         code = """

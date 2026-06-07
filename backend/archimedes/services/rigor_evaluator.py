@@ -593,7 +593,14 @@ def look_ahead_audit(strategy_code: str) -> tuple[bool, list[str]]:
         if isinstance(node, ast.Subscript):
             slice_val = node.slice
             if isinstance(slice_val, ast.UnaryOp) and isinstance(slice_val.op, ast.USub):
-                pass
+                # Negative indices are safe in backtrader ([-N] = N bars ago) but
+                # would reference the last row of future data in a pandas DataFrame
+                # (df.iloc[-1], df["col"][-1]).  Flag so reviewers can verify the
+                # calling context before promotion to Tier-1.
+                warnings.append(
+                    f"Line {node.lineno}: negative index — verify this is backtrader "
+                    f"(bars-ago) not pandas (last-row) access."
+                )
             elif isinstance(slice_val, ast.Constant) and isinstance(slice_val.value, int) and slice_val.value > 0:
                 warnings.append(
                     f"Line {node.lineno}: positive data index [{slice_val.value}] may reference future bars"
