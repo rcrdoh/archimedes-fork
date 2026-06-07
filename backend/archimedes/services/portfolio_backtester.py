@@ -471,7 +471,7 @@ def backtest_portfolio(
             "start": start_iso,
             "end": end_iso,
             "transaction_cost_bps": tx_cost_bps,
-            "slippage_bps": 0,
+            "slippage_bps": tx_cost_bps,
             "lookahead_guard": "static_rebalance_no_signal_shift",
             "walk_forward_split": 0.70,
             "data_source": "yfinance",
