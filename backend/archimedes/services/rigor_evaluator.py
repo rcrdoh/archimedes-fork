@@ -38,8 +38,9 @@ _ANNUALIZATION = 252
 
 
 def compute_dsr(
-    daily_returns: list[float],
+    daily_returns: list[float] | np.ndarray,
     num_trials: int,
+    average_correlation: float = 0.0,
 ) -> tuple[float | None, float | None]:
     """Deflated Sharpe Ratio (Bailey & López de Prado 2014).
 
@@ -52,6 +53,9 @@ def compute_dsr(
             if this is the only strategy ever evaluated — no correction
             will be applied. The orchestrator should pass
             len(strategy_library) so the correction is meaningful.
+        average_correlation: The average pairwise correlation between the
+            trials. Used to compute the effective number of independent
+            trials (Bailey-López de Prado variance-of-trials correlation model).
 
     Returns:
         (deflated_sharpe_ratio, dsr_p_value)
@@ -62,6 +66,9 @@ def compute_dsr(
             Gate threshold is 0.95 per passes_rigor_gate.
         Both are None if data is insufficient (T < 4) or degenerate.
     """
+    if num_trials < 1:
+        raise ValueError("num_trials must be >= 1")
+
     arr = np.asarray(daily_returns, dtype=float)
     T = len(arr)
     if T < 4:
@@ -84,7 +91,11 @@ def compute_dsr(
     # shift the denominator by a constant (3/4)·ŜR² and bias every DSR.
     gamma_4 = float(sp_kurtosis(arr, fisher=False))  # raw (Pearson) kurtosis
 
-    dsr, p_val = _dsr_from_stats(SR_hat, T, gamma_3, gamma_4, num_trials)
+    if math.isnan(average_correlation):
+        average_correlation = 0.0
+    average_correlation = max(0.0, min(1.0, average_correlation))
+
+    dsr, p_val = _dsr_from_stats(SR_hat, T, gamma_3, gamma_4, num_trials, average_correlation)
     return dsr, p_val
 
 
@@ -94,6 +105,7 @@ def _dsr_from_stats(
     gamma_3: float,
     gamma_4: float,
     N: int,
+    average_correlation: float = 0.0,
 ) -> tuple[float | None, float | None]:
     """Core DSR formula — exposed for direct unit-testing against spec cases.
 
@@ -105,6 +117,7 @@ def _dsr_from_stats(
             for normal returns. This matches Bailey-LdP (2014) eq. 8 directly;
             do NOT pass Fisher excess kurtosis here (it would bias the denom).
         N: Number of trials in the selection set.
+        average_correlation: Correlation scalar for variance of trials.
 
     Returns:
         (deflated_sharpe_annualized, dsr_p_value) or (None, None).
@@ -122,6 +135,11 @@ def _dsr_from_stats(
         phi_inv_1 = float(norm.ppf(1.0 - 1.0 / N))
         phi_inv_2 = float(norm.ppf(1.0 - 1.0 / (N * math.e)))
         E_max_N = (1.0 - _EULER_MASCHERONI) * phi_inv_1 + _EULER_MASCHERONI * phi_inv_2
+
+        # Apply Bailey-López de Prado correlation adjustment:
+        # E[max] of correlated variables scales by sqrt(1 - rho)
+        if average_correlation > 0.0:
+            E_max_N *= math.sqrt(max(0.0, 1.0 - average_correlation))
 
     # SR_zero: expected best-of-N under the null, scaled to per-bar variance
     # (under iid normal returns, per-bar SR has variance 1/(T-1))
@@ -255,6 +273,158 @@ def compute_oos_sharpe(
     return round(float((oos.mean() / sigma) * math.sqrt(_ANNUALIZATION)), 6)
 
 
+def _annualized_sharpe_arr(arr: np.ndarray) -> float | None:
+    """Annualized Sharpe of a 1-D return array, or None if degenerate."""
+    if len(arr) < 2:
+        return None
+    if float(np.ptp(arr)) == 0.0:
+        return None
+    sigma = float(arr.std(ddof=1))
+    if sigma <= 0.0:
+        return None
+    return float((arr.mean() / sigma) * math.sqrt(_ANNUALIZATION))
+
+
+def compute_average_pairwise_correlation(
+    returns: dict[str, list[float]] | np.ndarray | list[list[float]],
+) -> float:
+    """Average off-diagonal Pearson correlation across a set of return series.
+
+    Feeds the Deflated Sharpe Ratio's effective-number-of-trials correction
+    (Bailey & López de Prado 2014): the expected best-of-N null Sharpe shrinks
+    by ``sqrt(1 - rho_bar)`` when the N trials are correlated, because correlated
+    trials carry fewer *independent* bets than their nominal count. The caller
+    that holds the selection set (the strategy library, or a parameter-variant
+    grid) computes this and passes it into ``compute_dsr`` / ``run_rigor_gate``.
+
+    Args:
+        returns: Either ``{id: series}`` or a 2-D array/list (rows = trials,
+            cols = time). Series are truncated to the shortest length.
+
+    Returns:
+        Mean pairwise correlation clamped to ``[0.0, 1.0]`` — negative
+        (diversifying) correlations and NaNs collapse to ``0.0``, a conservative
+        "no penalty relief" default. Returns ``0.0`` for < 2 usable series.
+    """
+    series = list(returns.values()) if isinstance(returns, dict) else list(returns)
+    arrs = [np.asarray(s, dtype=float) for s in series]
+    arrs = [a for a in arrs if a.size >= 2]
+    if len(arrs) < 2:
+        return 0.0
+
+    T = min(a.size for a in arrs)
+    if T < 2:
+        return 0.0
+
+    matrix = np.vstack([a[:T] for a in arrs])
+    # Drop constant rows — they produce NaN correlations. Use peak-to-peak
+    # (exactly 0 for identical values) rather than variance, which carries a
+    # tiny float residual for a constant series.
+    matrix = matrix[np.ptp(matrix, axis=1) > 0.0]
+    if matrix.shape[0] < 2:
+        return 0.0
+
+    corr = np.corrcoef(matrix)
+    upper = corr[np.triu_indices(corr.shape[0], k=1)]
+    upper = upper[np.isfinite(upper)]
+    if upper.size == 0:
+        return 0.0
+
+    return max(0.0, min(1.0, float(np.mean(upper))))
+
+
+# ─── 3b. Combinatorial Purged Cross-Validation OOS Sharpe ────────────
+
+
+def compute_cpcv_oos_sharpe(
+    cv_returns_matrix: np.ndarray | list[list[float]] | None = None,
+    n_groups: int = 6,
+    test_groups: int = 2,
+    test_bounds: list[np.ndarray] | list[list[int]] | None = None,
+    cv_splits: list[tuple[int, ...]] | None = None,
+) -> dict[str, float] | None:
+    """Combinatorial Purged Cross-Validation OOS Sharpe (López de Prado, AFML ch. 12).
+
+    Unlike naive block subsampling on a static returns array, true CPCV requires
+    a matrix of out-of-sample predictions from models trained on C(N, k) splits.
+    This function assembles C(N-1, k-1) continuous backtest paths from those
+    splits, preventing artificial variance and evaluating path-to-path stability.
+
+    Note on embargo: Embargoing (dropping bars after test sets) must be applied
+    upstream during the generation of `cv_returns_matrix` to prevent serial
+    correlation leakage into the training sets. Path assembly only combines
+    the resulting OOS test blocks.
+
+    Args:
+        cv_returns_matrix: Shape (S, T) where S = C(n_groups, test_groups).
+            If a 1D array of static returns is passed (e.g. from a single backtest),
+            this correctly rejects the calculation, as static CPCV is mathematically
+            invalid (it generates identical paths).
+        n_groups: Number of contiguous partitions (N). Must be >= 2.
+        test_groups: Blocks held out per split (k), 1 <= k < N.
+        test_bounds: Explicit list of N arrays containing the exact time indices for
+            each block to prevent look-ahead bias from misaligned uniform splits.
+        cv_splits: Explicit list of S tuples mapping each matrix row to the test
+            blocks it held out, preventing lexicographical misalignment.
+
+    Returns:
+        Dict with metrics, or None if invalid matrix or static returns provided.
+    """
+    if cv_returns_matrix is None or len(cv_returns_matrix) == 0:
+        return None
+
+    arr = np.asarray(cv_returns_matrix, dtype=float)
+    if arr.ndim != 2:
+        return None
+
+    S, T = arr.shape
+    if n_groups < 2 or not (1 <= test_groups < n_groups):
+        return None
+    if n_groups * 5 > T:  # need >= ~5 bars per block to form a Sharpe
+        return None
+
+    splits = cv_splits if cv_splits is not None else list(combinations(range(n_groups), test_groups))
+
+    if len(splits) != S:
+        return None
+
+    if test_bounds is not None:
+        bounds = [np.asarray(b, dtype=int) for b in test_bounds]
+        if len(bounds) != n_groups:
+            return None
+    else:
+        bounds = np.array_split(np.arange(T), n_groups)
+
+    n_paths = math.comb(n_groups - 1, test_groups - 1)
+
+    paths = np.zeros((n_paths, T))
+
+    for i in range(n_groups):
+        splits_with_i = [s_idx for s_idx, combo in enumerate(splits) if i in combo]
+        paths[:, bounds[i]] = arr[np.ix_(splits_with_i, bounds[i])]
+
+    oos_sharpes: list[float] = []
+    for p in range(n_paths):
+        s = _annualized_sharpe_arr(paths[p])
+        if s is not None and math.isfinite(s):
+            oos_sharpes.append(s)
+
+    if not oos_sharpes:
+        return None
+
+    mean_oos = float(np.mean(oos_sharpes))
+    positive_fraction = float(sum(s > 0.0 for s in oos_sharpes) / len(oos_sharpes))
+
+    return {
+        "mean_oos_sharpe": round(mean_oos, 6),
+        "std_oos_sharpe": round(float(np.std(oos_sharpes, ddof=1)) if len(oos_sharpes) > 1 else 0.0, 6),
+        "positive_fraction": round(positive_fraction, 6),
+        "mean_is_sharpe": 0.0,
+        "oos_is_ratio": 0.0,
+        "n_paths": len(oos_sharpes),
+    }
+
+
 # ─── 4. Kelly Criterion position sizing ─────────────────────────────
 
 
@@ -370,6 +540,7 @@ def look_ahead_audit(strategy_code: str) -> tuple[bool, list[str]]:
     1. Forward data access patterns (e.g., self.data.close[+N])
     2. Calls to functions with look-ahead-suggestive names
     3. Direct indexing into data feeds beyond current bar
+    4. Negative shifts (e.g., pandas df.shift(-1)) which leak future data.
 
     Args:
         strategy_code: Python source code of the strategy.
@@ -389,6 +560,35 @@ def look_ahead_audit(strategy_code: str) -> tuple[bool, list[str]]:
             func_name = _get_func_name(node.func)
             if func_name and func_name.lower() in _LOOK_AHEAD_FUNCTIONS:
                 warnings.append(f"Line {node.lineno}: call to '{func_name}' may indicate look-ahead bias")
+
+            # Check for pandas negative shifts, e.g., shift(-1)
+            if func_name == "shift":
+
+                def _is_negative(val_node: ast.AST) -> bool | int | float:
+                    if isinstance(val_node, ast.UnaryOp) and isinstance(val_node.op, ast.USub):
+                        if isinstance(val_node.operand, ast.Constant) and isinstance(
+                            val_node.operand.value, (int, float)
+                        ):
+                            return val_node.operand.value
+                    elif (
+                        isinstance(val_node, ast.Constant)
+                        and isinstance(val_node.value, (int, float))
+                        and val_node.value < 0
+                    ):
+                        return abs(val_node.value)
+                    return False
+
+                # The first positional argument is 'periods'
+                if len(node.args) > 0:
+                    val = _is_negative(node.args[0])
+                    if val is not False:
+                        warnings.append(f"Line {node.lineno}: negative shift(-{val}) references future data")
+                # Alternatively, check keyword arguments for 'periods'
+                for kw in node.keywords:
+                    if kw.arg == "periods":
+                        val = _is_negative(kw.value)
+                        if val is not False:
+                            warnings.append(f"Line {node.lineno}: negative shift(-{val}) references future data")
 
         if isinstance(node, ast.Subscript):
             slice_val = node.slice
@@ -427,6 +627,8 @@ class RigorGateResult:
         look_ahead_passed: bool = False,
         in_sample_sharpe: float | None = None,
         paper_claimed_sharpe: float | None = None,
+        cpcv_mean_oos_sharpe: float | None = None,
+        cpcv_positive_fraction: float | None = None,
     ) -> None:
         self.strategy_id = strategy_id
         self.deflated_sharpe = deflated_sharpe
@@ -437,6 +639,11 @@ class RigorGateResult:
         self.look_ahead_passed = look_ahead_passed
         self.in_sample_sharpe = in_sample_sharpe
         self.paper_claimed_sharpe = paper_claimed_sharpe
+        # Combinatorial Purged CV results (None when the series is too short to
+        # partition). When present, the gate additionally requires that the
+        # strategy's edge holds OOS across a majority of CPCV paths.
+        self.cpcv_mean_oos_sharpe = cpcv_mean_oos_sharpe
+        self.cpcv_positive_fraction = cpcv_positive_fraction
 
     @property
     def passes_all(self) -> bool:
@@ -451,6 +658,10 @@ class RigorGateResult:
         if self.oos_sharpe is None:
             return False
         if self.in_sample_sharpe and self.in_sample_sharpe > 0 and self.oos_sharpe / self.in_sample_sharpe < 0.5:
+            return False
+        # Combinatorial Purged CV: when computed, the edge must hold OOS across a
+        # majority of held-out paths (not just the single 70/30 tail above).
+        if self.cpcv_positive_fraction is not None and self.cpcv_positive_fraction < 0.5:
             return False
         return self.look_ahead_passed
 
@@ -483,6 +694,17 @@ class RigorGateResult:
         else:
             details["oos_sharpe"] = "MISSING"
 
+        if self.cpcv_positive_fraction is not None:
+            if self.cpcv_positive_fraction >= 0.5:
+                details["cpcv"] = (
+                    f"PASS (OOS+ {self.cpcv_positive_fraction:.0%} of paths, "
+                    f"mean OOS SR={self.cpcv_mean_oos_sharpe:.2f})"
+                )
+            else:
+                details["cpcv"] = f"FAIL (OOS+ only {self.cpcv_positive_fraction:.0%} of paths, need ≥ 50%)"
+        else:
+            details["cpcv"] = "MISSING"
+
         details["look_ahead"] = "PASS" if self.look_ahead_passed else "FAIL"
 
         return details
@@ -497,19 +719,37 @@ def run_rigor_gate(
     in_sample_sharpe: float | None = None,
     paper_claimed_sharpe: float | None = None,
     look_ahead_audit_passed: bool | None = None,
+    average_correlation: float = 0.0,
+    cv_returns_matrix: np.ndarray | list[list[float]] | None = None,
 ) -> RigorGateResult:
     """Run all four selection-bias checks on a strategy.
 
     Main entry point called by the orchestrator and API routes.
+
+    Args:
+        average_correlation: Mean pairwise correlation among the ``num_trials``
+            trials in the selection set, used by the DSR effective-N correction.
+            The caller holds the library/variant returns and computes it via
+            ``compute_average_pairwise_correlation``; ``0.0`` (the default)
+            applies no relief — conservative for an unknown correlation.
+        cv_returns_matrix: A 2-D ``(S, T)`` matrix of per-split out-of-sample
+            returns (rows = ``C(n_groups, test_groups)`` combinatorial splits)
+            for the CPCV path-stability check. CPCV is mathematically invalid on
+            a single static 1-D series, so when no combinatorial paths are
+            supplied this stays ``None`` and the CPCV gate is honestly reported
+            as ``MISSING`` rather than silently passing.
     """
-    # 1. DSR (using canonical Pearson kurtosis implementation)
-    deflated_sharpe, dsr_p_value = compute_dsr(daily_returns, num_trials)
+    # 1. DSR — effective-N correction relaxes the multiple-testing penalty when
+    #    the trials are correlated (fewer independent bets than the nominal N).
+    deflated_sharpe, dsr_p_value = compute_dsr(daily_returns, num_trials, average_correlation)
 
     # 2. PBO — use pre-computed library-level score
     pbo_score = pbo_scores.get(strategy_id) if pbo_scores else None
 
-    # 3. Walk-forward OOS Sharpe
+    # 3. Walk-forward OOS Sharpe (single holdout) + Combinatorial Purged CV.
+    #    CPCV runs only when a real 2-D combinatorial OOS matrix is supplied.
     oos_sharpe = compute_oos_sharpe(daily_returns)
+    cpcv = compute_cpcv_oos_sharpe(cv_returns_matrix)
 
     # 4. Look-ahead audit
     if strategy_code is not None:
@@ -540,15 +780,18 @@ def run_rigor_gate(
         look_ahead_passed=la_passed,
         in_sample_sharpe=in_sample_sharpe,
         paper_claimed_sharpe=paper_claimed_sharpe,
+        cpcv_mean_oos_sharpe=cpcv["mean_oos_sharpe"] if cpcv else None,
+        cpcv_positive_fraction=cpcv["positive_fraction"] if cpcv else None,
     )
 
     logger.info(
-        "Rigor gate [%s]: %s (DSR p=%s, PBO=%s, OOS=%s, LA=%s)",
+        "Rigor gate [%s]: %s (DSR p=%s, PBO=%s, OOS=%s, CPCV+=%s, LA=%s)",
         strategy_id,
         "PASS" if result.passes_all else "FAIL",
         dsr_p_value,
         pbo_score,
         oos_sharpe,
+        cpcv["positive_fraction"] if cpcv else None,
         la_passed,
     )
 

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Request, Response
 
 from archimedes.api.limiter import limiter
 from archimedes.services.rigor_evaluator import (
+    compute_average_pairwise_correlation,
     compute_pbo,
     run_rigor_gate,
 )
@@ -124,6 +125,11 @@ async def evaluate_rigor_gate():
 
     num_trials = max(len(valid_returns), 1)
 
+    # The strategy library is the multiple-testing selection set; correlated
+    # strategies (overlapping assets/signals) carry fewer independent trials, so
+    # the DSR effective-N correction relaxes the penalty by sqrt(1 - rho_bar).
+    avg_correlation = compute_average_pairwise_correlation(valid_returns) if len(valid_returns) >= 2 else 0.0
+
     # Run rigor gate for each strategy
     results: list[StrategyRigorResult] = []
     for s in strategies:
@@ -164,6 +170,7 @@ async def evaluate_rigor_gate():
             strategy_code=strategy_code_map.get(s.id),
             in_sample_sharpe=in_sample_sharpe,
             paper_claimed_sharpe=s.paper_claimed_sharpe,
+            average_correlation=avg_correlation,
         )
 
         # Persist rigor gate results to DB

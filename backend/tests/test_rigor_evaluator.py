@@ -30,6 +30,8 @@ from archimedes.services.rigor_evaluator import (
     _dsr_from_stats,
     _get_func_name,
     _sharpe_per_col,
+    compute_average_pairwise_correlation,
+    compute_cpcv_oos_sharpe,
     compute_dsr,
     compute_kelly_fraction,
     compute_oos_sharpe,
@@ -788,7 +790,7 @@ class TestGateDetailsBranches:
         """gate_details must always contain all four gate keys."""
         r = RigorGateResult("s")
         keys = set(r.gate_details.keys())
-        assert keys == {"dsr", "pbo", "oos_sharpe", "look_ahead"}
+        assert keys == {"dsr", "pbo", "oos_sharpe", "look_ahead", "cpcv"}
 
 
 # ─── run_rigor_gate — all branches in lines 509-555 ──────────────────
@@ -874,9 +876,119 @@ class TestRunRigorGatePaths:
     def test_gate_details_populated_by_run_rigor_gate(self):
         """gate_details on the returned result must have all four keys."""
         result = run_rigor_gate("s", _RETURNS_80)
-        assert set(result.gate_details.keys()) == {"dsr", "pbo", "oos_sharpe", "look_ahead"}
+        assert set(result.gate_details.keys()) == {"dsr", "pbo", "oos_sharpe", "look_ahead", "cpcv"}
 
     def test_num_trials_stored_on_result(self):
         """num_trials argument must be stored on the result."""
         result = run_rigor_gate("s", _RETURNS_80, num_trials=7)
         assert result.num_trials == 7
+
+
+# ─── CPCV Edge Cases ──────────────────────────────────────────────────
+
+
+def test_cpcv_returns_none_for_empty_array():
+    assert compute_cpcv_oos_sharpe([]) is None
+
+
+def test_cpcv_returns_none_for_single_asset_zero_variance():
+    assert compute_cpcv_oos_sharpe([[0.01] * 100] * 15) is None
+
+
+def test_cpcv_returns_none_for_infinite_values():
+    # Numpy calculations on inf cause warnings and usually return nan/inf std
+    res = compute_cpcv_oos_sharpe([[0.01] * 50 + [np.inf] * 50] * 15)
+    assert res is None or res["mean_oos_sharpe"] is None or math.isnan(res["mean_oos_sharpe"])
+
+
+def test_cpcv_returns_none_for_insufficient_splits():
+    assert compute_cpcv_oos_sharpe([[0.01, -0.01] * 2] * 15, n_groups=6, test_groups=2) is None
+
+
+# ─── Effective-N correlation wiring (DSR) ────────────────────────────
+
+
+class TestAveragePairwiseCorrelation:
+    """compute_average_pairwise_correlation — the input to the DSR effective-N
+    correction that was previously never computed by any caller."""
+
+    def test_identical_series_correlation_is_one(self):
+        s = [0.01, -0.02, 0.03, 0.0, 0.015, -0.005]
+        assert compute_average_pairwise_correlation({"a": s, "b": s}) == pytest.approx(1.0, abs=1e-9)
+
+    def test_independent_series_correlation_near_zero(self):
+        rng = np.random.default_rng(0)
+        m = {f"s{i}": list(rng.normal(0.0, 0.01, 600)) for i in range(8)}
+        assert 0.0 <= compute_average_pairwise_correlation(m) < 0.15
+
+    def test_negative_correlation_clamped_to_zero(self):
+        s = [0.01, -0.02, 0.03, -0.01, 0.02, -0.03]
+        anti = [-x for x in s]
+        # Perfectly anti-correlated → raw mean corr = -1 → clamped to 0 (no relief).
+        assert compute_average_pairwise_correlation([s, anti]) == 0.0
+
+    def test_fewer_than_two_series_returns_zero(self):
+        assert compute_average_pairwise_correlation({"only": [0.01, 0.02, 0.03]}) == 0.0
+        assert compute_average_pairwise_correlation([]) == 0.0
+
+    def test_zero_variance_rows_dropped(self):
+        flat = [0.01] * 100
+        live = list(np.random.default_rng(1).normal(0.0, 0.01, 100))
+        # One live + one flat → < 2 usable series after dropping the flat row.
+        assert compute_average_pairwise_correlation([flat, live]) == 0.0
+
+
+class TestDsrCorrelationRelaxesPenalty:
+    """Higher trial correlation → fewer effective independent trials → smaller
+    best-of-N null → higher (less-penalized) deflated Sharpe. This proves the
+    average_correlation parameter actually flows through compute_dsr."""
+
+    def test_correlated_trials_raise_deflated_sharpe(self):
+        rng = np.random.default_rng(7)
+        rets = list(rng.normal(0.0012, 0.01, 600))
+        dsr_indep, p_indep = compute_dsr(rets, num_trials=25, average_correlation=0.0)
+        dsr_corr, p_corr = compute_dsr(rets, num_trials=25, average_correlation=0.9)
+        assert dsr_indep is not None and dsr_corr is not None
+        assert dsr_corr > dsr_indep
+        assert p_corr >= p_indep
+
+    def test_single_trial_correlation_is_inert(self):
+        # With N=1 there is no multiple-testing penalty, so correlation can't change it.
+        rng = np.random.default_rng(8)
+        rets = list(rng.normal(0.001, 0.01, 400))
+        assert compute_dsr(rets, num_trials=1, average_correlation=0.9) == compute_dsr(
+            rets, num_trials=1, average_correlation=0.0
+        )
+
+
+# ─── CPCV wiring into run_rigor_gate ─────────────────────────────────
+
+
+class TestRunRigorGateCpcvWiring:
+    """run_rigor_gate previously passed a 1-D series to a 2-D-only CPCV function,
+    so CPCV always returned None. These prove the corrected wiring: CPCV fires on
+    a real combinatorial matrix and is honestly None without one."""
+
+    def test_cpcv_fires_with_combinatorial_matrix(self):
+        rng = np.random.default_rng(11)
+        # 15 rows = C(6, 2) splits; 90 cols ≥ 5 bars/block for 6 groups.
+        matrix = rng.normal(0.0006, 0.01, size=(15, 90))
+        daily = list(rng.normal(0.001, 0.01, 400))
+        result = run_rigor_gate("s1", daily, num_trials=6, cv_returns_matrix=matrix)
+        assert result.cpcv_positive_fraction is not None
+        assert 0.0 <= result.cpcv_positive_fraction <= 1.0
+        assert result.cpcv_mean_oos_sharpe is not None
+
+    def test_cpcv_honestly_none_without_matrix(self):
+        rng = np.random.default_rng(12)
+        daily = list(rng.normal(0.001, 0.01, 400))
+        result = run_rigor_gate("s1", daily, num_trials=6)
+        assert result.cpcv_positive_fraction is None
+        assert result.cpcv_mean_oos_sharpe is None
+
+    def test_run_rigor_gate_average_correlation_flows_to_dsr(self):
+        rng = np.random.default_rng(13)
+        daily = list(rng.normal(0.0012, 0.01, 600))
+        r_indep = run_rigor_gate("s1", daily, num_trials=25, average_correlation=0.0)
+        r_corr = run_rigor_gate("s1", daily, num_trials=25, average_correlation=0.9)
+        assert r_corr.deflated_sharpe > r_indep.deflated_sharpe

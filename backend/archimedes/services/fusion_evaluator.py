@@ -18,6 +18,7 @@ from typing import Any
 
 from archimedes.services.dsl_to_backtrader import interpret_spec, interpret_variant
 from archimedes.services.rigor_evaluator import (
+    compute_average_pairwise_correlation,
     compute_dsr,
     compute_oos_sharpe,
     compute_pbo,
@@ -383,18 +384,26 @@ def apply_rigor_gate(
         if metrics.equity_curve[i - 1] > 0
     ]
 
-    dsr, dsr_p = compute_dsr(daily_returns, num_trials)
-    oos_sharpe = compute_oos_sharpe(daily_returns)
-
-    # PBO: compute real CSCV PBO when >= 2 variant backtests are available.
-    pbo_score: float | None = None
+    # Build the parameter-variant returns matrix once — it is the multiple-
+    # testing selection set, and feeds both the DSR effective-N correction
+    # (average pairwise correlation of the trials) and the CSCV PBO.
+    variant_returns: dict[str, list[float]] = {}
     if variants_metrics is not None and len(variants_metrics) >= 2:
-        variant_returns: dict[str, list[float]] = {}
         for vid, vm in variants_metrics.items():
             curve = vm.equity_curve
             variant_returns[vid] = [
                 (curve[i] - curve[i - 1]) / curve[i - 1] for i in range(1, len(curve)) if curve[i - 1] > 0
             ]
+
+    # Correlated variants carry fewer independent trials than their nominal
+    # count, so the multiple-testing penalty in the DSR is relaxed accordingly.
+    avg_correlation = compute_average_pairwise_correlation(variant_returns) if len(variant_returns) >= 2 else 0.0
+    dsr, dsr_p = compute_dsr(daily_returns, num_trials, avg_correlation)
+    oos_sharpe = compute_oos_sharpe(daily_returns)
+
+    # PBO: compute real CSCV PBO when >= 2 variant backtests are available.
+    pbo_score: float | None = None
+    if len(variant_returns) >= 2:
         pbo_map = compute_pbo(variant_returns)
         # All strategies in the matrix get the same PBO score (library-level
         # metric per Bailey et al. 2014). Pick the first entry's value.
