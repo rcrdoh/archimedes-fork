@@ -81,8 +81,16 @@ class PBOResponse(BaseModel):
 async def evaluate_rigor_gate():
     """Evaluate the rigor gate for all strategies in the library.
 
-    Runs DSR, PBO, walk-forward OOS, and look-ahead audit for each
-    strategy. Returns pass/fail per strategy with detailed breakdown.
+    Runs three statistical primitives (DSR, PBO, walk-forward OOS Sharpe)
+    plus the look-ahead static audit for each strategy.
+
+    CPCV (Combinatorial Purged Cross-Validation) is implemented in
+    rigor_evaluator.run_rigor_gate() but requires a 2-D (S, T) matrix of
+    per-split OOS returns that comes from re-running the full backtest engine
+    across combinatorial window splits.  That rolling re-backtest pipeline is
+    not yet wired here, so run_rigor_gate() is called without cv_returns_matrix
+    and CPCV is honestly reported as MISSING on every strategy.  Wire it once
+    the analytics-engine supports combinatorial window output.
     """
     strategies = _provider.list_strategies()
 
@@ -162,6 +170,9 @@ async def evaluate_rigor_gate():
             if s.id in bt_map:
                 in_sample_sharpe = bt_map[s.id].sharpe_ratio
 
+        # cv_returns_matrix intentionally omitted — CPCV requires a 2-D array
+        # of per-combinatorial-split OOS returns that the analytics-engine does
+        # not yet produce.  run_rigor_gate() will report cpcv as MISSING.
         gate_result = run_rigor_gate(
             strategy_id=s.id,
             daily_returns=daily_returns,
