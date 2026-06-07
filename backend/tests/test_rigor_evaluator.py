@@ -788,7 +788,7 @@ class TestGateDetailsBranches:
         """gate_details must always contain all four gate keys."""
         r = RigorGateResult("s")
         keys = set(r.gate_details.keys())
-        assert keys == {"dsr", "pbo", "oos_sharpe", "look_ahead", "cpcv"}
+        assert keys == {"dsr", "pbo", "oos_sharpe", "look_ahead"}
 
 
 # ─── run_rigor_gate — all branches in lines 509-555 ──────────────────
@@ -874,32 +874,9 @@ class TestRunRigorGatePaths:
     def test_gate_details_populated_by_run_rigor_gate(self):
         """gate_details on the returned result must have all four keys."""
         result = run_rigor_gate("s", _RETURNS_80)
-        assert set(result.gate_details.keys()) == {"dsr", "pbo", "oos_sharpe", "look_ahead", "cpcv"}
+        assert set(result.gate_details.keys()) == {"dsr", "pbo", "oos_sharpe", "look_ahead"}
 
     def test_num_trials_stored_on_result(self):
         """num_trials argument must be stored on the result."""
         result = run_rigor_gate("s", _RETURNS_80, num_trials=7)
         assert result.num_trials == 7
-
-
-# ─── CPCV Edge Cases ──────────────────────────────────────────────────
-
-from archimedes.services.rigor_evaluator import compute_cpcv_oos_sharpe
-
-
-def test_cpcv_returns_none_for_empty_array():
-    assert compute_cpcv_oos_sharpe([]) is None
-
-
-def test_cpcv_returns_none_for_single_asset_zero_variance():
-    assert compute_cpcv_oos_sharpe([[0.01] * 100] * 15) is None
-
-
-def test_cpcv_returns_none_for_infinite_values():
-    # Numpy calculations on inf cause warnings and usually return nan/inf std
-    res = compute_cpcv_oos_sharpe([[0.01] * 50 + [np.inf] * 50] * 15)
-    assert res is None or res["mean_oos_sharpe"] is None or math.isnan(res["mean_oos_sharpe"])
-
-
-def test_cpcv_returns_none_for_insufficient_splits():
-    assert compute_cpcv_oos_sharpe([[0.01, -0.01] * 2] * 15, n_groups=6, test_groups=2) is None

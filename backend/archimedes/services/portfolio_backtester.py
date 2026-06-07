@@ -42,7 +42,6 @@ import numpy as np
 import pandas as pd
 
 from archimedes.models.backtest import BacktestResult
-from archimedes.services.rigor_evaluator import compute_dsr, compute_oos_sharpe
 
 logger = logging.getLogger(__name__)
 
@@ -70,166 +69,85 @@ def _ensure_analytics_import() -> None:
         sys.path.insert(0, str(analytics_src))
 
 
-def _fetch_price_panel(symbols: list[str], start: str, end: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch close prices and volumes for ``symbols`` and inner-join on the date index.
+def _fetch_price_panel(symbols: list[str], start: str, end: str) -> pd.DataFrame:
+    """Fetch close prices for ``symbols`` and inner-join on the date index.
 
-    Missing data is a critical lookahead vector. If a symbol halted or wasn't
-    public yet, forward-filling prices leaks the "survival" fact to the
-    simulator. We strictly inner-join: the panel only contains days where
-    EVERY requested symbol traded.
+    Drops rows where any symbol is missing data — strict alignment so we never
+    invent a return where one of the legs wasn't trading.
     """
     _ensure_analytics_import()
-    from archimedes_analytics_engine.data import fetch_ohlcv
+    from archimedes_analytics_engine.data import fetch_ohlcv  # noqa: PLC0415
 
     closes: dict[str, pd.Series] = {}
-    volumes: dict[str, pd.Series] = {}
     for sym in symbols:
-        try:
-            df = fetch_ohlcv(sym, start, end)
-            if not df.empty and "Close" in df.columns and "Volume" in df.columns:
-                closes[sym] = df["Close"]
-                volumes[sym] = df["Volume"]
-        except Exception:
-            pass
-
-    close_panel = pd.DataFrame(closes).dropna()
-    volume_panel = pd.DataFrame(volumes).dropna()
-
-    if close_panel.empty or volume_panel.empty:
-        raise ValueError(f"Insufficient overlapping history for {symbols}")
-
-    common_idx = close_panel.index.intersection(volume_panel.index)
-    if common_idx.empty:
-        raise ValueError(f"Insufficient overlapping history for {symbols}")
-
-    panel = close_panel.loc[common_idx]
+        df = fetch_ohlcv(sym, start, end)
+        closes[sym] = df["Close"]
+    panel = pd.DataFrame(closes).dropna()
     if len(panel) < MIN_BARS_FOR_BACKTEST:
         raise ValueError(
             f"Insufficient overlapping history: only {len(panel)} bars across {symbols} (min {MIN_BARS_FOR_BACKTEST})"
         )
-
-    return close_panel.loc[common_idx], volume_panel.loc[common_idx]
+    return panel
 
 
 def _simulate_portfolio(
     panel: pd.DataFrame,
-    volume_panel: pd.DataFrame,
-    target_weights: dict[str, float] | pd.DataFrame,
+    target_weights: dict[str, float],
     *,
     rebalance_days: int,
     initial_cash: float,
-    tx_cost_bps: int = 10,
-    gamma: float = 0.1,  # Almgren square-root coefficient
+    tx_cost_bps: int,
 ) -> tuple[list[float], list[float]]:
     """Run a periodic-rebalance simulation; returns ``(daily_returns, equity_curve)``.
 
     Implementation notes:
       - Held weights drift between rebalance bars with realized returns.
-      - Uses the Almgren square-root market impact function:
-        Impact = gamma * sigma * Q * sqrt(Q / ADV)
-      - Proportional transaction costs (tx_cost_bps) are additive to Almgren impact.
+      - On rebalance bars, the L1 turnover ``|held - target|`` is charged as a
+        proportional cost in bps; this is a conservative model (no slippage,
+        no spread — those are tx_cost_bps's job to encode).
       - No leverage. Negative weights are clamped to zero at normalization
         (long-only enforcement matches the agent's actual output contract).
     """
     syms = list(panel.columns)
     n_bars = len(panel)
 
-    returns_df = panel.pct_change().fillna(0.0)
+    # Build canonical target weights aligned to the panel (zero-fill for any
+    # symbol that fell out of the inner-join, then long-only normalize).
+    raw = pd.Series({s: max(target_weights.get(s, 0.0), 0.0) for s in syms})
+    total = float(raw.sum())
+    if total <= 0:
+        raise ValueError("All weights non-positive after symbol alignment")
+    target = raw / total
 
-    # Pre-compute rolling metrics for Almgren impact (must be shift(1) to avoid look-ahead bias)
-    rolling_window = 21
-    sigma_df = returns_df.rolling(window=rolling_window, min_periods=1).std().shift(1).fillna(0.0)
-    dollar_volume_df = (volume_panel * panel).fillna(0.0)
-    adv_df = dollar_volume_df.rolling(window=rolling_window, min_periods=1).mean().shift(1).fillna(0.0)
-
-    # ── Temporal (t-1) data alignment execution layer guard ──
-    if isinstance(target_weights, pd.DataFrame):
-        dynamic_targets = target_weights.reindex(index=panel.index, columns=syms).clip(lower=0.0).fillna(0.0)
-
-        if dynamic_targets.empty:
-            raise ValueError("Dynamic target weights DataFrame cannot be empty.")
-
-        # The loop inherently provides a T-1 execution guard: 'held' state
-        # from the end of i-1 is applied to the return of bar i.
-        # Thus, signals computed at close(t) are executed at close(t),
-        # earning returns over t+1. No double-shift is needed.
-
-        # Row-wise L1 normalization
-        row_sums = dynamic_targets.sum(axis=1)
-        dynamic_targets = dynamic_targets.div(row_sums.where(row_sums > 0, 1.0), axis=0)
-        is_dynamic = True
-        dynamic_targets_arr = dynamic_targets.to_numpy()
-    else:
-        # Build canonical static target weights
-        raw = pd.Series({s: max(target_weights.get(s, 0.0), 0.0) for s in syms})
-        total = float(raw.sum())
-        if total <= 0:
-            raise ValueError("All weights non-positive after symbol alignment")
-        static_target = raw / total
-        is_dynamic = False
-        static_target_arr = static_target.to_numpy()
-
-    # Extract NumPy arrays for high-performance iteration
-    returns_arr = returns_df.to_numpy()
-    sigma_arr = sigma_df.to_numpy()
-    adv_arr = adv_df.to_numpy()
-
-    held = dynamic_targets_arr[0].copy() if is_dynamic else static_target_arr.copy()
-
+    returns = panel.pct_change().fillna(0.0)
+    held = target.copy()
     portfolio_returns: list[float] = []
     equity = float(initial_cash)
     equity_curve: list[float] = []
 
     for i in range(n_bars):
-        # The portfolio return for day i is generated by the weights held at
-        # the end of day i-1, perfectly aligned with the t-1 execution guard.
-        r_t = float(np.sum(returns_arr[i] * held))
+        r_t = float((returns.iloc[i] * held).sum())
 
-        # Calculate pre-cost equity at end of day
-        post_r_t_equity = max(0.0, equity * (1.0 + r_t))
-
-        # Rebalance drift
-        drifted = held * (1.0 + returns_arr[i])
-        drifted_sum = np.sum(drifted)
-        if drifted_sum > 0:
-            drifted /= drifted_sum
+        # Apply the realized return to held weights first; THEN, if this is a
+        # rebalance bar, charge turnover cost and snap back to target.
+        new_value = held * (1.0 + returns.iloc[i])
+        new_total = float(new_value.sum())
+        if new_total > 0:
+            drifted = new_value / new_total
         else:
-            drifted = np.zeros_like(held)
+            drifted = held
 
-        target = dynamic_targets_arr[i].copy() if is_dynamic else static_target_arr.copy()
-
-        # If dynamic, we must rebalance every bar to track the signals.
-        should_rebalance = (i > 0) if is_dynamic else (i > 0 and i % rebalance_days == 0)
-
-        if post_r_t_equity <= 0.0:
-            # Bankruptcy!
-            r_t = -1.0  # 100% loss
-            held = np.zeros_like(held)
-            post_r_t_equity = 0.0
-        elif should_rebalance:
-            delta_w = np.abs(drifted - target)
-            q_j = delta_w * post_r_t_equity
-
-            # Avoid division by zero in ADV, penalize illiquidity heavily
-            safe_adv = np.where(adv_arr[i] > 0, adv_arr[i], 1.0)
-
-            # Impact Cost = sum(gamma * sigma_j * Q_j * sqrt(Q_j / ADV_j))
-            # + linear bps cost
-            impact_dollars = np.sum(gamma * sigma_arr[i] * q_j * np.sqrt(q_j / safe_adv))
-            linear_cost_dollars = np.sum(delta_w) * post_r_t_equity * (tx_cost_bps / 10_000.0)
-
-            total_cost_dollars = impact_dollars + linear_cost_dollars
-
-            cost_fraction = total_cost_dollars / equity if equity > 0 else 0.0
-            r_t -= cost_fraction
-            post_r_t_equity = max(0.0, equity * (1.0 + r_t))
+        if i > 0 and i % rebalance_days == 0:
+            turnover = float((drifted - target).abs().sum())
+            cost = turnover * (tx_cost_bps / 10_000.0)
+            r_t -= cost
             held = target.copy()
         else:
             held = drifted
 
         portfolio_returns.append(r_t)
-        equity_curve.append(post_r_t_equity)
-        equity = post_r_t_equity
+        equity *= 1.0 + r_t
+        equity_curve.append(equity)
 
     return portfolio_returns, equity_curve
 
@@ -256,7 +174,10 @@ def _annualized_metrics(daily_returns: list[float], equity_curve: list[float]) -
     sortino = (mu / down_sigma) * np.sqrt(ANNUALIZATION) if down_sigma > 0 else 0.0
 
     eq = np.asarray(equity_curve, dtype=float)
-    cagr = float((eq[-1] / eq[0]) ** (ANNUALIZATION / T) - 1.0) if eq[0] > 0 and T >= 2 else 0.0
+    if eq[0] > 0 and T >= 2:
+        cagr = float((eq[-1] / eq[0]) ** (ANNUALIZATION / T) - 1.0)
+    else:
+        cagr = 0.0
 
     drawdown = (eq / np.maximum.accumulate(eq)) - 1.0
     max_dd = float(-drawdown.min()) if T > 0 else 0.0
@@ -301,9 +222,9 @@ def _panel_hash(panel: pd.DataFrame) -> str:
 def backtest_portfolio(
     *,
     strategy_id: str,
-    weights: dict[str, float] | pd.DataFrame,
-    start_date: str | None = None,
-    end_date: str | None = None,
+    weights: dict[str, float],
+    start: str | None = None,
+    end: str | None = None,
     rebalance_days: int = DEFAULT_REBALANCE_DAYS,
     initial_cash: float = DEFAULT_INITIAL_CASH,
     tx_cost_bps: int = DEFAULT_TX_COST_BPS,
@@ -315,9 +236,9 @@ def backtest_portfolio(
 
     Args:
         strategy_id: FK back to the StrategyPassport row.
-        weights: ``{ticker: weight}`` or DataFrame for dynamic rebalancing.
-        start_date: ISO date for backtest start. Defaults to ``end - DEFAULT_LOOKBACK_YEARS``.
-        end_date: ISO date for backtest end. Defaults to today (UTC).
+        weights: ``{ticker: weight}`` — non-positive entries are dropped.
+        start: ISO date for backtest start. Defaults to ``end - DEFAULT_LOOKBACK_YEARS``.
+        end: ISO date for backtest end. Defaults to today (UTC).
         rebalance_days: Periodic rebalance interval in trading days.
         initial_cash: Starting equity.
         tx_cost_bps: Round-trip cost in basis points (10 = 0.10%, matches default).
@@ -336,28 +257,22 @@ def backtest_portfolio(
             zero after symbol alignment. Callers should treat these as
             non-fatal: a failed backtest leaves the placeholder in place.
     """
-    end_iso = end_date or datetime.now(UTC).date().isoformat()
-    if start_date is None:
+    end_iso = end or datetime.now(UTC).date().isoformat()
+    if start is None:
         start_dt = datetime.fromisoformat(end_iso) - timedelta(days=365 * DEFAULT_LOOKBACK_YEARS)
         start_iso = start_dt.date().isoformat()
     else:
-        start_iso = start_date
+        start_iso = start
 
-    if isinstance(weights, pd.DataFrame):
-        active_weights = weights
-        symbols = list(weights.columns)
-    else:
-        active_weights = {sym: float(w) for sym, w in (weights or {}).items() if w and w > 0 and sym}
-        symbols = list(active_weights.keys())
-
-    if not symbols:
+    active_weights = {sym: float(w) for sym, w in (weights or {}).items() if w and w > 0 and sym}
+    if not active_weights:
         raise ValueError(f"No positive weights for strategy {strategy_id}")
 
-    panel, volume_panel = _fetch_price_panel(symbols, start_iso, end_iso)
+    symbols = list(active_weights.keys())
+    panel = _fetch_price_panel(symbols, start_iso, end_iso)
     daily_returns, equity_curve = _simulate_portfolio(
-        panel=panel,
-        volume_panel=volume_panel,
-        target_weights=active_weights,
+        panel,
+        active_weights,
         rebalance_days=rebalance_days,
         initial_cash=initial_cash,
         tx_cost_bps=tx_cost_bps,
@@ -365,25 +280,9 @@ def backtest_portfolio(
 
     core = _annualized_metrics(daily_returns, equity_curve)
 
-    # ── Capacity Decay Simulation ──
-    # Run the backtest at logarithmic AUM scales to chart capacity limits.
-    capacity_decay: dict[str, dict[str, float]] = {}
-    for aum_tier in [1_000_000.0, 10_000_000.0, 100_000_000.0, 1_000_000_000.0, 10_000_000_000.0]:
-        tier_rets, tier_eq = _simulate_portfolio(
-            panel=panel,
-            volume_panel=volume_panel,
-            target_weights=active_weights,
-            rebalance_days=rebalance_days,
-            initial_cash=aum_tier,
-            tx_cost_bps=tx_cost_bps,
-        )
-        tier_metrics = _annualized_metrics(tier_rets, tier_eq)
-        capacity_decay[f"${int(aum_tier):,}"] = {
-            "cagr": tier_metrics["cagr"],
-            "sharpe": tier_metrics["sharpe_ratio"],
-        }
-
     # ── Rigor primitives — same evaluator the curated strategies use ──
+    from archimedes.services.rigor_evaluator import compute_dsr, compute_oos_sharpe  # noqa: PLC0415
+
     deflated_sharpe, dsr_p_value = compute_dsr(daily_returns, num_trials_for_dsr)
     oos_sharpe = compute_oos_sharpe(daily_returns)
     # Static rebalance with t-1 prices generating t returns is structurally
@@ -395,7 +294,7 @@ def backtest_portfolio(
     # ── SPY correlation (diversification signal) ──
     correlation_to_spy = 0.0
     try:
-        spy_panel, _ = _fetch_price_panel(["SPY"], start_iso, end_iso)
+        spy_panel = _fetch_price_panel(["SPY"], start_iso, end_iso)
         spy_full = spy_panel["SPY"].pct_change().fillna(0.0)
         # Align to the portfolio's panel index (inner-join already applied)
         common = panel.index.intersection(spy_panel.index)
@@ -485,7 +384,6 @@ def backtest_portfolio(
                     "correlation_to_spy": correlation_to_spy,
                     "num_bars": n_obs_daily,
                     "rebalance_events": rebalance_events,
-                    "capacity_decay": capacity_decay,
                 },
             }
         ],
