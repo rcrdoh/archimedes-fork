@@ -327,18 +327,24 @@ class TestDataProvenanceGate:
     def test_real_data_passing_strategy_is_admissible(self):
         spec = validate_strategy_spec(FABER_2007_SPEC)
         metrics = run_dsl_backtest(spec, data_csv_path=_SPY_FIXTURE)
-        verdict = apply_rigor_gate(metrics)
-        # Faber on real SPY passes; on real data that makes it admissible.
+        # num_trials=1: this test is about the provenance gate, not library-level
+        # multiple-testing correction.  With a single-strategy selection set,
+        # E[max_N]=0 and DSR p-value reflects only the per-bar statistical power
+        # of the Faber signal over ~5500 SPY bars — well above the 0.95 threshold.
+        # Using the default num_trials=10 produces p≈0.82, which is correct library
+        # behaviour (10 candidates raises the bar) but not what this test is for.
+        verdict = apply_rigor_gate(metrics, num_trials=1)
         assert verdict.passing is True
         assert verdict.admissible is True
         assert verdict.data_source.startswith("csv:")
 
     def test_provenance_override_revokes_admissibility(self):
-        # Take a passing real-data run and re-judge it as if the data were
-        # synthetic — admissibility must flip off even though passing stays on.
+        # Take a passing real-data run (single-strategy context, see above) and
+        # re-judge it as if the data were synthetic — admissibility must flip off
+        # even though passing stays on.
         spec = validate_strategy_spec(FABER_2007_SPEC)
         metrics = run_dsl_backtest(spec, data_csv_path=_SPY_FIXTURE)
-        as_synthetic = apply_rigor_gate(metrics, data_source="synthetic")
+        as_synthetic = apply_rigor_gate(metrics, num_trials=1, data_source="synthetic")
         assert as_synthetic.passing is True
         assert as_synthetic.admissible is False
 
