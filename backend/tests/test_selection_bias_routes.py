@@ -5,7 +5,7 @@ Covers:
   - GET /api/selection-bias/gate/{strategy_id}  (single-strategy gate)
   - POST /api/selection-bias/pbo  (pure-math PBO computation)
   - Pydantic schema construction and defaults
-  - Pure helper functions (_synthetic_returns_from_stub, _load_strategy_code)
+  - Pure helper functions (_load_strategy_code)
 
 The GET /gate and GET /gate/{id} endpoints call init_db() internally; an
 autouse fixture redirects DATABASE_URL to a per-test temporary SQLite file
@@ -26,7 +26,6 @@ from archimedes.api.selection_bias_routes import (
     RigorGateResponse,
     StrategyRigorResult,
     _load_strategy_code,
-    _synthetic_returns_from_stub,
 )
 from httpx import ASGITransport, AsyncClient
 
@@ -160,31 +159,6 @@ class TestPBOResponse:
 
 
 # ── Pure helper function tests ──────────────────────────────────────────
-
-
-class TestSyntheticReturnsFromStub:
-    def test_default_length(self):
-        result = _synthetic_returns_from_stub(sharpe=1.0)
-        assert len(result) == 504
-
-    def test_custom_T(self):
-        result = _synthetic_returns_from_stub(sharpe=0.5, T=100)
-        assert len(result) == 100
-
-    def test_returns_list_of_floats(self):
-        result = _synthetic_returns_from_stub(sharpe=1.5, T=50)
-        assert isinstance(result, list)
-        assert all(isinstance(r, float) for r in result)
-
-    def test_deterministic_with_same_sharpe(self):
-        r1 = _synthetic_returns_from_stub(sharpe=1.2, T=100)
-        r2 = _synthetic_returns_from_stub(sharpe=1.2, T=100)
-        assert r1 == r2
-
-    def test_different_sharpe_different_output(self):
-        r1 = _synthetic_returns_from_stub(sharpe=0.5, T=100)
-        r2 = _synthetic_returns_from_stub(sharpe=1.5, T=100)
-        assert r1 != r2
 
 
 class TestLoadStrategyCode:
