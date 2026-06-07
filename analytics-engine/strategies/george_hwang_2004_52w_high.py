@@ -77,7 +77,7 @@ STATUS = "candidate"
 BACKTEST_SHARPE = 0.58
 BACKTEST_CAGR = 0.082
 BACKTEST_MAX_DD = 0.21
-BACKTEST_WIN_RATE = 0.54
+BACKTEST_WIN_RATE = 0.278  # Synced from backtest_fixtures.json (was 0.54, which was a placeholder)
 BACKTEST_CALMAR = 0.39
 BACKTEST_CORR_SPY = 0.70
 

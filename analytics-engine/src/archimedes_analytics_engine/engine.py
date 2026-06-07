@@ -9,6 +9,8 @@ import backtrader as bt
 import pandas as pd
 
 ANNUALIZATION = 252
+RF_ANNUAL = 0.05  # 5% annual risk-free rate
+RF_DAILY = RF_ANNUAL / ANNUALIZATION
 BACKTEST_ENGINE_TAG = "backtrader"
 
 
@@ -83,10 +85,10 @@ def _compute_sortino(daily_returns: list[float]) -> float | None:
     downside = [r for r in daily_returns if r < 0]
     if not downside:
         return None
-    dd_std = math.sqrt(sum(r * r for r in downside) / len(downside))
-    if dd_std == 0:
+    dd_rms = math.sqrt(sum(r * r for r in downside) / len(downside))
+    if dd_rms == 0:
         return None
-    return (mean / dd_std) * math.sqrt(ANNUALIZATION)
+    return ((mean - RF_DAILY) / dd_rms) * math.sqrt(ANNUALIZATION)
 
 
 def _compute_cagr(initial: float, final: float, bars: int) -> float | None:
@@ -151,7 +153,7 @@ def run_backtest(
         _name="sharpe",
         timeframe=bt.TimeFrame.Days,
         annualize=True,
-        riskfreerate=0.0,
+        riskfreerate=RF_ANNUAL,
     )
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="dd")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")

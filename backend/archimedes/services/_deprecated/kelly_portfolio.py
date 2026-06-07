@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # depending on the regime. Crisis regime dramatically increases cash allocation.
 
 _REGIME_DELEVERAGE_FACTORS: dict[Regime, float] = {
-    Regime.RISK_ON: 0.5,  # Use only 50% of profile's base floor in risk_on
+    Regime.RISK_ON: 1.0,  # Full profile floor in risk_on (0.5 halved the floor, pushing conservative profiles to 90% risky)
     Regime.TRANSITION: 1.0,  # Use full profile floor
     Regime.RISK_OFF: 2.5,  # 2.5x the profile floor
     Regime.CRISIS: 5.0,  # 5x the profile floor (flight to safety)

@@ -7,10 +7,10 @@ shock, and compute the instantaneous mark-to-market P&L:
 
     pnl(scenario) = Σ_i  w_i · shock_class(i, scenario)
 
-This is the standard risk-management view at any real shop.  It's
-deliberately coarse — a beta-1 model on asset-class buckets — so it's
-explainable, fast, and demoable.  A more sophisticated version (factor
-model + Monte Carlo + tail-risk) is a v2 problem.
+Deliberately coarse — a beta-1 model on asset-class buckets — so it's
+explainable, fast, and demoable.  Production shops use factor models +
+Monte Carlo + tail-risk overlays; this covers the structural logic
+without those layers.  A fuller version is a v2 problem.
 
 References
 ----------

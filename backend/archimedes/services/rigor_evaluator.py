@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 _EULER_MASCHERONI = 0.5772156649
 _ANNUALIZATION = 252
+_RF_ANNUAL = 0.05  # 5% annual risk-free rate (Fed funds 2024-2025 environment)
+_RF_DAILY = _RF_ANNUAL / _ANNUALIZATION
 
 
 # ─── 1. Deflated Sharpe Ratio ────────────────────────────────────────
@@ -83,7 +85,7 @@ def compute_dsr(
     if sigma <= 0.0:
         return None, None
 
-    SR_hat = float(arr.mean()) / sigma  # per-bar, un-annualized
+    SR_hat = (float(arr.mean()) - _RF_DAILY) / sigma  # excess return per bar, un-annualized
     gamma_3 = float(sp_skew(arr))
     # Bailey-LdP (2014) eq. 8 uses raw (Pearson) kurtosis (γ₄ = 3 for normal),
     # NOT Fisher excess kurtosis. The coefficient (γ₄ − 1)/4 in _dsr_from_stats
@@ -260,7 +262,7 @@ def compute_oos_sharpe(
     split = int(T * train_fraction)
     oos = arr[split:]
 
-    if len(oos) < 5:
+    if len(oos) < 21:  # 1 trading month minimum (5-bar floor was statistically degenerate)
         return None
 
     if float(np.ptp(oos)) == 0.0:
@@ -270,7 +272,7 @@ def compute_oos_sharpe(
     if sigma <= 0.0:
         return None
 
-    return round(float((oos.mean() / sigma) * math.sqrt(_ANNUALIZATION)), 6)
+    return round(float(((oos.mean() - _RF_DAILY) / sigma) * math.sqrt(_ANNUALIZATION)), 6)
 
 
 def _annualized_sharpe_arr(arr: np.ndarray) -> float | None:
@@ -282,7 +284,7 @@ def _annualized_sharpe_arr(arr: np.ndarray) -> float | None:
     sigma = float(arr.std(ddof=1))
     if sigma <= 0.0:
         return None
-    return float((arr.mean() / sigma) * math.sqrt(_ANNUALIZATION))
+    return float(((arr.mean() - _RF_DAILY) / sigma) * math.sqrt(_ANNUALIZATION))
 
 
 def compute_average_pairwise_correlation(
@@ -401,6 +403,8 @@ def compute_cpcv_oos_sharpe(
 
     for i in range(n_groups):
         splits_with_i = [s_idx for s_idx, combo in enumerate(splits) if i in combo]
+        if len(splits_with_i) != n_paths:
+            return None  # cv_splits ordering doesn't match expected block count
         paths[:, bounds[i]] = arr[np.ix_(splits_with_i, bounds[i])]
 
     oos_sharpes: list[float] = []
@@ -509,7 +513,7 @@ def _sharpe_per_col(R: np.ndarray) -> np.ndarray:
     mu = R.mean(axis=0)
     sigma = R.std(axis=0, ddof=1)
     safe_sigma = np.where(sigma > 0, sigma, np.inf)
-    return (mu / safe_sigma) * math.sqrt(_ANNUALIZATION)
+    return ((mu - _RF_DAILY) / safe_sigma) * math.sqrt(_ANNUALIZATION)
 
 
 def _ascending_ranks(values: np.ndarray) -> np.ndarray:
@@ -664,6 +668,8 @@ class RigorGateResult:
             return False
         if self.oos_sharpe is None:
             return False
+        if self.oos_sharpe <= 0.0:  # absolute OOS floor: negative OOS cannot pass
+            return False
         if self.in_sample_sharpe and self.in_sample_sharpe > 0 and self.oos_sharpe / self.in_sample_sharpe < 0.5:
             return False
         # Combinatorial Purged CV: when computed, the edge must hold OOS across a
@@ -746,6 +752,13 @@ def run_rigor_gate(
             supplied this stays ``None`` and the CPCV gate is honestly reported
             as ``MISSING`` rather than silently passing.
     """
+    if num_trials == 1:
+        logger.debug(
+            "Rigor gate [%s]: num_trials=1 — no multiple-testing correction. "
+            "Pass num_trials=len(strategy_library) for meaningful DSR.",
+            strategy_id,
+        )
+
     # 1. DSR — effective-N correction relaxes the multiple-testing penalty when
     #    the trials are correlated (fewer independent bets than the nominal N).
     deflated_sharpe, dsr_p_value = compute_dsr(daily_returns, num_trials, average_correlation)
@@ -770,12 +783,16 @@ def run_rigor_gate(
     if look_ahead_audit_passed is not None:
         la_passed = look_ahead_audit_passed
 
-    # Derive in-sample Sharpe if not provided
-    if in_sample_sharpe is None and len(daily_returns) >= 2:
+    # Derive in-sample Sharpe from IS slice (first 70%) only — not the full series.
+    # Using the full series blends IS+OOS and makes the OOS/IS ratio trivially easy to pass.
+    if in_sample_sharpe is None and len(daily_returns) >= 4:
         arr = np.asarray(daily_returns, dtype=float)
-        sigma = float(arr.std(ddof=1))
-        if sigma > 0:
-            in_sample_sharpe = (float(arr.mean()) / sigma) * math.sqrt(_ANNUALIZATION)
+        split = int(len(arr) * 0.70)
+        is_arr = arr[:split]
+        if len(is_arr) >= 2:
+            sigma_is = float(is_arr.std(ddof=1))
+            if sigma_is > 0:
+                in_sample_sharpe = ((float(is_arr.mean()) - _RF_DAILY) / sigma_is) * math.sqrt(_ANNUALIZATION)
 
     result = RigorGateResult(
         strategy_id=strategy_id,

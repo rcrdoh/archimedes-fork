@@ -28,6 +28,33 @@ from archimedes.services.strategy_dsl import FABER_2007_SPEC, validate_strategy_
 _SPY_FIXTURE = Path(__file__).parent.parent / "fixtures" / "spy_ohlcv_2004_2026.csv"
 
 
+def _make_high_sharpe_metrics(data_source: str = "csv:test.csv") -> BacktestMetrics:
+    """800-bar equity curve alternating +0.3%/+0.1% per day.
+
+    Excess Sharpe ≈ 1.8/bar (annualised DSR ≈ 28) — well above the p≥0.95 gate
+    even after 5% rf subtraction. Used by provenance tests that need a *passing*
+    strategy to verify the admissibility logic, independent of Faber's stats.
+    """
+    curve = [100_000.0]
+    for i in range(799):
+        curve.append(curve[-1] * (1.003 if i % 2 == 0 else 1.001))
+    return BacktestMetrics(
+        sharpe_ratio=2.0,
+        sortino_ratio=2.5,
+        max_drawdown=0.05,
+        cagr=0.20,
+        calmar_ratio=4.0,
+        win_rate=0.6,
+        total_trades=100,
+        avg_holding_period_days=5.0,
+        equity_curve=curve,
+        monthly_returns=[0.01] * 24,
+        backtest_start=None,
+        backtest_end=None,
+        data_source=data_source,
+    )
+
+
 class TestFixtureFusionToLibrary:
     """End-to-end: fusion spec → backtest → library upsert (no LLM)."""
 
@@ -325,26 +352,20 @@ class TestDataProvenanceGate:
         assert metrics.data_source == "csv:spy_ohlcv_2004_2026.csv"
 
     def test_real_data_passing_strategy_is_admissible(self):
-        spec = validate_strategy_spec(FABER_2007_SPEC)
-        metrics = run_dsl_backtest(spec, data_csv_path=_SPY_FIXTURE)
-        # num_trials=1: this test is about the provenance gate, not library-level
-        # multiple-testing correction.  With a single-strategy selection set,
-        # E[max_N]=0 and DSR p-value reflects only the per-bar statistical power
-        # of the Faber signal over ~5500 SPY bars — well above the 0.95 threshold.
-        # Using the default num_trials=10 produces p≈0.82, which is correct library
-        # behaviour (10 candidates raises the bar) but not what this test is for.
-        verdict = apply_rigor_gate(metrics, num_trials=1)
+        # Use a high-Sharpe synthetic equity curve with real data provenance.
+        # Faber's 6.7% CAGR barely exceeds the 5% rf, so its DSR p-value falls
+        # short of 0.95 — this test is about the provenance gate, not Faber's stats.
+        metrics = _make_high_sharpe_metrics(data_source="csv:spy_ohlcv_2004_2026.csv")
+        verdict = apply_rigor_gate(metrics)
         assert verdict.passing is True
         assert verdict.admissible is True
         assert verdict.data_source.startswith("csv:")
 
     def test_provenance_override_revokes_admissibility(self):
-        # Take a passing real-data run (single-strategy context, see above) and
-        # re-judge it as if the data were synthetic — admissibility must flip off
-        # even though passing stays on.
-        spec = validate_strategy_spec(FABER_2007_SPEC)
-        metrics = run_dsl_backtest(spec, data_csv_path=_SPY_FIXTURE)
-        as_synthetic = apply_rigor_gate(metrics, num_trials=1, data_source="synthetic")
+        # Take a passing real-data run and re-judge it as if the data were
+        # synthetic — admissibility must flip off even though passing stays on.
+        metrics = _make_high_sharpe_metrics(data_source="csv:spy_ohlcv_2004_2026.csv")
+        as_synthetic = apply_rigor_gate(metrics, data_source="synthetic")
         assert as_synthetic.passing is True
         assert as_synthetic.admissible is False
 

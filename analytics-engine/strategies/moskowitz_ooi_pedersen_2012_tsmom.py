@@ -84,23 +84,26 @@ BACKTEST_CORR_SPY = 1.0
 
 
 class TimeSeriesMomentum(bt.Strategy):
-    """Single-asset long-only TSMOM with 12-month lookback."""
+    """Single-asset long-only TSMOM with 12-1 lookback (skip most recent month)."""
 
     params = (
         ("lookback_bars", 252),
+        ("skip_bars", 21),  # ~1 month skip to avoid short-term reversal (Moskowitz et al. §3.2)
         ("exposure_fraction", 0.99),
     )
 
     def next(self) -> None:
         lookback = int(self.params.lookback_bars)
-        if len(self) <= lookback:
+        skip = int(self.params.skip_bars)
+        if len(self) <= lookback + skip:
             return
 
-        past_close = float(self.data.close[-lookback])
-        if past_close <= 0:
+        recent_close = float(self.data.close[-skip])
+        past_close = float(self.data.close[-lookback - skip])
+        if past_close <= 0 or recent_close <= 0:
             return
 
-        trailing_return = (float(self.data.close[0]) / past_close) - 1.0
+        trailing_return = (recent_close / past_close) - 1.0
 
         if trailing_return > 0:
             account_value = float(self.broker.getvalue())

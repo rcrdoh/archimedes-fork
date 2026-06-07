@@ -95,7 +95,7 @@ class VolatilityManagedLong(bt.Strategy):
         if len(self) <= window + 1:
             return None
         returns: list[float] = []
-        for i in range(window):
+        for i in range(1, window + 1):  # start at 1 to exclude current bar (close[0])
             prev = float(self.data.close[-i - 1])
             curr = float(self.data.close[-i])
             if prev > 0:

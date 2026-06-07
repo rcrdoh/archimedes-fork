@@ -169,9 +169,12 @@ class TestAnnualizedMetrics:
         assert m["calmar_ratio"] == 0.0
 
     def test_drift_positive_sharpe(self) -> None:
-        # Tiny but consistent positive drift → positive Sharpe + CAGR
+        # Drift of 0.1%/day clearly exceeds the 5% annual rf (≈0.0198%/day),
+        # so the rf-adjusted Sharpe is reliably positive even with seed noise.
+        # (loc=0.0005 was used before rf subtraction was added; with rf=5% that
+        # mean can fall below the rf threshold in a 2520-bar sample with seed=42.)
         rng = np.random.default_rng(42)
-        rets = list(rng.normal(loc=0.0005, scale=0.01, size=2520))  # ~10y daily
+        rets = list(rng.normal(loc=0.001, scale=0.01, size=2520))  # ~10y daily
         eq = [100_000.0]
         for r in rets:
             eq.append(eq[-1] * (1 + r))

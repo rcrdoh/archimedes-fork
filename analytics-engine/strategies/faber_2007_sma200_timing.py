@@ -84,6 +84,7 @@ class FaberSMA200(bt.Strategy):
 
     def __init__(self) -> None:
         self.sma = bt.indicators.SimpleMovingAverage(self.data.close, period=int(self.params.sma_period))
+        self._in_market: bool = False  # track signal state to trade only on changes
 
     def next(self) -> None:
         if len(self) < int(self.params.sma_period):
@@ -91,12 +92,14 @@ class FaberSMA200(bt.Strategy):
 
         price = float(self.data.close[0])
         sma_value = float(self.sma[0])
+        signal = price > sma_value
 
-        if price > sma_value:
+        if signal and not self._in_market:
             account_value = float(self.broker.getvalue())
             target_size = int(account_value * float(self.params.exposure_fraction) // price)
-            if target_size > 0 and self.position.size != target_size:
+            if target_size > 0:
                 self.order_target_size(target=target_size)
-        else:
-            if self.position:
-                self.close()
+                self._in_market = True
+        elif not signal and self._in_market:
+            self.close()
+            self._in_market = False

@@ -131,7 +131,7 @@ class StatisticalRegimeDetector:
             credit_spread_ig=snapshot.credit_spread_ig,
             credit_spread_hy=snapshot.credit_spread_hy,
             btc_dominance=snapshot.btc_dominance,
-            cross_asset_correlation=snapshot.usyc_yield,  # Proxy for risk appetite
+            cross_asset_correlation=None,  # usyc_yield is a rate, not a correlation; leave unset
         )
 
         changed = self._previous_regime is not None and regime != self._previous_regime
@@ -297,10 +297,7 @@ class StatisticalRegimeDetector:
         adjusted for the observed VIX distribution.
         """
         # Adaptive thresholds based on GMM component means
-        # The midpoint between the two GMM components is the natural boundary
-        (self._gmm_calmed_mu + self._gmm_stressed_mu) / 2.0
-
-        # Convert VIX to a normalized score using the midpoint
+        # Convert VIX to a normalized score using component separation
         vix_normalized = (vix - self._gmm_calmed_mu) / (self._gmm_stressed_mu - self._gmm_calmed_mu)
         vix_normalized = float(np.clip(vix_normalized, -0.5, 1.5))
 
@@ -424,6 +421,13 @@ class StatisticalRegimeDetector:
             sigma2 = max(sigma2, 1.0)
 
             w1 = float(n1 / N)
+
+        # Enforce label consistency: component 1 is always the lower-VIX (calm) component.
+        # EM can swap labels across iterations; sorting by mean prevents this.
+        if mu1 > mu2:
+            mu1, mu2 = mu2, mu1
+            sigma1, sigma2 = sigma2, sigma1
+            w1 = 1.0 - w1
 
         # Update model (with conservative damping to prevent wild swings)
         alpha = 0.3  # Damping factor

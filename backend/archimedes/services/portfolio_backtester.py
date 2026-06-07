@@ -54,6 +54,7 @@ DEFAULT_REBALANCE_DAYS = 21  # ~monthly
 DEFAULT_INITIAL_CASH = 100_000.0
 DEFAULT_TX_COST_BPS = 10  # round-trip; matches analytics-engine default
 ANNUALIZATION = 252
+RF_DAILY = 0.05 / ANNUALIZATION  # 5% annual risk-free rate, daily equivalent
 MIN_BARS_FOR_BACKTEST = 60  # ~3 months; refuse to backtest shorter windows
 
 
@@ -216,7 +217,8 @@ def _simulate_portfolio(
             post_r_t_equity = 0.0
         elif should_rebalance:
             delta_w = np.abs(drifted - target)
-            q_j = delta_w * post_r_t_equity
+            # Use pre-return equity (consistent with cost_fraction denominator below)
+            q_j = delta_w * equity
 
             # Avoid division by zero in ADV, penalize illiquidity heavily
             safe_adv = np.where(adv_arr[i] > 0, adv_arr[i], 1.0)
@@ -224,7 +226,7 @@ def _simulate_portfolio(
             # Impact Cost = sum(gamma * sigma_j * Q_j * sqrt(Q_j / ADV_j))
             # + linear bps cost
             impact_dollars = np.sum(gamma * sigma_arr[i] * q_j * np.sqrt(q_j / safe_adv))
-            linear_cost_dollars = np.sum(delta_w) * post_r_t_equity * (tx_cost_bps / 10_000.0)
+            linear_cost_dollars = np.sum(delta_w) * equity * (tx_cost_bps / 10_000.0)
 
             total_cost_dollars = impact_dollars + linear_cost_dollars
 
@@ -257,11 +259,12 @@ def _annualized_metrics(daily_returns: list[float], equity_curve: list[float]) -
 
     mu = float(arr.mean())
     sigma = float(arr.std(ddof=1))
-    sharpe = (mu / sigma) * np.sqrt(ANNUALIZATION) if sigma > 0 else 0.0
+    sharpe = ((mu - RF_DAILY) / sigma) * np.sqrt(ANNUALIZATION) if sigma > 0 else 0.0
 
     downside = arr[arr < 0]
-    down_sigma = float(downside.std(ddof=1)) if len(downside) > 1 else 0.0
-    sortino = (mu / down_sigma) * np.sqrt(ANNUALIZATION) if down_sigma > 0 else 0.0
+    # RMS of negative returns (consistent with analytics-engine/engine.py Sortino)
+    down_rms = float(np.sqrt(np.mean(downside**2))) if len(downside) > 0 else 0.0
+    sortino = ((mu - RF_DAILY) / down_rms) * np.sqrt(ANNUALIZATION) if down_rms > 0 else 0.0
 
     eq = np.asarray(equity_curve, dtype=float)
     cagr = float((eq[-1] / eq[0]) ** (ANNUALIZATION / T) - 1.0) if eq[0] > 0 and T >= 2 else 0.0
@@ -394,10 +397,10 @@ def backtest_portfolio(
     # ── Rigor primitives — same evaluator the curated strategies use ──
     deflated_sharpe, dsr_p_value = compute_dsr(daily_returns, num_trials_for_dsr)
     oos_sharpe = compute_oos_sharpe(daily_returns)
-    # Static rebalance with t-1 prices generating t returns is structurally
-    # lookahead-free — no signal computation at all. We mark this true for
-    # the gate; the analytics-engine's AST-based audit on real strategy code
-    # is the higher bar that the curated strategies pass.
+    # The rebalancer mechanics are structurally look-ahead-free (t-1 held weights
+    # earn t returns). However, the LLM-generated weight matrix is not audited —
+    # weights encoding future information (e.g. allocating to last quarter's winners)
+    # cannot be detected here. This flag reflects mechanical correctness only.
     look_ahead_passed = True
 
     # ── SPY correlation (diversification signal) ──

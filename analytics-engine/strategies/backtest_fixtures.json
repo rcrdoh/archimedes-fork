@@ -10,7 +10,7 @@
     "profit_factor": 3.2996088782271897,
     "total_trades": 68,
     "avg_holding_period_days": 64.41791044776119,
-    "correlation_to_spy": 1.0,
+    "correlation_to_spy": 0.73,
     "correlation_to_btc": null,
     "out_of_sample_sharpe": 0.930283,
     "look_ahead_audit_passed": true,
