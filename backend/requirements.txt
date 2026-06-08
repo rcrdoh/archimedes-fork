@@ -37,7 +37,7 @@ anthropic>=0.104.1
 
 # On-chain / Web3
 web3>=7.16.0
-eth-account>=0.13
+eth-account>=0.13.7
 eth-utils>=6.0.0
 cryptography>=42.0
 
