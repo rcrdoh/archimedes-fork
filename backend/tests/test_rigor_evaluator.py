@@ -974,6 +974,37 @@ class TestDsrCorrelationRelaxesPenalty:
             rets, num_trials=1, average_correlation=0.0
         )
 
+    def test_full_correlation_collapses_to_single_effective_trial(self):
+        # ρ=1 under the effective-N model means N_eff = 1: all trials are the
+        # same test, so there is no selection bias to deflate. The DSR must
+        # equal the N=1 (no-penalty) result — not vanish via an undocumented
+        # sqrt(1−ρ) factor.
+        rng = np.random.default_rng(9)
+        rets = list(rng.normal(0.0012, 0.01, 600))
+        fully_correlated = compute_dsr(rets, num_trials=25, average_correlation=1.0)
+        no_penalty = compute_dsr(rets, num_trials=1, average_correlation=0.0)
+        assert fully_correlated == no_penalty
+
+    def test_intermediate_correlation_lies_between_endpoints(self):
+        # Effective-N is monotonic in ρ: a partially-correlated grid deflates
+        # less than an independent one (ρ=0) and more than a degenerate one (ρ=1).
+        rng = np.random.default_rng(10)
+        rets = list(rng.normal(0.0012, 0.01, 600))
+        dsr_indep = compute_dsr(rets, num_trials=25, average_correlation=0.0)[0]
+        dsr_mid = compute_dsr(rets, num_trials=25, average_correlation=0.5)[0]
+        dsr_full = compute_dsr(rets, num_trials=25, average_correlation=1.0)[0]
+        assert dsr_indep < dsr_mid < dsr_full
+
+    def test_uncorrelated_path_unchanged_from_nominal_n(self):
+        # ρ=0 must deflate by the full nominal N (the change only touches the
+        # correlated relief, leaving independent-trial deflation untouched).
+        rng = np.random.default_rng(12)
+        rets = list(rng.normal(0.001, 0.01, 500))
+        dsr_n10 = compute_dsr(rets, num_trials=10, average_correlation=0.0)[0]
+        dsr_n50 = compute_dsr(rets, num_trials=50, average_correlation=0.0)[0]
+        # More independent trials → larger best-of-N null → lower deflated Sharpe.
+        assert dsr_n50 < dsr_n10
+
 
 # ─── CPCV wiring into run_rigor_gate ─────────────────────────────────
 

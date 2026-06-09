@@ -132,7 +132,7 @@ async def evaluate_rigor_gate():
 
     # The strategy library is the multiple-testing selection set; correlated
     # strategies (overlapping assets/signals) carry fewer independent trials, so
-    # the DSR effective-N correction relaxes the penalty by sqrt(1 - rho_bar).
+    # the DSR effective-N correction relaxes the penalty via N_eff = N/(1+(N-1)ρ̄).
     avg_correlation = compute_average_pairwise_correlation(valid_returns) if len(valid_returns) >= 2 else 0.0
 
     # Run rigor gate for each strategy
