@@ -395,10 +395,18 @@ def apply_rigor_gate(
                 (curve[i] - curve[i - 1]) / curve[i - 1] for i in range(1, len(curve)) if curve[i - 1] > 0
             ]
 
+    # num_trials = actual size of the multiple-testing selection set. A fixed
+    # default (10) under-deflates a large variant grid (e.g. a 50-variant sweep
+    # gets only a 10-trial penalty) and over-deflates a small one. When the
+    # variant matrix is known, use its real cardinality as the trial count.
+    effective_trials = num_trials
+    if variants_metrics is not None and len(variants_metrics) >= 2:
+        effective_trials = len(variants_metrics)
+
     # Correlated variants carry fewer independent trials than their nominal
     # count, so the multiple-testing penalty in the DSR is relaxed accordingly.
     avg_correlation = compute_average_pairwise_correlation(variant_returns) if len(variant_returns) >= 2 else 0.0
-    dsr, dsr_p = compute_dsr(daily_returns, num_trials, avg_correlation)
+    dsr, dsr_p = compute_dsr(daily_returns, effective_trials, avg_correlation)
     oos_sharpe = compute_oos_sharpe(daily_returns)
 
     # PBO: compute real CSCV PBO when >= 2 variant backtests are available.
@@ -422,7 +430,14 @@ def apply_rigor_gate(
     # through the fusion path.
     dsr_pass = dsr_p is not None and dsr_p >= 0.95
 
-    passing = dsr_pass and look_ahead_clean and (pbo_score is None or pbo_score < 0.5)
+    # Walk-forward OOS Sharpe is the fourth admission primitive (DSL look-ahead
+    # safety, DSR, PBO, walk-forward OOS). It was computed above but never
+    # enforced — the gate silently dropped it. Mirror the curated path's
+    # absolute floor (run_rigor_gate / RigorGateResult.passes_all): a strategy
+    # with a non-positive out-of-sample Sharpe cannot pass.
+    oos_pass = oos_sharpe is not None and oos_sharpe > 0.0
+
+    passing = dsr_pass and oos_pass and look_ahead_clean and (pbo_score is None or pbo_score < 0.5)
 
     # Provenance gate: a strategy is only admissible for Tier-1 if it passes
     # the statistics AND those statistics were computed on real market data.
@@ -443,7 +458,7 @@ def apply_rigor_gate(
         pbo_score=pbo_score,
         oos_sharpe=oos_sharpe,
         look_ahead_clean=look_ahead_clean,
-        num_trials=num_trials,
+        num_trials=effective_trials,
         data_source=source,
         admissible=admissible,
     )

@@ -390,3 +390,75 @@ class TestDataProvenanceGate:
         verdict = apply_rigor_gate(metrics)
         assert verdict.passing is False
         assert verdict.admissible is False
+
+
+def _metrics_from_curve(curve: list[float], data_source: str = "csv:test.csv") -> BacktestMetrics:
+    return BacktestMetrics(
+        sharpe_ratio=1.0,
+        sortino_ratio=1.0,
+        max_drawdown=0.2,
+        cagr=0.1,
+        calmar_ratio=0.5,
+        win_rate=0.55,
+        total_trades=50,
+        avg_holding_period_days=10.0,
+        equity_curve=curve,
+        monthly_returns=[],
+        backtest_start=None,
+        backtest_end=None,
+        data_source=data_source,
+    )
+
+
+class TestFusionGateEnforcesOosSharpe:
+    """Regression for the audit finding that the fusion gate computed the OOS
+    Sharpe but never enforced it in the `passing` condition."""
+
+    def test_negative_oos_fails_even_when_dsr_passes(self):
+        # In-sample (first half): strong, low-vol uptrend → very high full-sample
+        # DSR (p ≈ 1). Out-of-sample (second half): noisy but net-negative drift
+        # → OOS Sharpe < 0. Pre-fix this passed on DSR alone; it must now fail.
+        curve = [100_000.0]
+        for _ in range(400):
+            curve.append(curve[-1] * 1.005)  # IS: steady +0.5%/bar
+        for i in range(400):
+            curve.append(curve[-1] * (0.9990 if i % 2 == 0 else 0.9996))  # OOS: net down
+
+        verdict = apply_rigor_gate(_metrics_from_curve(curve))
+        assert verdict.dsr_p_value is not None and verdict.dsr_p_value >= 0.95, (
+            "test setup invalid: IS drift should make DSR pass"
+        )
+        assert verdict.oos_sharpe is not None and verdict.oos_sharpe <= 0.0
+        assert verdict.passing is False  # OOS gate is the deciding factor
+
+    def test_positive_oos_can_pass(self):
+        # Steady uptrend across the whole window → OOS Sharpe > 0 and DSR passes.
+        curve = [100_000.0]
+        for i in range(800):
+            curve.append(curve[-1] * (1.003 if i % 2 == 0 else 1.001))
+        verdict = apply_rigor_gate(_metrics_from_curve(curve))
+        assert verdict.oos_sharpe is not None and verdict.oos_sharpe > 0.0
+        assert verdict.passing is True
+
+
+class TestFusionGateUsesRealTrialCount:
+    """Regression for the audit finding that num_trials was hardcoded to 10
+    regardless of the actual variant-selection set size."""
+
+    def test_num_trials_tracks_variant_count(self):
+        base = [100_000.0]
+        for i in range(800):
+            base.append(base[-1] * (1.003 if i % 2 == 0 else 1.001))
+        base_metrics = _metrics_from_curve(base)
+
+        # 30 correlated variants → trial count must reflect 30, not the default 10.
+        variants = {f"v{i}": _metrics_from_curve(base) for i in range(30)}
+        verdict = apply_rigor_gate(base_metrics, num_trials=10, variants_metrics=variants)
+        assert verdict.num_trials == 30
+
+    def test_falls_back_to_passed_count_without_variants(self):
+        base = [100_000.0]
+        for i in range(800):
+            base.append(base[-1] * (1.003 if i % 2 == 0 else 1.001))
+        verdict = apply_rigor_gate(_metrics_from_curve(base), num_trials=7)
+        assert verdict.num_trials == 7
