@@ -210,6 +210,23 @@ class TestAdapterSingleRun:
         assert "sortino_ratio" in d
         assert d["trading_days"] == 5
 
+    def test_dsr_fields_are_not_transposed(self):
+        """dsr_p_value must be a probability; dsr_sharpe_estimate the Sharpe.
+
+        Regression for the audit finding that the adapter unpacked
+        compute_dsr() as `dsr_p, dsr_sr = ...`, transposing the (deflated_sharpe,
+        p_value) tuple. A p-value lives in [0, 1]; an annualized Sharpe routinely
+        falls outside it — so the swap is detectable by range.
+        """
+        adapter = ArchimedesStockBenchAdapter(seed=0)
+        result = adapter.run(n_days=30)  # ≥5 daily returns → DSR computed
+        assert result.dsr_p_value is not None
+        assert result.dsr_sharpe_estimate is not None
+        assert 0.0 <= result.dsr_p_value <= 1.0, (
+            f"dsr_p_value={result.dsr_p_value} is not a probability — tuple likely transposed"
+        )
+        assert isinstance(result.dsr_sharpe_estimate, float)
+
 
 # ── Multi-seed aggregation ──────────────────────────────────────
 

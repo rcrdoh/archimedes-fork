@@ -554,9 +554,12 @@ class ArchimedesStockBenchAdapter:
             # Step 4
             self.execute_decision(decision, prices, day)
 
-        # compute_dsr: Deflated Sharpe Ratio over the full episode (Bailey & Lopez de Prado 2014)
+        # compute_dsr: Deflated Sharpe Ratio over the full episode (Bailey & Lopez de Prado 2014).
+        # It returns (deflated_sharpe, p_value) in that order — unpack accordingly.
+        # The previous `dsr_p, dsr_sr = ...` transposed them, so dsr_p_value carried
+        # the Sharpe and dsr_sharpe_estimate carried the p-value.
         daily_rets = self.portfolio.daily_returns
-        dsr_p, dsr_sr = compute_dsr(daily_returns=daily_rets, num_trials=1) if len(daily_rets) >= 5 else (None, None)
+        dsr_sr, dsr_p = compute_dsr(daily_returns=daily_rets, num_trials=1) if len(daily_rets) >= 5 else (None, None)
 
         return BenchmarkResult(
             seed=self.seed,
