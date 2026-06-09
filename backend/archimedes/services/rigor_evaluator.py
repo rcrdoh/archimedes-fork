@@ -309,9 +309,10 @@ def compute_average_pairwise_correlation(
 ) -> float:
     """Average off-diagonal Pearson correlation across a set of return series.
 
-    Feeds the Deflated Sharpe Ratio's effective-number-of-trials correction
-    (Bailey & López de Prado 2014): the expected best-of-N null Sharpe shrinks
-    by ``sqrt(1 - rho_bar)`` when the N trials are correlated, because correlated
+    Feeds the Deflated Sharpe Ratio's effective-number-of-trials correction:
+    the expected best-of-N null Sharpe is computed at the effective trial count
+    ``N_eff = N / (1 + (N-1)*rho_bar)`` (the equicorrelated effective number of
+    independent tests) when the N trials are correlated, because correlated
     trials carry fewer *independent* bets than their nominal count. The caller
     that holds the selection set (the strategy library, or a parameter-variant
     grid) computes this and passes it into ``compute_dsr`` / ``run_rigor_gate``.
