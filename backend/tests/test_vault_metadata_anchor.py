@@ -8,12 +8,21 @@ survives anchor failures without breaking the DB write.
 from __future__ import annotations
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from archimedes.api.auth_siwe import _COOKIE_NAME, _sign_session
 from archimedes.main import app
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
+
+_WALLET = "0x" + "a1" * 20
+
+
+def _siwe_cookies(wallet: str = _WALLET) -> dict[str, str]:
+    """A valid SIWE session cookie for `wallet` (the endpoints are now gated)."""
+    return {_COOKIE_NAME: _sign_session(wallet.lower(), time.time())}
 
 
 def _make_passport(sid: str, methodology_hash: str | None = "abcd1234" * 8):
@@ -43,6 +52,7 @@ class TestVaultMetadataAnchor:
                 "symbol": "tVLT",
                 "strategy_ids": ["s1", "s2", "s3"],
             },
+            cookies=_siwe_cookies(),
         )
         assert resp.status_code == 200
 
@@ -70,6 +80,7 @@ class TestVaultMetadataAnchor:
                 "symbol": "tVL2",
                 "strategy_ids": ["s1", "s2", "s3"],
             },
+            cookies=_siwe_cookies(),
         )
         assert resp.status_code == 200
 
@@ -91,6 +102,7 @@ class TestVaultMetadataAnchor:
                 "symbol": "tVL3",
                 "strategy_ids": ["s1"],
             },
+            cookies=_siwe_cookies(),
         )
         # Handler still returns 200 — anchor failure is non-fatal
         assert resp.status_code == 200
@@ -109,9 +121,72 @@ class TestVaultMetadataAnchor:
                 "symbol": "tVL4",
                 "strategy_ids": ["unknown_id"],
             },
+            cookies=_siwe_cookies(),
         )
         assert resp.status_code == 200
 
         asyncio.run(asyncio.sleep(0.1))
         # anchor should NOT have been called for unknown strategy
         mock_publisher.anchor.assert_not_called()
+
+
+class TestVaultMetadataAuth:
+    """Audit finding #8: /api/vaults/metadata triggers a backend-signed on-chain
+    tx and was unauthenticated. It must require SIWE and be owner-scoped."""
+
+    def test_metadata_post_requires_auth(self):
+        resp = client.post(
+            "/api/vaults/metadata",
+            json={
+                "vault_address": "0x" + "22" * 20,
+                "name": "Unauthed",
+                "symbol": "tUNA",
+                "strategy_ids": [],
+            },
+        )
+        assert resp.status_code == 401
+
+    def test_metadata_post_rejects_non_owner_overwrite(self):
+        vault = "0x" + "33" * 20
+        owner = "0x" + "aa" * 20
+        attacker = "0x" + "bb" * 20
+
+        # Owner claims the vault metadata first.
+        first = client.post(
+            "/api/vaults/metadata",
+            json={"vault_address": vault, "name": "Owned", "symbol": "tOWN", "strategy_ids": []},
+            cookies=_siwe_cookies(owner),
+        )
+        assert first.status_code == 200
+
+        # A different authenticated wallet cannot overwrite it.
+        attack = client.post(
+            "/api/vaults/metadata",
+            json={"vault_address": vault, "name": "Hijacked", "symbol": "tHJK", "strategy_ids": []},
+            cookies=_siwe_cookies(attacker),
+        )
+        assert attack.status_code == 403
+
+        # The owner can still edit their own metadata.
+        again = client.post(
+            "/api/vaults/metadata",
+            json={"vault_address": vault, "name": "Owned v2", "symbol": "tOWN", "strategy_ids": []},
+            cookies=_siwe_cookies(owner),
+        )
+        assert again.status_code == 200
+
+
+def test_create_vault_requires_auth():
+    """Vault creation spends the backend signer's gas → must be SIWE-gated."""
+    resp = client.post(
+        "/api/vaults/create",
+        json={
+            "name": "Unauthed Vault",
+            "symbol": "tUAV",
+            "management_fee_bps": 100,
+            "performance_fee_bps": 1000,
+            "agent_assisted": True,
+            "strategy_ids": [],
+        },
+    )
+    assert resp.status_code == 401

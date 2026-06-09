@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from archimedes.api._route_helpers import strategy_provider, vault_svc
+from archimedes.api.auth_siwe import require_verified_wallet
 from archimedes.api.limiter import limiter
 from archimedes.chain.strategy_publisher import strategy_publisher
 
@@ -76,10 +77,18 @@ async def list_vaults(
 
 @vaults_router.post("/create", response_model=VaultCreateResponse)
 @limiter.limit("5/minute")
-async def create_vault(req: VaultCreateRequest, request: Request, response: Response):  # noqa: ARG001 — slowapi @limiter.limit inspects param name
-    """Deploy a new vault on Arc via VaultFactory."""
-    from fastapi import HTTPException
+async def create_vault(
+    req: VaultCreateRequest,
+    request: Request,
+    response: Response,  # noqa: ARG001 — slowapi @limiter.limit inspects param name
+    wallet: str = Depends(require_verified_wallet),  # noqa: ARG001 — SIWE gate; raises 401 if unauthenticated
+):
+    """Deploy a new vault on Arc via VaultFactory.
 
+    SIWE-gated: vault creation spends the backend signer's gas on-chain, so it
+    must require an authenticated wallet (rate-limiting alone left it open to an
+    unauthenticated gas-drain).
+    """
     try:
         vault_address = await chain_executor.create_vault(
             name=req.name,
@@ -120,10 +129,20 @@ async def get_vault_detail(address: str):
 
 @vaults_router.post("/metadata", response_model=VaultMetadataResponse)
 @limiter.limit("10/minute")
-async def store_vault_metadata(req: VaultMetadataRequest, request: Request, response: Response):  # noqa: ARG001 — slowapi @limiter.limit inspects param name
-    """Store off-chain vault metadata (strategy associations, display name)."""
-    from fastapi import HTTPException
+async def store_vault_metadata(
+    req: VaultMetadataRequest,
+    request: Request,
+    response: Response,  # noqa: ARG001 — slowapi @limiter.limit inspects param name
+    wallet: str = Depends(require_verified_wallet),
+):
+    """Store off-chain vault metadata (strategy associations, display name).
 
+    SIWE-gated and owner-scoped: this write triggers `_anchor_strategies_async`,
+    a backend-signed on-chain transaction. Previously anyone could overwrite any
+    vault's metadata and spend gas. The authenticated wallet now becomes the
+    metadata owner on first write, and subsequent writes require the caller to
+    be that owner.
+    """
     from archimedes.db import get_session
 
     session = get_session()
@@ -132,10 +151,15 @@ async def store_vault_metadata(req: VaultMetadataRequest, request: Request, resp
         if meta is None:
             meta = VaultMetadata(vault_address=req.vault_address)
             session.add(meta)
+        elif meta.creator_address and meta.creator_address.lower() != wallet.lower():
+            # An owner already claimed this vault's metadata; only they may edit it.
+            raise HTTPException(status_code=403, detail="Not authorized to edit this vault's metadata.")
 
         meta.name = req.name
         meta.symbol = req.symbol
-        meta.creator_address = req.creator_address or ""
+        # Bind ownership to the authenticated wallet — never trust a
+        # caller-supplied creator_address (that was the spoofing vector).
+        meta.creator_address = wallet.lower()
         meta.set_strategy_ids(req.strategy_ids)
         session.commit()
         session.refresh(meta)
@@ -145,6 +169,11 @@ async def store_vault_metadata(req: VaultMetadataRequest, request: Request, resp
             asyncio.create_task(_anchor_strategies_async(req.strategy_ids))
 
         return VaultMetadataResponse(**meta.to_dict())
+    except HTTPException:
+        # Auth/ownership failures (401/403) must pass through unchanged, not be
+        # masked as a 500 by the broad handler below.
+        session.rollback()
+        raise
     except Exception as exc:
         session.rollback()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
