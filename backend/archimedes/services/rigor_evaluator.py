@@ -136,14 +136,31 @@ def _dsr_from_stats(
     if N == 1:
         E_max_N = 0.0
     else:
-        phi_inv_1 = float(norm.ppf(1.0 - 1.0 / N))
-        phi_inv_2 = float(norm.ppf(1.0 - 1.0 / (N * math.e)))
-        E_max_N = (1.0 - _EULER_MASCHERONI) * phi_inv_1 + _EULER_MASCHERONI * phi_inv_2
+        # Correlated trials are not independent tests: a parameter sweep whose
+        # variants move together carries fewer effective trials than its nominal
+        # count. Convert N to an effective count under an equicorrelation model
+        # with average pairwise correlation ρ:
+        #     N_eff = N / (1 + (N − 1)·ρ)
+        # the standard "effective number of independent tests" (Cheverud 2001;
+        # Nyholt 2004 — the equicorrelated effective sample size). ρ=0 → N_eff=N
+        # (full multiple-testing penalty); ρ=1 → N_eff=1 (all variants collapse
+        # to a single test, so there is no selection bias to deflate). This
+        # replaces a previous ad-hoc E[max]·sqrt(1 − ρ) factor that had no
+        # published source and let deflation vanish without a principled basis.
+        rho = max(0.0, min(1.0, average_correlation))
+        n_eff = N / (1.0 + (N - 1) * rho) if rho > 0.0 else float(N)
 
-        # Apply Bailey-López de Prado correlation adjustment:
-        # E[max] of correlated variables scales by sqrt(1 - rho)
-        if average_correlation > 0.0:
-            E_max_N *= math.sqrt(max(0.0, 1.0 - average_correlation))
+        # The Bailey-LdP two-quantile E[max] approximation is only well-behaved
+        # for ≥ 2 trials (norm.ppf(1 − 1/N) → −∞ as N → 1). Evaluate it at
+        # max(2, N_eff) and linearly taper the result to 0 across the effective
+        # range [1, 2], so a fully correlated grid (N_eff → 1) carries no penalty
+        # without the ppf blow-up a literal non-integer N_eff < 2 would cause.
+        n_for_emax = max(2.0, n_eff)
+        phi_inv_1 = float(norm.ppf(1.0 - 1.0 / n_for_emax))
+        phi_inv_2 = float(norm.ppf(1.0 - 1.0 / (n_for_emax * math.e)))
+        e_max_full = (1.0 - _EULER_MASCHERONI) * phi_inv_1 + _EULER_MASCHERONI * phi_inv_2
+        taper = min(1.0, max(0.0, n_eff - 1.0))
+        E_max_N = e_max_full * taper
 
     # SR_zero: expected best-of-N under the null, scaled to per-bar variance
     # (under iid normal returns, per-bar SR has variance 1/(T-1))
@@ -319,9 +336,10 @@ def compute_average_pairwise_correlation(
 ) -> float:
     """Average off-diagonal Pearson correlation across a set of return series.
 
-    Feeds the Deflated Sharpe Ratio's effective-number-of-trials correction
-    (Bailey & López de Prado 2014): the expected best-of-N null Sharpe shrinks
-    by ``sqrt(1 - rho_bar)`` when the N trials are correlated, because correlated
+    Feeds the Deflated Sharpe Ratio's effective-number-of-trials correction:
+    the expected best-of-N null Sharpe is computed at the effective trial count
+    ``N_eff = N / (1 + (N-1)*rho_bar)`` (the equicorrelated effective number of
+    independent tests) when the N trials are correlated, because correlated
     trials carry fewer *independent* bets than their nominal count. The caller
     that holds the selection set (the strategy library, or a parameter-variant
     grid) computes this and passes it into ``compute_dsr`` / ``run_rigor_gate``.
