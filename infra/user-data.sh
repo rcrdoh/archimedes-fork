@@ -40,16 +40,30 @@ chown ubuntu:ubuntu /opt/archimedes
 # Clone the repo
 su - ubuntu -c "git clone ${repo_url} /opt/archimedes"
 
-# Create a placeholder .env on the server (team will populate secrets later)
-cat > /opt/archimedes/.env <<'ENVEOF'
+# Generate a strong DB password at boot — never hardcode a credential in the
+# repo (the previous "archimedes-hackathon-2026" literal was world-readable in
+# git). hex is URL-safe, so it slots into DATABASE_URL without escaping.
+# (Longer-term: pull this from AWS SSM Parameter Store at container start.)
+#
+# NOTE: this file is rendered by Terraform's templatefile() (see main.tf), which
+# parses the WHOLE file (comments included) and treats $${...} as a template
+# directive. Shell variable references are therefore doubled ($$ renders to a
+# single $) so the rendered script keeps the shell expansion at boot. The only
+# real Terraform template variable in this file is repo_url (used above).
+DB_PASS="$(openssl rand -hex 24)"
+
+# Create a placeholder .env on the server (team will populate the rest later).
+# Unquoted heredoc so $${DB_PASS} expands at runtime; no other shell $refs here.
+cat > /opt/archimedes/.env <<ENVEOF
 # Archimedes production environment — populated by the team
 # Do NOT commit this file. See .env.example for the template.
 POSTGRES_USER=archimedes
-POSTGRES_PASSWORD=archimedes-hackathon-2026
+POSTGRES_PASSWORD=$${DB_PASS}
 POSTGRES_DB=archimedes
 REDIS_URL=redis://redis:6379/0
-DATABASE_URL=postgresql://archimedes:archimedes-hackathon-2026@postgres:5432/archimedes
+DATABASE_URL=postgresql://archimedes:$${DB_PASS}@postgres:5432/archimedes
 ENVEOF
+chmod 600 /opt/archimedes/.env
 chown ubuntu:ubuntu /opt/archimedes/.env
 
 # Start services (if docker-compose.yml exists)
