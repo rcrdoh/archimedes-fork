@@ -156,16 +156,15 @@ async def evaluate_rigor_gate():
             )
             continue
 
-        # Use real in-sample Sharpe from persisted data when available
-        in_sample_sharpe = s.stub_sharpe
-        with get_session() as session:
-            from archimedes.services.backtest_repository import (
-                latest_backtests_by_strategy,
-            )
-
-            bt_map = latest_backtests_by_strategy(session, [s.id])
-            if s.id in bt_map:
-                in_sample_sharpe = bt_map[s.id].sharpe_ratio
+        # in_sample_sharpe is left None on purpose: run_rigor_gate derives it
+        # from the first 70% of `daily_returns`, the same series whose last 30%
+        # produces oos_sharpe. Passing the *full-sample* backtest Sharpe here
+        # (the previous `bt_map[s.id].sharpe_ratio`) made the OOS/IS cliff check
+        # trivially passable — a bad OOS tail drags the full-sample denominator
+        # down, inflating the ratio (see rigor_evaluator.run_rigor_gate's own
+        # warning at the IS-slice fallback). Let the gate compute the honest
+        # first-70% in-sample denominator instead of overriding it.
+        in_sample_sharpe = None
 
         # cv_returns_matrix intentionally omitted — CPCV requires a 2-D array
         # of per-combinatorial-split OOS returns that the analytics-engine does

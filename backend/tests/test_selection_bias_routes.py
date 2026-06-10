@@ -456,3 +456,63 @@ async def test_gate_endpoint_empty_provider_404_for_strategy(monkeypatch):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/api/selection-bias/gate/any-id-at-all")
     assert resp.status_code == 404
+
+
+# ── OOS/IS cliff denominator (audit finding #7) ─────────────────────────
+
+
+class TestOosCliffDenominator:
+    """The /gate route must pass in_sample_sharpe=None so run_rigor_gate derives
+    the IS denominator from the first 70% of the series — NOT the full-sample
+    backtest Sharpe (the previous `bt_map[s.id].sharpe_ratio` override), which
+    blends IS+OOS and makes the OOS/IS cliff trivially passable.
+
+    These deterministic series (no RNG → version-independent) demonstrate the
+    denominator choice flipping the verdict on a strong-IS / weak-positive-OOS
+    strategy: the honest first-70% denominator fails the cliff; the inflated
+    full-sample denominator passes it.
+    """
+
+    @staticmethod
+    def _strong_is_weak_oos() -> list[float]:
+        # IS (first 700 bars): drift 0.003 ± 0.01 → high Sharpe.
+        # OOS (last 300 bars): drift 0.0015 ± 0.01 → ~half the IS edge.
+        amp = 0.01
+        is_part = [0.003 + (amp if i % 2 == 0 else -amp) for i in range(700)]
+        oos_part = [0.0015 + (amp if i % 2 == 0 else -amp) for i in range(300)]
+        return is_part + oos_part
+
+    def test_first70_denominator_fails_cliff(self):
+        from archimedes.services.rigor_evaluator import run_rigor_gate
+
+        series = self._strong_is_weak_oos()
+        gate = run_rigor_gate(
+            "s",
+            series,
+            num_trials=1,
+            pbo_scores=None,
+            strategy_code=None,
+            in_sample_sharpe=None,
+            average_correlation=0.0,
+        )
+        assert "FAIL" in gate.gate_details["oos_sharpe"]
+
+    def test_fullsample_denominator_would_inflate_and_pass(self):
+        import math
+
+        from archimedes.services.rigor_evaluator import run_rigor_gate
+
+        series = self._strong_is_weak_oos()
+        arr = np.asarray(series, dtype=float)
+        full_sample_sharpe = (arr.mean() / arr.std(ddof=1)) * math.sqrt(252)
+        gate = run_rigor_gate(
+            "s",
+            series,
+            num_trials=1,
+            pbo_scores=None,
+            strategy_code=None,
+            in_sample_sharpe=full_sample_sharpe,
+            average_correlation=0.0,
+        )
+        # Same series, only the denominator differs → the bug let it pass.
+        assert "PASS" in gate.gate_details["oos_sharpe"]
