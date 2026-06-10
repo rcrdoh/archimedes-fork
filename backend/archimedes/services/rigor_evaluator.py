@@ -188,6 +188,20 @@ def compute_pbo(
         {strategy_id: pbo_score} — lower is better. PBO ≥ 0.5 means the
         library is expected to overfit (IS-best underperforms OOS median).
         Returns 0.0 for every strategy if N < 2 or data is insufficient.
+
+    Known limitations (the library here is small — N ≈ 4–6 today):
+      - Library-level coupling: PBO is a property of the whole selection set,
+        not of one strategy, yet the same value is attached to every member.
+        A strategy's PBO verdict therefore depends on which *other* strategies
+        happen to be in the library — adding or removing a neighbor can flip
+        it. This is inherent to CSCV, not a bug, but it means PBO should be
+        read as a library-overfit signal, not a per-strategy score.
+      - Coarse OOS rank: ω = rank_oos / N takes only N discrete values, so with
+        N = 4 the logit λ is quantized to a handful of levels and PBO is
+        granular. The estimate sharpens as the library grows.
+      - Trailing-bar truncation: rows_per_block = T // S drops up to S − 1
+        trailing bars (≤ 15 at the default S = 16) so every block is equal-length.
+        Negligible for multi-year series; worth noting for short ones.
     """
     if len(returns_matrix) < 2:
         return dict.fromkeys(returns_matrix, 0.0)
