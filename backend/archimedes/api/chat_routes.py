@@ -13,6 +13,7 @@ Design (per ecosystem-design-spec.md § 16–17):
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -80,7 +81,12 @@ async def post_chat_message(
     if len(body.message) > 2000:
         raise HTTPException(status_code=400, detail="Message too long (max 2000 chars)")
 
-    result = chat_service.post_message(
+    # post_message is fully synchronous and, when @archimedes is mentioned, makes
+    # a blocking Anthropic call plus sync DB writes. Calling it directly inside
+    # this async route would block the event loop and serialize concurrent
+    # requests. Offload the whole sync chain to a worker thread.
+    result = await asyncio.to_thread(
+        chat_service.post_message,
         vault_address=address,
         wallet_address=body.wallet_address,
         message=body.message.strip(),
