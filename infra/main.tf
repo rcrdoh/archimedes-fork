@@ -95,17 +95,12 @@ resource "local_sensitive_file" "private_key" {
 
 resource "aws_security_group" "archimedes" {
   name        = "${var.project_name}-sg"
-  description = "Archimedes EC2 - SSH, HTTP, HTTPS, API"
+  description = "Archimedes EC2 - HTTP, HTTPS (admin access via SSM, no inbound SSH)"
   vpc_id      = data.aws_vpc.default.id
 
-  # SSH
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  # No SSH ingress. Admin access is via AWS SSM Session Manager (see CLAUDE.md /
+  # infra-setup.md), which needs no inbound port. Port 22 open to 0.0.0.0/0 on a
+  # funds-holding host was unused attack surface — removed per audit finding #12.
 
   # HTTP
   ingress {
