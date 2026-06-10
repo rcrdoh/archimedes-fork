@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -24,6 +25,13 @@ from archimedes.api.auth_siwe import (
     require_verified_wallet,
 )
 from httpx import ASGITransport, AsyncClient
+
+
+def _now_iso() -> str:
+    """Current UTC time as an EIP-4361 'Issued At' string (must be fresh: the
+    verifier now rejects stale issued-at timestamps)."""
+    return datetime.now(UTC).isoformat()
+
 
 # ── Unit tests for session token functions ─────────────────────
 
@@ -195,7 +203,12 @@ async def test_verify_rejects_missing_fields():
 async def test_verify_rejects_unknown_nonce():
     from archimedes.main import app
 
-    message = "archimedes-arc.app wants you to sign in\n0xabcdef1234567890abcdef1234567890abcdef12\nNonce: nonexistentnonce12345678"
+    # Full bindings (domain/chain/issued-at) present so we reach the nonce check.
+    message = (
+        "archimedes-arc.app wants you to sign in\n"
+        "0xabcdef1234567890abcdef1234567890abcdef12\n"
+        f"Chain ID: 5042002\nNonce: nonexistentnonce12345678\nIssued At: {_now_iso()}"
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/api/auth/verify", json={"message": message, "signature": "0xfake"})
     assert resp.status_code == 401
@@ -210,7 +223,11 @@ async def test_verify_rejects_expired_nonce():
     nonce = "expired_nonce_123456"
     _pending_nonces[nonce] = time.time() - 1  # already expired
 
-    message = f"archimedes-arc.app wants you to sign in\n0xabcdef1234567890abcdef1234567890abcdef12\nNonce: {nonce}"
+    message = (
+        "archimedes-arc.app wants you to sign in\n"
+        "0xabcdef1234567890abcdef1234567890abcdef12\n"
+        f"Chain ID: 5042002\nNonce: {nonce}\nIssued At: {_now_iso()}"
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/api/auth/verify", json={"message": message, "signature": "0xfake"})
     assert resp.status_code == 401
@@ -243,7 +260,7 @@ async def test_verify_with_valid_signature():
             f"Version: 1\n"
             f"Chain ID: 5042002\n"
             f"Nonce: {nonce_data['nonce']}\n"
-            f"Issued At: 2026-05-26T00:00:00Z"
+            f"Issued At: {_now_iso()}"
         )
         signable = encode_defunct(text=message)
         signed = acct.sign_message(signable)
@@ -284,8 +301,9 @@ async def test_verify_rejects_wrong_signer():
         message = (
             f"{nonce_data['domain']} wants you to sign in with your Ethereum account:\n"
             f"{acct_fake}\n\n"
+            f"Chain ID: 5042002\n"
             f"Nonce: {nonce_data['nonce']}\n"
-            f"Issued At: 2026-05-26T00:00:00Z"
+            f"Issued At: {_now_iso()}"
         )
         signable = encode_defunct(text=message)
         signed = acct_real.sign_message(signable)
@@ -314,8 +332,9 @@ async def test_nonce_is_single_use():
         message = (
             f"{nonce_data['domain']} wants you to sign in with your Ethereum account:\n"
             f"{acct.address.lower()}\n\n"
+            f"Chain ID: 5042002\n"
             f"Nonce: {nonce_data['nonce']}\n"
-            f"Issued At: 2026-05-26T00:00:00Z"
+            f"Issued At: {_now_iso()}"
         )
         signable = encode_defunct(text=message)
         signed = acct.sign_message(signable)
@@ -329,3 +348,72 @@ async def test_nonce_is_single_use():
         resp2 = await client.post("/api/auth/verify", json=payload)
         assert resp2.status_code == 401
         assert "Nonce" in resp2.json()["detail"]
+
+
+# ── SIWE message binding: domain / chain-id / expiry (audit #9) ─────
+
+
+@pytest.mark.asyncio
+async def test_verify_rejects_wrong_domain():
+    """A message signed for another dApp's domain must not authenticate here."""
+    from archimedes.main import app
+
+    message = (
+        "evil-phish.example wants you to sign in with your Ethereum account:\n"
+        "0xabcdef1234567890abcdef1234567890abcdef12\n\n"
+        "Chain ID: 5042002\n"
+        f"Nonce: somenonce123456\nIssued At: {_now_iso()}"
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/auth/verify", json={"message": message, "signature": "0xfake"})
+    assert resp.status_code == 401
+    assert "domain" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_verify_rejects_wrong_chain_id():
+    from archimedes.main import app
+
+    message = (
+        "archimedes-arc.app wants you to sign in with your Ethereum account:\n"
+        "0xabcdef1234567890abcdef1234567890abcdef12\n\n"
+        "Chain ID: 1\n"  # Ethereum mainnet, not Arc testnet
+        f"Nonce: somenonce123456\nIssued At: {_now_iso()}"
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/auth/verify", json={"message": message, "signature": "0xfake"})
+    assert resp.status_code == 401
+    assert "chain" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_verify_rejects_stale_issued_at():
+    from archimedes.main import app
+
+    message = (
+        "archimedes-arc.app wants you to sign in with your Ethereum account:\n"
+        "0xabcdef1234567890abcdef1234567890abcdef12\n\n"
+        "Chain ID: 5042002\n"
+        "Nonce: somenonce123456\nIssued At: 2020-01-01T00:00:00+00:00"  # ancient
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/auth/verify", json={"message": message, "signature": "0xfake"})
+    assert resp.status_code == 401
+    assert "issued-at" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_verify_rejects_message_missing_chain_id():
+    """A message that omits Chain ID is rejected (400) — bindings are required,
+    not skip-if-absent (self-audit hardening of finding #9)."""
+    from archimedes.main import app
+
+    message = (
+        "archimedes-arc.app wants you to sign in\n"
+        "0xabcdef1234567890abcdef1234567890abcdef12\n"
+        f"Nonce: somenonce123456\nIssued At: {_now_iso()}"
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/auth/verify", json={"message": message, "signature": "0xfake"})
+    assert resp.status_code == 400
+    assert "Chain ID" in resp.json()["detail"]

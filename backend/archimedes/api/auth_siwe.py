@@ -27,6 +27,7 @@ import logging
 import os
 import secrets
 import time
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
@@ -40,12 +41,24 @@ auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 _SESSION_SECRET = os.getenv("EMAIL_ENCRYPTION_KEY", secrets.token_hex(32))
 _SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 _NONCE_TTL_SECONDS = 300  # 5 minutes
+_CLOCK_SKEW_SECONDS = 120  # tolerate small client/server clock drift on Issued At
+
+# SIWE message binding — a valid signature must be for THIS site and chain, not
+# merely carry a live nonce. Must match what GET /api/auth/nonce advertises and
+# what the UI puts in the message (see ui/src/siwe.js).
+_EXPECTED_DOMAIN = os.getenv("PUBLIC_DOMAIN", "https://archimedes-arc.app")
+_EXPECTED_CHAIN_ID = int(os.getenv("ARC_CHAIN_ID", "5042002"))
 
 # In-memory nonce store. Production would use Redis, but for the hackathon
 # this is sufficient — nonces are short-lived (5 min TTL) and single-use.
 _pending_nonces: dict[str, float] = {}  # nonce → expiry timestamp
 
 _COOKIE_NAME = "archimedes_session"
+
+
+def _normalize_domain(domain: str) -> str:
+    """Bare authority for domain comparison — drop scheme and trailing slash."""
+    return domain.strip().removeprefix("https://").removeprefix("http://").rstrip("/").lower()
 
 
 def _sign_session(wallet: str, issued_at: float) -> str:
@@ -132,18 +145,59 @@ async def verify_signature(request: Request, response: Response):
     if not message or not signature:
         raise HTTPException(status_code=400, detail="message and signature are required")
 
-    # Extract nonce from the message (SIWE format: "Nonce: <value>")
+    # Parse the SIWE message fields (EIP-4361). The first line is
+    # "<domain> wants you to sign in with your Ethereum account:".
     nonce = None
     wallet_from_message = None
-    for line in message.split("\n"):
+    domain_from_message = None
+    chain_id_from_message = None
+    issued_at_from_message = None
+    lines = message.split("\n")
+    if lines and " wants you to sign in" in lines[0]:
+        domain_from_message = lines[0].split(" wants you to sign in")[0].strip()
+    for line in lines:
         line = line.strip()
         if line.startswith("Nonce: "):
             nonce = line[7:].strip()
-        if line.startswith("0x") and len(line) == 42:
+        elif line.startswith("Chain ID: "):
+            chain_id_from_message = line[len("Chain ID: ") :].strip()
+        elif line.startswith("Issued At: "):
+            issued_at_from_message = line[len("Issued At: ") :].strip()
+        elif line.startswith("0x") and len(line) == 42:
             wallet_from_message = line.lower()
 
     if not nonce:
         raise HTTPException(status_code=400, detail="Nonce not found in message")
+
+    # The three EIP-4361 bindings below are REQUIRED, not best-effort: a message
+    # that simply omits the domain / chain-id / issued-at lines must not slip
+    # through unbound. The UI always emits all three (see ui/src/siwe.js).
+
+    # Domain binding — a signature for another dApp's domain must not authenticate
+    # here, even if it happens to carry a live Archimedes nonce. Compare on the
+    # bare authority (scheme/trailing-slash stripped) so "archimedes-arc.app" and
+    # "https://archimedes-arc.app/" are treated as the same site.
+    if domain_from_message is None:
+        raise HTTPException(status_code=400, detail="SIWE message is missing the domain line")
+    if _normalize_domain(domain_from_message) != _normalize_domain(_EXPECTED_DOMAIN):
+        raise HTTPException(status_code=401, detail="SIWE message domain does not match this site")
+
+    # Chain-id binding — reject messages signed for the wrong chain (or with none).
+    if chain_id_from_message is None:
+        raise HTTPException(status_code=400, detail="SIWE message is missing the Chain ID")
+    if chain_id_from_message != str(_EXPECTED_CHAIN_ID):
+        raise HTTPException(status_code=401, detail="SIWE message chain-id mismatch")
+
+    # Expiry — require a fresh "Issued At"; a message without one is not bound in time.
+    if not issued_at_from_message:
+        raise HTTPException(status_code=400, detail="SIWE message is missing Issued At")
+    try:
+        issued_dt = datetime.fromisoformat(issued_at_from_message.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid Issued At timestamp") from exc
+    age = datetime.now(issued_dt.tzinfo) - issued_dt
+    if age > timedelta(seconds=_NONCE_TTL_SECONDS) or age < timedelta(seconds=-_CLOCK_SKEW_SECONDS):
+        raise HTTPException(status_code=401, detail="SIWE message issued-at outside the valid window")
 
     # Verify nonce is pending and not expired
     expiry = _pending_nonces.pop(nonce, None)

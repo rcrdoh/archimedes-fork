@@ -5,6 +5,7 @@ import {
   getAvailableProviders,
   getConnectedProvider,
   getUsdcBalance,
+  getWalletClient,
   CIRCLE_PROVIDER_ID,
 } from '../config'
 
