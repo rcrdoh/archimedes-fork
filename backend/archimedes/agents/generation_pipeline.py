@@ -266,18 +266,33 @@ def _portfolio_return_series(weights: dict[str, float], price_histories: dict[st
     return out
 
 
-def _rigor_verdict_for(return_series: list[float], num_trials: int) -> dict[str, Any]:
+def _rigor_verdict_for(
+    return_series: list[float],
+    num_trials: int,
+    *,
+    lookahead_passed: bool = True,
+) -> dict[str, Any]:
     """Run Önder's rigor primitives on a portfolio return series.
 
     Returns the same shape the fixture path uses so the consumer (event
     emitter + frontend) doesn't care which path produced the verdict.
+
+    ``num_trials`` is the multiple-testing count fed to the Deflated Sharpe
+    Ratio — per ``selection-bias-corrections-spec.md`` § 1.3 this is the size
+    of the strategy universe the winner was selected from (the curated library),
+    NOT 1. With ``num_trials=1`` the DSR expectation-of-max term collapses to 0
+    and the ratio is undeflated, which silently defeats the gate.
+
+    ``lookahead_passed`` is the look-ahead-audit verdict, computed by the caller
+    (see ``_lookahead_for_candidate``) so the primitive actually gates the
+    ``passing`` decision instead of being a hardcoded constant.
     """
     if not return_series or len(return_series) < 10:
         return {
             "dsr": None,
             "pbo": None,
             "oos_sharpe": None,
-            "lookahead_audit_passed": True,
+            "lookahead_audit_passed": lookahead_passed,
             "passing": False,
             "reason": "return series too short for rigor evaluation",
         }
@@ -290,15 +305,63 @@ def _rigor_verdict_for(return_series: list[float], num_trials: int) -> dict[str,
     oos = compute_oos_sharpe(return_series)
     # PBO is library-level (needs ≥2 candidate return series); the caller
     # computes it once over all candidates and patches the verdict below.
-    passing = bool(dsr_p is not None and dsr_p >= 0.95 and oos is not None and oos > 0.0)
+    # All four admission primitives gate `passing`: DSR (p ≥ 0.95), OOS Sharpe
+    # (> 0), look-ahead audit (clean), and PBO (< 0.5, patched in _patch_pbo).
+    passing = bool(dsr_p is not None and dsr_p >= 0.95 and oos is not None and oos > 0.0 and lookahead_passed)
     return {
         "dsr": round(float(dsr), 4) if dsr is not None else None,
         "dsr_p_value": round(float(dsr_p), 4) if dsr_p is not None else None,
         "pbo": None,  # patched later by _patch_pbo
         "oos_sharpe": round(float(oos), 4) if oos is not None else None,
-        "lookahead_audit_passed": True,  # agent output is buy-and-hold; no leak
+        "lookahead_audit_passed": lookahead_passed,
         "passing": passing,
     }
+
+
+def _lookahead_for_candidate(referenced_strategies: list[Any]) -> bool:
+    """Look-ahead-audit verdict for a generated buy-and-hold candidate.
+
+    The live Generate candidate is a weight vector executed buy-and-hold: its
+    return series (see ``_portfolio_return_series``) is built purely from
+    realized prior-bar returns ``(close[t] − close[t−1]) / close[t−1]``, so the
+    *series itself* cannot leak future data. There is no signal-generating code
+    of the candidate's own to feed to ``look_ahead_audit`` (which is a static
+    AST audit of strategy *source*, not a return series).
+
+    What we can honestly audit is the source of the curated strategies the
+    candidate cites as provenance — a candidate grounded in a strategy whose
+    code leaks future data should not pass rigor. We audit each referenced
+    strategy's ``strategy_code_path`` but treat the conservative
+    "negative index — verify backtrader vs pandas" warning as non-fatal: the
+    curated library is backtrader-based (``close[-N]`` = N bars ago, confirmed
+    leak-free), so only genuinely forward-looking patterns (positive data index,
+    ``shift(-n)``, look-ahead-named calls) fail the audit here.
+
+    Returns True when no referenced strategy exposes a genuine forward-looking
+    pattern (vacuously True when none expose auditable source).
+    """
+    from pathlib import Path
+
+    from archimedes.services.rigor_evaluator import look_ahead_audit
+
+    for s in referenced_strategies:
+        path = getattr(s, "strategy_code_path", None)
+        if not path:
+            continue
+        try:
+            code = Path(path).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        _, warnings = look_ahead_audit(code)
+        genuine = [w for w in warnings if "negative index" not in w]
+        if genuine:
+            logger.warning(
+                "look-ahead audit flagged referenced strategy %s: %s",
+                getattr(s, "paper_title", path),
+                genuine,
+            )
+            return False
+    return True
 
 
 def _patch_pbo(candidates: list[_CandidateResult]) -> None:
@@ -516,6 +579,7 @@ async def _run_live_candidate(
     # Collect paper anchors — try matching by ID first, then by fuzzy name match
     referenced = {pick.paper_anchor for pick in (portfolio.picks or []) if pick.paper_anchor}
     source_papers = []
+    referenced_strategies: list[Any] = []  # matched curated strategies (for look-ahead audit)
     strat_by_id = {s.id: s for s in strategies}
     strat_by_name = {s.paper_title.lower(): s for s in strategies if s.paper_title}
     for anchor in referenced:
@@ -526,6 +590,8 @@ async def _run_live_candidate(
         if not s:
             # Try substring match
             s = next((st for st in strategies if anchor.lower() in st.paper_title.lower()), None)
+        if s:
+            referenced_strategies.append(s)
         if s and getattr(s, "paper_arxiv_id", None):
             source_papers.append({"arxiv_id": s.paper_arxiv_id, "title": s.paper_title})
     # Defensive fallback: if agent returned no anchors, include strategies
@@ -550,8 +616,13 @@ async def _run_live_candidate(
     # Real rigor verdict via Önder's compute_dsr + compute_oos_sharpe on the
     # buy-and-hold return series of the agent's allocation. PBO is patched
     # later (after all candidates are in) since it's a library-level metric.
+    # num_trials = library size: the winner was selected from this universe, so
+    # the DSR must be deflated for that multiple-testing count (spec § 1.3), not
+    # the previous hardcoded 1 (which left the DSR undeflated). The look-ahead
+    # primitive is computed from referenced curated source and gates `passing`.
     return_series = _portfolio_return_series(weights, price_histories)
-    verdict = _rigor_verdict_for(return_series, num_trials=1)
+    lookahead_passed = _lookahead_for_candidate(referenced_strategies)
+    verdict = _rigor_verdict_for(return_series, num_trials=max(1, len(strategies)), lookahead_passed=lookahead_passed)
     # Derive meaningful name + thesis from the brief and agent output (#299)
     top_picks = sorted(weights.items(), key=lambda x: -x[1])[:3]
     pick_summary = " / ".join(t for t, _ in top_picks)

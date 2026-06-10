@@ -147,6 +147,74 @@ def test_rigor_adapter_handles_empty_series():
     assert verdict["passing"] is False
 
 
+def test_rigor_adapter_deflates_with_num_trials():
+    """Higher num_trials must deflate the DSR (lower deflated Sharpe).
+
+    Regression for the audit finding that the Generate flow called
+    `_rigor_verdict_for(..., num_trials=1)`, which collapses the DSR
+    expectation-of-max term to 0 and leaves the ratio undeflated. With a real
+    library-size trial count the deflated Sharpe must be strictly lower.
+    """
+    import random
+
+    from archimedes.agents.generation_pipeline import _rigor_verdict_for
+
+    random.seed(7)
+    series = [0.001 + random.gauss(0, 0.01) for _ in range(250)]
+
+    v1 = _rigor_verdict_for(series, num_trials=1)
+    v_lib = _rigor_verdict_for(series, num_trials=6)
+    assert v1["dsr"] is not None and v_lib["dsr"] is not None
+    # Deflating for 6 trials instead of 1 lowers the deflated Sharpe.
+    assert v_lib["dsr"] < v1["dsr"]
+
+
+def test_rigor_adapter_lookahead_gates_passing():
+    """A failed look-ahead audit must force `passing` False even if DSR/OOS pass.
+
+    Regression for the audit finding that look-ahead was hardcoded True and never
+    gated the verdict (the fourth admission primitive was unenforced).
+    """
+    import random
+
+    from archimedes.agents.generation_pipeline import _rigor_verdict_for
+
+    random.seed(11)
+    # Strongly positive drift so DSR/OOS would otherwise pass.
+    series = [0.004 + random.gauss(0, 0.006) for _ in range(300)]
+
+    clean = _rigor_verdict_for(series, num_trials=4, lookahead_passed=True)
+    leaked = _rigor_verdict_for(series, num_trials=4, lookahead_passed=False)
+    assert leaked["lookahead_audit_passed"] is False
+    assert leaked["passing"] is False
+    # Same series, only the look-ahead flag differs → it is the deciding factor.
+    if clean["passing"]:
+        assert leaked["passing"] is False
+
+
+def test_lookahead_for_candidate_ignores_backtrader_negative_index(tmp_path):
+    """Curated backtrader strategies use safe close[-N]; that must not fail audit.
+
+    Genuine forward-looking patterns (shift(-1), positive data index) must fail.
+    """
+    from archimedes.agents.generation_pipeline import _lookahead_for_candidate
+
+    class _Strat:
+        def __init__(self, path, title):
+            self.strategy_code_path = path
+            self.paper_title = title
+
+    safe = tmp_path / "safe_strat.py"
+    safe.write_text("def next(self):\n    return self.data.close[-1] - self.data.close[-2]\n")
+    leaky = tmp_path / "leaky_strat.py"
+    leaky.write_text("import pandas as pd\ndef signal(df):\n    return df['close'].shift(-1)\n")
+
+    assert _lookahead_for_candidate([_Strat(str(safe), "Safe")]) is True
+    assert _lookahead_for_candidate([_Strat(str(leaky), "Leaky")]) is False
+    # No auditable source → vacuously clean (buy-and-hold by construction).
+    assert _lookahead_for_candidate([]) is True
+
+
 def test_pick_pipeline_architect_branch_calls_provider_factory(monkeypatch):
     # `default_provider` is a factory function. The architect-check branch
     # of _pick_pipeline previously called `default_provider.list_strategies()`
