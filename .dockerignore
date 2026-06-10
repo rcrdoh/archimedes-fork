@@ -1,0 +1,43 @@
+# Keep secrets, local state, and build cruft out of the Docker build context.
+# Without this, a backend Dockerfile `COPY . /app` would pull any local .env
+# (and keys) into the image layers. See AUDIT_2026-06-10.md finding #22.
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.tfstate
+*.tfstate.*
+
+# Python build/test cruft
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.venv/
+venv/
+
+# Node / frontend
+node_modules/
+ui/dist/
+ui/node_modules/
+
+# VCS / tooling / docs not needed at runtime
+.git/
+.github/
+.gitignore
+.idea/
+.vscode/
+.DS_Store
+
+# Submodules (large reference trees, not needed in the runtime image)
+submodules/

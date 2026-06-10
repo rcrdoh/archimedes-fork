@@ -1,7 +1,21 @@
+# Secrets / local env — the backend image builds `COPY . /app` from context
+# ./backend, so without these a local backend/.env (or keys) would be baked into
+# the image layers. See AUDIT_2026-06-10.md finding #22.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Python build/test cruft (not needed at runtime)
 __pycache__
 *.pyc
 *.pyo
 .pytest_cache
+.ruff_cache
+.mypy_cache
 .coverage
 htmlcov
 .venv
