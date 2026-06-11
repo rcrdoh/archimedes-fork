@@ -97,6 +97,41 @@ NEW_MULTI_SPECS: list[dict] = [
     {"stem": "maillard_2010_risk_parity", "symbols": _UNIVERSE_5, "tx_cost_bps": 10},
     # Phase 3 (2026-06-11): PCA / eigenportfolio stat-arb (N-feed + heavier math).
     {"stem": "avellaneda_lee_2010_pca_statarb", "symbols": _UNIVERSE_5, "tx_cost_bps": 10},
+    # Third wave (2026-06-11): faithful-scale Gatev — formation/trading cycle over
+    # the top-20 SSD pairs of a 26-ETF universe (joined window starts ~2006 at the
+    # latest inception: SLV 2006-04 / GDX 2006-05 / DBC 2006-02).
+    {
+        "stem": "gatev_2006_portfolio_of_pairs",
+        "symbols": [
+            "SPY",
+            "IVV",
+            "QQQ",
+            "IWM",
+            "EFA",
+            "EEM",
+            "EWA",
+            "EWC",
+            "GLD",
+            "GDX",
+            "SLV",
+            "KO",
+            "PEP",
+            "TLT",
+            "IEF",
+            "DBC",
+            "VNQ",
+            "XLB",
+            "XLE",
+            "XLF",
+            "XLI",
+            "XLK",
+            "XLP",
+            "XLU",
+            "XLV",
+            "XLY",
+        ],
+        "tx_cost_bps": 10,
+    },
 ]
 
 

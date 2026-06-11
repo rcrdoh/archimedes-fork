@@ -209,6 +209,45 @@ def test_pca_statarb_loaded(provider):
     assert strat.paper_claimed_sharpe is None
 
 
+# ── Third wave: faithful-scale Gatev portfolio-of-pairs ───────
+
+
+def test_portfolio_of_pairs_loaded(provider):
+    strat = next(
+        (
+            s
+            for s in provider.list_strategies()
+            if s.paper_title == "Pairs Trading: Performance of a Relative-Value Arbitrage Rule"
+            and len(s.asset_universe) > 2
+        ),
+        None,
+    )
+    assert strat is not None, "Faithful-scale Gatev portfolio-of-pairs not discoverable"
+    # The paper's actual scale: a 26-name universe feeding a top-20-pairs book.
+    assert len(strat.asset_universe) == 26
+    assert strat.regime_tag == "regime_neutral"
+    # Honest CANDIDATE: at the paper's own scale on a modern ETF universe the
+    # distance alpha does not survive (negative Sharpe after costs) — the
+    # fidelity experiment's answer, documented rather than hidden.
+    assert strat.status == StrategyStatus.CANDIDATE
+    assert strat.passes_rigor_gate is False
+    assert strat.paper_claimed_sharpe is None
+    # Unlike the single-pair files, the 0.11 claim IS at this strategy's scale.
+    assert strat.paper_claimed_cagr == 0.11
+
+
+def test_all_gatev_anchored_strategies_have_distinct_ids(provider):
+    # Five strategies now share the Gatev 2006 paper anchor (four single pairs
+    # + the portfolio). Distinct methodology text must yield distinct IDs.
+    gatev_ids = [
+        s.id
+        for s in provider.list_strategies()
+        if s.paper_title == "Pairs Trading: Performance of a Relative-Value Arbitrage Rule"
+    ]
+    assert len(gatev_ids) == 5
+    assert len(set(gatev_ids)) == 5
+
+
 # ── STATUS parsing ────────────────────────────────────────────
 
 
