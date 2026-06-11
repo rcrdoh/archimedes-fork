@@ -19,6 +19,20 @@ def test_operations_include_second_wave_pair_legs() -> None:
     assert {"KO", "PEP", "EWA", "EWC", "SLV"} <= set(OPERATION_TO_SYMBOL.keys())
 
 
+def test_operations_include_expanded_universe() -> None:
+    # Expanded investable universe (2026-06): broad equity, fixed income / alts,
+    # and the 9 SPDR sector ETFs.
+    broad = {"QQQ", "IWM", "EFA", "EEM"}
+    alts = {"IEF", "DBC", "VNQ"}
+    sectors = {"XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"}
+    assert (broad | alts | sectors) <= set(OPERATION_TO_SYMBOL.keys())
+
+
+def test_resolve_operations_accepts_expanded_universe() -> None:
+    # The expanded symbols resolve through the normal validation path.
+    assert resolve_operations(["xlk", "vnq", "qqq"]) == ["XLK", "VNQ", "QQQ"]
+
+
 def test_resolve_operations_rejects_unknown() -> None:
     try:
         resolve_operations(["SPY", "BAD"])
