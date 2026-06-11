@@ -36,6 +36,38 @@ def test_volatility_managed_strategy_loaded(provider):
     assert "Volatility-Managed Portfolios" in titles
 
 
+# ── 2026-06 library expansion: pairs + single-asset wave ──────
+
+
+def test_pairs_strategy_loaded(provider):
+    titles = {s.paper_title for s in provider.list_strategies()}
+    assert "Pairs Trading: Performance of a Relative-Value Arbitrage Rule" in titles
+
+
+def test_pairs_strategy_is_multi_asset(provider):
+    pairs = next(s for s in provider.list_strategies() if "Relative-Value Arbitrage" in s.paper_title)
+    assert len(pairs.asset_universe) == 2, "Pairs strategy must declare exactly two assets"
+
+
+def test_pairs_strategy_is_candidate(provider):
+    pairs = next(s for s in provider.list_strategies() if "Relative-Value Arbitrage" in s.paper_title)
+    assert pairs.status == StrategyStatus.CANDIDATE
+
+
+def test_new_single_asset_strategies_loaded(provider):
+    titles = {s.paper_title for s in provider.list_strategies()}
+    # A representative sample of the single-asset wave (mean-reversion + trend + seasonality).
+    assert any("RSI-2" in t for t in titles)
+    assert any("Bollinger" in t for t in titles)
+    assert any("Simple Technical Trading Rules" in t for t in titles)
+    assert "A Monthly Effect in Stock Returns" in titles
+
+
+def test_library_has_expanded(provider):
+    # 6 legacy + 7 new (1 pairs + 6 single-asset) = 13 discoverable strategies.
+    assert len(provider.list_strategies()) >= 13
+
+
 # ── STATUS parsing ────────────────────────────────────────────
 
 
