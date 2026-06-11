@@ -293,6 +293,66 @@ def run_pairs_backtest(
     )
 
 
+def run_multi_backtest(
+    prices_list: list[pd.DataFrame],
+    *,
+    strategy_cls: type[bt.Strategy],
+    initial_cash: float,
+    names: list[str] | None = None,
+    transaction_cost_bps: int = 10,
+    slippage_bps: int = 0,
+) -> BacktestResult:
+    """Run an N-asset (cross-sectional / portfolio) strategy in a single cerebro.
+
+    The N-feed generalization of :func:`run_pairs_backtest`. All price frames are
+    inner-joined on their common datetime index first, so every feed advances
+    together bar-for-bar — the strategy can rely on ``self.datas[i]`` for
+    ``i in range(N)`` being aligned and rank/weight across the universe each bar.
+    Metrics are computed on portfolio value, so the existing analyzer +
+    extraction path (:func:`_add_analyzers` / :func:`_extract_result`) is reused
+    unchanged, keeping metric shapes identical across single / pair / N-asset runs.
+    """
+    if not prices_list:
+        raise ValueError("prices_list is empty; need at least one price frame")
+    if names is not None and len(names) != len(prices_list):
+        raise ValueError(f"names has {len(names)} entries but prices_list has {len(prices_list)}")
+
+    feed_names = names if names is not None else [f"leg_{i}" for i in range(len(prices_list))]
+
+    # N-way index intersection: only bars present in every feed are backtested.
+    common_index = prices_list[0].index
+    for prices in prices_list[1:]:
+        common_index = common_index.intersection(prices.index)
+    if len(common_index) == 0:
+        raise ValueError("price frames share no common dates; cannot align feeds")
+
+    cerebro = bt.Cerebro(stdstats=False)
+    cerebro.broker.setcash(initial_cash)
+    cerebro.broker.setcommission(commission=transaction_cost_bps / 10_000)
+    if slippage_bps > 0:
+        cerebro.broker.set_slippage_perc(perc=slippage_bps / 10_000)
+
+    for prices, name in zip(prices_list, feed_names, strict=True):
+        aligned = prices.loc[common_index].sort_index()
+        cerebro.adddata(bt.feeds.PandasData(dataname=aligned), name=name)
+    cerebro.addstrategy(strategy_cls)
+    _add_analyzers(cerebro)
+
+    strategy = cerebro.run()[0]
+
+    bars = len(common_index)
+    return _extract_result(
+        cerebro=cerebro,
+        strategy=strategy,
+        initial_cash=initial_cash,
+        bars=bars,
+        backtest_start=common_index[0].isoformat() if bars else None,
+        backtest_end=common_index[-1].isoformat() if bars else None,
+        transaction_cost_bps=transaction_cost_bps,
+        slippage_bps=slippage_bps,
+    )
+
+
 def run_buy_and_hold(
     prices: pd.DataFrame,
     *,
