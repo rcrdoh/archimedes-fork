@@ -64,8 +64,8 @@ def test_new_single_asset_strategies_loaded(provider):
 
 
 def test_library_has_expanded(provider):
-    # 6 legacy + 7 wave-1 + 3 second-wave distance pairs + 2 stat-arb pairs = 18.
-    assert len(provider.list_strategies()) >= 18
+    # 6 legacy + 7 wave-1 + 3 distance pairs + 2 stat-arb pairs + 3 Phase 2 = 21.
+    assert len(provider.list_strategies()) >= 21
 
 
 # ── Second wave (Phase 1.3): additional economic pairs ────────
@@ -165,6 +165,30 @@ def test_statarb_pairs_distinct_from_distance_flagship(provider):
     )
     assert kalman is not None and flagship is not None
     assert kalman.id != flagship.id
+
+
+# ── Phase 2: cross-sectional & portfolio strategies (N-feed) ──
+
+
+@pytest.mark.parametrize(
+    ("title_fragment", "expected_regime"),
+    [
+        ("Buying Winners and Selling Losers", "bull"),  # Jegadeesh-Titman cross-sectional momentum
+        ("Dual Momentum", "bull"),  # Antonacci
+        ("Equally Weighted Risk Contribution", "regime_neutral"),  # Maillard et al. risk parity
+    ],
+)
+def test_phase2_strategies_loaded(provider, title_fragment, expected_regime):
+    strat = next((s for s in provider.list_strategies() if title_fragment in s.paper_title), None)
+    assert strat is not None, f"Phase 2 strategy '{title_fragment}' not discoverable"
+    # All Phase 2 strategies span the full 5-asset universe (cross-sectional).
+    assert len(strat.asset_universe) == 5
+    assert strat.regime_tag == expected_regime
+    # Honest CANDIDATEs: none clears the rigor gate on real data, and none cites a
+    # like-for-like single-basket number, so paper_claimed_sharpe is null.
+    assert strat.status == StrategyStatus.CANDIDATE
+    assert strat.passes_rigor_gate is False
+    assert strat.paper_claimed_sharpe is None
 
 
 # ── STATUS parsing ────────────────────────────────────────────

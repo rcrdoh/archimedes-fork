@@ -50,7 +50,7 @@ sys.path.insert(0, str(ROOT / "strategies"))
 sys.path.insert(0, str(Path(__file__).parent))  # for importing regen_buy_hold_fixture
 
 from archimedes_analytics_engine.data import fetch_ohlcv
-from archimedes_analytics_engine.engine import run_backtest, run_pairs_backtest
+from archimedes_analytics_engine.engine import run_backtest, run_multi_backtest, run_pairs_backtest
 from archimedes_analytics_engine.strategy_loader import load_strategy
 
 # Single source of truth for the DSR / OOS / Kelly formulas (Önder's lane).
@@ -85,6 +85,16 @@ NEW_PAIR_SPECS: list[dict] = [
     # Phase 1.1/1.2 (2026-06-11): proper stat-arb on the existing 2-feed engine.
     {"stem": "engle_granger_1987_cointegration_pairs", "pair": ("EWA", "EWC"), "tx_cost_bps": 10},
     {"stem": "elliott_2005_kalman_pairs", "pair": ("GLD", "GDX"), "tx_cost_bps": 10},
+]
+# N-asset (cross-sectional / portfolio) specs — run via run_multi_backtest on the
+# 5-operation universe. ``symbols`` are yfinance tickers AND the per-feed names
+# passed to the engine (so e.g. DualMomentum can find its "TLT" defensive leg).
+_UNIVERSE_5 = ["SPY", "^N225", "GC=F", "TLT", "CL=F"]  # SPY / NIKKEI / GOLD / TREASURY / OIL
+NEW_MULTI_SPECS: list[dict] = [
+    # Phase 2 (2026-06-11): cross-sectional & portfolio strategies (need N feeds).
+    {"stem": "jegadeesh_titman_1993_cross_sectional_momentum", "symbols": _UNIVERSE_5, "tx_cost_bps": 10},
+    {"stem": "antonacci_2014_dual_momentum", "symbols": _UNIVERSE_5, "tx_cost_bps": 10},
+    {"stem": "maillard_2010_risk_parity", "symbols": _UNIVERSE_5, "tx_cost_bps": 10},
 ]
 
 
@@ -275,16 +285,17 @@ def main(write: bool = False) -> None:
     # no-op. The hard collision guard at the end is the final safety net.
     pending_single = [s for s in NEW_SINGLE_SPECS if s["stem"] not in fixtures]
     pending_pair = [s for s in NEW_PAIR_SPECS if s["stem"] not in fixtures]
-    skipped = [s["stem"] for s in (*NEW_SINGLE_SPECS, *NEW_PAIR_SPECS) if s["stem"] in fixtures]
+    pending_multi = [s for s in NEW_MULTI_SPECS if s["stem"] not in fixtures]
+    skipped = [s["stem"] for s in (*NEW_SINGLE_SPECS, *NEW_PAIR_SPECS, *NEW_MULTI_SPECS) if s["stem"] in fixtures]
     if skipped:
         print(f"Add-only: skipping {len(skipped)} stem(s) already in fixtures: {sorted(skipped)}")
-    if not pending_single and not pending_pair:
+    if not pending_single and not pending_pair and not pending_multi:
         print("Nothing to add — all catalog specs are already in the fixture file.")
         return
 
     # num_trials_in_selection = full library size *after* this add (conservative DSR
     # multiple-testing penalty). Counts existing fixtures + the genuinely-new specs.
-    num_trials = len(fixtures) + len(pending_single) + len(pending_pair)
+    num_trials = len(fixtures) + len(pending_single) + len(pending_pair) + len(pending_multi)
     print(f"Library size after add: {num_trials} strategies (num_trials_in_selection)")
 
     print(f"Fetching SPY benchmark {BACKTEST_START} → {BACKTEST_END}…")
@@ -325,6 +336,28 @@ def main(write: bool = False) -> None:
             initial_cash=INITIAL_CASH,
             name_a=sym_a,
             name_b=sym_b,
+            transaction_cost_bps=spec["tx_cost_bps"],
+        )
+        corr = _correlation_to(result.daily_returns, spy_returns)
+        new_entries[stem] = _build_entry(
+            result, metadata=bundle.metadata, num_trials=num_trials, corr_spy=corr, tx_cost_bps=spec["tx_cost_bps"]
+        )
+        cohort_returns[stem] = result.daily_returns
+        print(
+            f"  sharpe={result.sharpe_ratio:+.4f} cagr={result.cagr:+.4f} dd={result.max_drawdown_pct:.1f}% trades={result.total_trades} corr_spy={corr}"
+        )
+
+    for spec in pending_multi:
+        stem = spec["stem"]
+        symbols = spec["symbols"]
+        bundle = load_strategy(_STRATEGIES_DIR / f"{stem}.py")
+        print(f"Backtesting {stem} on universe {symbols}…")
+        prices_list = [fetch_ohlcv(sym, BACKTEST_START, BACKTEST_END) for sym in symbols]
+        result = run_multi_backtest(
+            prices_list,
+            strategy_cls=bundle.cls,
+            initial_cash=INITIAL_CASH,
+            names=symbols,
             transaction_cost_bps=spec["tx_cost_bps"],
         )
         corr = _correlation_to(result.daily_returns, spy_returns)
