@@ -35,6 +35,10 @@ class BacktestResult:
     correlation_to_btc: float | None = None
     monthly_returns: list[float] = field(default_factory=list)
     daily_returns: list[float] = field(default_factory=list)
+    # ISO dates ("YYYY-MM-DD") aligned 1:1 with daily_returns — lets callers join
+    # return series across strategies whose feeds trade different calendars
+    # (e.g. ^N225 vs SPY) for library-level metrics such as CSCV PBO.
+    daily_return_dates: list[str] = field(default_factory=list)
     transaction_cost_bps: int = 10
     slippage_bps: int = 0
     # Turnover / cost-realism metrics (see costs.py for conventions).
@@ -291,6 +295,8 @@ def _extract_result(
     time_returns_raw = strategy.analyzers.timereturn.get_analysis()
     daily_pairs = sorted(time_returns_raw.items(), key=lambda x: x[0])
     daily_returns = [float(v) for _, v in daily_pairs]
+    # TimeReturn keys are datetimes; isoformat()[:10] gives the bare ISO date.
+    daily_return_dates = [k.isoformat()[:10] for k, _ in daily_pairs]
     equity_curve = _build_equity_curve(initial_cash, daily_pairs)
 
     monthly_raw = strategy.analyzers.monthly.get_analysis()
@@ -341,6 +347,7 @@ def _extract_result(
         avg_holding_period_days=avg_len,
         monthly_returns=monthly_returns,
         daily_returns=daily_returns,
+        daily_return_dates=daily_return_dates,
         transaction_cost_bps=transaction_cost_bps,
         slippage_bps=slippage_bps,
         turnover_annualized=cost_metrics["turnover_annualized"],
