@@ -37,9 +37,7 @@ Usage:
 from __future__ import annotations
 
 import json
-import math
 import sys
-from itertools import combinations
 from pathlib import Path
 
 import numpy as np
@@ -60,8 +58,6 @@ from regen_buy_hold_fixture import compute_dsr, compute_kelly, compute_oos_sharp
 BACKTEST_START = "2004-01-02"
 BACKTEST_END = "2026-05-01"  # yfinance end is exclusive; includes bars through 2026-04-30
 INITIAL_CASH = 100_000.0
-_ANN = 252
-_RF_DAILY = 0.05 / _ANN
 _FIXTURE_PATH = ROOT / "strategies" / "backtest_fixtures.json"
 _STRATEGIES_DIR = ROOT / "strategies"
 
@@ -135,62 +131,10 @@ NEW_MULTI_SPECS: list[dict] = [
 ]
 
 
-# ── PBO (CSCV) — ported from backend rigor_evaluator.compute_pbo ───────────────
-
-
-def _sharpe_per_col(R: np.ndarray) -> np.ndarray:
-    if R.shape[0] < 2:
-        return np.zeros(R.shape[1])
-    mu = R.mean(axis=0)
-    sigma = R.std(axis=0, ddof=1)
-    safe_sigma = np.where(sigma > 0, sigma, np.inf)
-    return ((mu - _RF_DAILY) / safe_sigma) * math.sqrt(_ANN)
-
-
-def _ascending_ranks(values: np.ndarray) -> np.ndarray:
-    n = len(values)
-    order = np.argsort(values)
-    ranks = np.empty(n, dtype=float)
-    ranks[order] = np.arange(1, n + 1, dtype=float)
-    return ranks
-
-
-def compute_pbo(returns_matrix: dict[str, list[float]], s_partitions: int = 16) -> dict[str, float]:
-    """Probability of Backtest Overfitting via CSCV (Bailey et al. 2014).
-
-    Mirrors backend rigor_evaluator.compute_pbo. Returns {id: pbo} with the same
-    value attached to every member of the cohort.
-    """
-    if len(returns_matrix) < 2:
-        return dict.fromkeys(returns_matrix, 0.0)
-
-    sorted_ids = sorted(returns_matrix.keys())
-    N = len(sorted_ids)
-    T = min(len(v) for v in returns_matrix.values())
-    R = np.array([returns_matrix[sid][:T] for sid in sorted_ids], dtype=float).T  # (T, N)
-
-    S = s_partitions if (s_partitions % 2 == 0 and s_partitions >= 2) else 16
-    rows_per_block = T // S
-    if rows_per_block < 1:
-        return dict.fromkeys(sorted_ids, 0.0)
-
-    blocks = [R[i * rows_per_block : (i + 1) * rows_per_block, :] for i in range(S)]
-    half = S // 2
-    lambdas: list[float] = []
-    for is_indices in combinations(range(S), half):
-        oos_indices = [i for i in range(S) if i not in is_indices]
-        IS = np.vstack([blocks[i] for i in is_indices])
-        OOS = np.vstack([blocks[i] for i in oos_indices])
-        best_is_idx = int(np.argmax(_sharpe_per_col(IS)))
-        oos_ranks = _ascending_ranks(_sharpe_per_col(OOS))
-        omega = float(np.clip(oos_ranks[best_is_idx] / N, 1e-9, 1.0 - 1e-9))
-        lambdas.append(math.log(omega / (1.0 - omega)))
-
-    if not lambdas:
-        return dict.fromkeys(sorted_ids, 0.0)
-    pbo = round(sum(1 for lam in lambdas if lam <= 0.0) / len(lambdas), 6)
-    return dict.fromkeys(sorted_ids, pbo)
-
+# ── PBO (CSCV) — single source: archimedes_analytics_engine.pbo ───────────────
+# (Moved there 2026-06-11 for the library-PBO work; it remains a line-for-line
+# mirror of backend rigor_evaluator.compute_pbo, parity-tested in backend/tests.)
+from archimedes_analytics_engine.pbo import compute_pbo
 
 # ── Rigor gate (full criteria incl. paper-claim check) ─────────────────────────
 
