@@ -90,3 +90,36 @@ def test_real_pairs_strategy_runs_without_error() -> None:
     assert isinstance(result, BacktestResult)
     assert result.bars == 300
     assert result.look_ahead_audit_passed is True
+
+
+# Phase 1.3 economic pairs — each reuses PairsDistanceTrading via import. These
+# tests prove the new files load to the shared class and run end-to-end on
+# synthetic data (no network), guarding against a broken cross-import or bad
+# metadata block.
+@pytest.mark.parametrize(
+    "stem",
+    [
+        "gatev_2006_pairs_ko_pep",
+        "gatev_2006_pairs_ewa_ewc",
+        "gatev_2006_pairs_gld_slv",
+    ],
+)
+def test_second_wave_pair_files_load_and_run(stem: str) -> None:
+    import sys
+    from pathlib import Path
+
+    strategies_dir = Path(__file__).parent.parent / "strategies"
+    sys.path.insert(0, str(strategies_dir))
+    sys.path.insert(0, str(strategies_dir.parent / "src"))
+    from archimedes_analytics_engine.strategy_loader import load_strategy
+
+    bundle = load_strategy(strategies_dir / f"{stem}.py")
+    # All three reuse the flagship class — the loader must resolve a single candidate.
+    assert bundle.cls.__name__ == "PairsDistanceTrading"
+
+    a = _synthetic_prices(300, base=100.0, drift=0.1)
+    b = _synthetic_prices(300, base=80.0, drift=0.12)
+    result = run_pairs_backtest(a, b, strategy_cls=bundle.cls, initial_cash=100_000.0)
+    assert isinstance(result, BacktestResult)
+    assert result.bars == 300
+    assert result.look_ahead_audit_passed is True

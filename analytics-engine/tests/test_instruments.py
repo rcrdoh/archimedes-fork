@@ -14,6 +14,11 @@ def test_operations_include_pairs_legs() -> None:
     assert {"GLD", "GDX", "IVV"} <= set(OPERATION_TO_SYMBOL.keys())
 
 
+def test_operations_include_second_wave_pair_legs() -> None:
+    # Phase 1.3 economic pairs: KO/PEP, EWA/EWC, GLD/SLV (GLD already present above).
+    assert {"KO", "PEP", "EWA", "EWC", "SLV"} <= set(OPERATION_TO_SYMBOL.keys())
+
+
 def test_resolve_operations_rejects_unknown() -> None:
     try:
         resolve_operations(["SPY", "BAD"])

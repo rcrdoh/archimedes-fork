@@ -5,13 +5,16 @@ Fetches real market data via yfinance, runs each new strategy's backtest
 computes the full rigor-metric suite — DSR, OOS Sharpe, Kelly, and a
 cohort-level PBO — and writes the entries.
 
-SCOPE — add-only (decided 2026-06-11):
-    This script touches ONLY the new strategies listed in ``NEW_SPECS``. The
-    six legacy fixture entries are left byte-for-byte untouched, because
-    re-backtesting them on current data does not reproduce their stored
-    metrics (data-vintage drift; and capital_preservation_tbill models a
-    T-bill yield, not a TLT buy-hold). Overwriting live published metrics with
-    drifted numbers would be a silent, hard-to-reverse regression.
+SCOPE — add-only + idempotent (decided 2026-06-11):
+    ``NEW_SINGLE_SPECS`` / ``NEW_PAIR_SPECS`` are a *cumulative catalog* recording
+    how every non-legacy fixture entry was generated. A given run only
+    (re)backtests the stems NOT already present in ``backtest_fixtures.json``, so
+    re-running after a previous ``--write`` is a no-op and earlier entries are
+    never recomputed. The legacy fixture entries are likewise left byte-for-byte
+    untouched, because re-backtesting them on current data does not reproduce
+    their stored metrics (data-vintage drift; and capital_preservation_tbill
+    models a T-bill yield, not a TLT buy-hold). Overwriting live published metrics
+    with drifted numbers would be a silent, hard-to-reverse regression.
 
 PBO caveat:
     PBO (Bailey et al. 2014 CSCV) is a library-level metric requiring every
@@ -75,6 +78,10 @@ NEW_SINGLE_SPECS: list[dict] = [
 ]
 NEW_PAIR_SPECS: list[dict] = [
     {"stem": "gatev_2006_pairs_distance", "pair": ("GLD", "GDX"), "tx_cost_bps": 10},
+    # Phase 1.3 economic pairs (2026-06-11): same Gatev distance method, new pairs.
+    {"stem": "gatev_2006_pairs_ko_pep", "pair": ("KO", "PEP"), "tx_cost_bps": 10},
+    {"stem": "gatev_2006_pairs_ewa_ewc", "pair": ("EWA", "EWC"), "tx_cost_bps": 10},
+    {"stem": "gatev_2006_pairs_gld_slv", "pair": ("GLD", "SLV"), "tx_cost_bps": 10},
 ]
 
 
@@ -258,7 +265,23 @@ def _build_entry(result, *, metadata: dict, num_trials: int, corr_spy: float | N
 
 def main(write: bool = False) -> None:
     fixtures = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
-    num_trials = len(fixtures) + len(NEW_SINGLE_SPECS) + len(NEW_PAIR_SPECS)
+
+    # Add-only + idempotent: the spec lists are a cumulative catalog of how every
+    # fixture entry was generated, but a given run only (re)backtests the stems not
+    # already present in the fixture file. Re-running after a previous --write is a
+    # no-op. The hard collision guard at the end is the final safety net.
+    pending_single = [s for s in NEW_SINGLE_SPECS if s["stem"] not in fixtures]
+    pending_pair = [s for s in NEW_PAIR_SPECS if s["stem"] not in fixtures]
+    skipped = [s["stem"] for s in (*NEW_SINGLE_SPECS, *NEW_PAIR_SPECS) if s["stem"] in fixtures]
+    if skipped:
+        print(f"Add-only: skipping {len(skipped)} stem(s) already in fixtures: {sorted(skipped)}")
+    if not pending_single and not pending_pair:
+        print("Nothing to add — all catalog specs are already in the fixture file.")
+        return
+
+    # num_trials_in_selection = full library size *after* this add (conservative DSR
+    # multiple-testing penalty). Counts existing fixtures + the genuinely-new specs.
+    num_trials = len(fixtures) + len(pending_single) + len(pending_pair)
     print(f"Library size after add: {num_trials} strategies (num_trials_in_selection)")
 
     print(f"Fetching SPY benchmark {BACKTEST_START} → {BACKTEST_END}…")
@@ -268,7 +291,7 @@ def main(write: bool = False) -> None:
     new_entries: dict[str, dict] = {}
     cohort_returns: dict[str, list[float]] = {}
 
-    for spec in NEW_SINGLE_SPECS:
+    for spec in pending_single:
         stem = spec["stem"]
         bundle = load_strategy(_STRATEGIES_DIR / f"{stem}.py")
         print(f"Backtesting {stem} on {spec['symbol']}…")
@@ -285,7 +308,7 @@ def main(write: bool = False) -> None:
             f"  sharpe={result.sharpe_ratio:+.4f} cagr={result.cagr:+.4f} dd={result.max_drawdown_pct:.1f}% trades={result.total_trades} corr_spy={corr}"
         )
 
-    for spec in NEW_PAIR_SPECS:
+    for spec in pending_pair:
         stem = spec["stem"]
         sym_a, sym_b = spec["pair"]
         bundle = load_strategy(_STRATEGIES_DIR / f"{stem}.py")

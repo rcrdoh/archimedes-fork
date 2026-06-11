@@ -64,8 +64,43 @@ def test_new_single_asset_strategies_loaded(provider):
 
 
 def test_library_has_expanded(provider):
-    # 6 legacy + 7 new (1 pairs + 6 single-asset) = 13 discoverable strategies.
-    assert len(provider.list_strategies()) >= 13
+    # 6 legacy + 7 wave-1 (1 pairs + 6 single-asset) + 3 second-wave pairs = 16.
+    assert len(provider.list_strategies()) >= 16
+
+
+# ── Second wave (Phase 1.3): additional economic pairs ────────
+
+
+def _pair_by_universe(provider, universe: set[str]):
+    """Find the strategy whose asset_universe matches the given set, or None."""
+    return next((s for s in provider.list_strategies() if set(s.asset_universe) == universe), None)
+
+
+@pytest.mark.parametrize("universe", [{"KO", "PEP"}, {"EWA", "EWC"}, {"GLD", "SLV"}])
+def test_second_wave_pairs_loaded(provider, universe):
+    strat = _pair_by_universe(provider, universe)
+    assert strat is not None, f"Phase 1.3 pair {universe} not discoverable"
+    # Same Gatev anchor as the flagship distance pair.
+    assert "Relative-Value Arbitrage" in strat.paper_title
+    assert len(strat.asset_universe) == 2
+    assert strat.regime_tag == "regime_neutral"
+
+
+@pytest.mark.parametrize("universe", [{"KO", "PEP"}, {"EWA", "EWC"}, {"GLD", "SLV"}])
+def test_second_wave_pairs_are_honest_candidates(provider, universe):
+    strat = _pair_by_universe(provider, universe)
+    # These fail the rigor gate on real data (negative Sharpe) — they must stay
+    # CANDIDATE and declare no fabricated paper-claimed numbers. Honest by design.
+    assert strat.status == StrategyStatus.CANDIDATE
+    assert strat.passes_rigor_gate is False
+    assert strat.paper_claimed_sharpe is None
+    assert strat.paper_claimed_cagr is None
+
+
+def test_second_wave_pairs_have_distinct_ids(provider):
+    ids = [_pair_by_universe(provider, u).id for u in ({"KO", "PEP"}, {"EWA", "EWC"}, {"GLD", "SLV"})]
+    # Same paper anchor but distinct methodology text → distinct deterministic IDs.
+    assert len(set(ids)) == 3
 
 
 # ── STATUS parsing ────────────────────────────────────────────
