@@ -70,6 +70,29 @@ aws ssm start-session \
   --parameters host=<aurora-endpoint>,portNumber=5432,localPortNumber=5432
 ```
 
+## Branch Protection (`main`)
+
+`main` is build-on-deploy: every push auto-deploys to the live EC2 host. The protection
+ruleset is codified in [`scripts/setup-branch-protection.sh`](../scripts/setup-branch-protection.sh)
+so an admin can apply or audit it declaratively (audit #10 / issues #519, #526).
+
+```bash
+./scripts/setup-branch-protection.sh            # dry-run: print the payload, apply nothing
+./scripts/setup-branch-protection.sh --apply    # apply (needs repo admin)
+./scripts/setup-branch-protection.sh --verify    # print the currently-applied protection
+# or, raw:  gh api repos/hackagora/archimedes-arcadia/branches/main/protection
+```
+
+What it enforces: the two hard-block CI checks (`Backend — unit tests`, `Ruff — format +
+critical lint rules`), 1 approving review, no force-push, no branch deletion, and
+`required_linear_history: false` (we are **merge-commits-only** — linear history would
+force squash/rebase). The informational checks (lint-report, complexity) stay non-required.
+
+**Build-on-deploy tradeoff:** the script ships with `enforce_admins=false` so repo admins
+(including the `t2o2` agentic user) keep their direct-push path while non-admins are gated.
+Flipping `ENFORCE_ADMINS=true` gates everyone but forces the agentic system onto PRs — that
+is a team decision (Chuan, as repo admin, owns it).
+
 ## Security Notes
 
 - **No `.pem` files in git.** `infra/*.pem` is in `.gitignore`.
