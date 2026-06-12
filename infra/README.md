@@ -93,6 +93,24 @@ force squash/rebase). The informational checks (lint-report, complexity) stay no
 Flipping `ENFORCE_ADMINS=true` gates everyone but forces the agentic system onto PRs — that
 is a team decision (Chuan, as repo admin, owns it).
 
+## Monitoring & Disaster Recovery
+
+- **`cloudwatch.tf`** — SNS alert topic + alarms (EC2 CPU/status, ALB 5xx /
+  unhealthy hosts / p95 latency, Aurora CPU / memory / connections) + an ops
+  dashboard. Additive: `terraform apply` only *creates* new CloudWatch objects,
+  it does not touch the existing EC2/ALB/Aurora/WAF resources. Set
+  `alarm_email` (tfvars) to get paged. **Authored 2026-06-12, not yet
+  `terraform plan`-verified** — review before applying.
+- **`runbooks/disaster-recovery.md`** — RTO/RPO targets, per-scenario response
+  (host loss, DB corruption, WAF lockout), restore-order, and a drill checklist.
+- **`runbooks/aurora-backup-restore.md`** — exact PITR / snapshot-restore CLI
+  (Aurora `backup_retention_period = 7` ⇒ 7-day PITR window already on).
+- **`runbooks/waf-rules-reference.md`** — what each `waf.tf` rule does and the
+  count→block promotion workflow.
+
+> These runbooks are **authored, not drilled.** Run a game-day (see the DR
+> drill checklist) before trusting the measured RTO/RPO.
+
 ## Security Notes
 
 - **No `.pem` files in git.** `infra/*.pem` is in `.gitignore`.
