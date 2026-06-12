@@ -35,6 +35,7 @@ from archimedes.api.generate_routes import generate_router
 from archimedes.api.limiter import limiter
 
 # marketplace_router removed — hardcoded fees + invented math (Issue #381)
+from archimedes.api.portfolio_routes import portfolio_router
 from archimedes.api.proposals_routes import proposals_router
 from archimedes.api.risk_routes import risk_router
 from archimedes.api.routes import (
@@ -229,6 +230,7 @@ app.include_router(explore_router)
 app.include_router(generate_router)
 # marketplace_router removed (Issue #381)
 app.include_router(risk_router)
+app.include_router(portfolio_router)
 app.include_router(selection_bias_router)
 app.include_router(papers_router)
 app.include_router(user_router)
