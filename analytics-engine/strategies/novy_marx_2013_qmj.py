@@ -29,7 +29,7 @@ PAPER_CITATION_COUNT = 1200  # Snapshot 2026-06; verify via Semantic Scholar.
 
 # Quality is defensive — the QMJ premium is persistent across regimes but
 # strongest when junk sells off; the strategy is broadly regime-neutral.
-REGIME_TAG: str = "neutral"
+REGIME_TAG: str = "regime_neutral"
 
 METHODOLOGY_SUMMARY = (
     "Price-based proxy for the Quality Minus Junk factor. Rank assets by "

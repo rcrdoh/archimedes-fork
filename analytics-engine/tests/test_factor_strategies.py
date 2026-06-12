@@ -32,11 +32,11 @@ def _factor_universe(n: int = 500) -> list[pd.DataFrame]:
     """
     specs = [
         # (start_price, drift_per_bar, annual_vol_approx, phase)
-        (100.0, 0.08, 0.20, 0.0),   # SPY: moderate drift, moderate vol
-        (80.0,  0.03, 0.30, 1.0),   # high-vol, slow drift → high beta-like
-        (120.0, 0.12, 0.10, 2.0),   # low-vol, high drift → high quality
-        (90.0,  0.00, 0.40, 3.0),   # high-vol, flat → low quality
-        (70.0,  0.06, 0.15, 4.0),   # moderate
+        (100.0, 0.08, 0.20, 0.0),  # SPY: moderate drift, moderate vol
+        (80.0, 0.03, 0.30, 1.0),  # high-vol, slow drift → high beta-like
+        (120.0, 0.12, 0.10, 2.0),  # low-vol, high drift → high quality
+        (90.0, 0.00, 0.40, 3.0),  # high-vol, flat → low quality
+        (70.0, 0.06, 0.15, 4.0),  # moderate
     ]
     frames = []
     for base, drift, vol, phase in specs:
@@ -53,7 +53,7 @@ def _factor_universe(n: int = 500) -> list[pd.DataFrame]:
                 {
                     "Open": [c - 0.2 for c in closes],
                     "High": [c + 0.5 for c in closes],
-                    "Low":  [c - 0.5 for c in closes],
+                    "Low": [c - 0.5 for c in closes],
                     "Close": closes,
                     "Volume": [1_000] * n,
                 },
@@ -110,7 +110,7 @@ def test_factor_strategy_metadata(stem: str) -> None:
     assert isinstance(mod.PAPER_TITLE, str) and mod.PAPER_TITLE
     assert isinstance(mod.PAPER_AUTHORS, list) and len(mod.PAPER_AUTHORS) >= 1
     assert isinstance(mod.PAPER_YEAR, int) and mod.PAPER_YEAR > 1900
-    assert mod.REGIME_TAG in ("bull", "bear", "neutral", "all")
+    assert mod.REGIME_TAG in ("bull", "bear", "regime_neutral")
     assert isinstance(mod.RISK_PROFILES, list) and len(mod.RISK_PROFILES) >= 1
     assert mod.STATUS in ("live", "candidate", "deprecated")
     assert isinstance(mod.METHODOLOGY_SUMMARY, str) and len(mod.METHODOLOGY_SUMMARY) > 20

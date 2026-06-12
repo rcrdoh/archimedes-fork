@@ -12,8 +12,6 @@ Requires ``engine.run_multi_backtest`` (ranks assets cross-sectionally).
 
 from __future__ import annotations
 
-import math
-
 import backtrader as bt
 
 PAPER_ARXIV_ID: str | None = None
@@ -163,7 +161,7 @@ class BlitzHanauerRMOM(bt.Strategy):
             return None
         mx = sum(xs) / n
         my = sum(ys) / n
-        return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (n - 1)
+        return sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)) / (n - 1)
 
     @staticmethod
     def _sample_var(xs: list[float]) -> float | None:

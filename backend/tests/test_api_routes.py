@@ -148,7 +148,12 @@ class TestStrategyRoutes:
         assert "id" in s
         assert "paper_title" in s
         assert "sharpe_ratio" in s
-        assert s["is_backtest_placeholder"] is False
+        # A strategy with a real backtest fixture must surface as non-placeholder.
+        # Don't assume index[0] is fixtured: candidate strategies added without a
+        # backtest fixture can legitimately sort first alphabetically and read as
+        # placeholders, so assert the non-placeholder path is exercised somewhere
+        # in the listing rather than at a brittle fixed position.
+        assert any(st["is_backtest_placeholder"] is False for st in data["strategies"])
 
     def test_get_strategy_signals(self, client):
         resp = client.get("/api/strategies/signals")
@@ -180,8 +185,11 @@ class TestStrategyRoutes:
     def test_rigor_gate_fields_correct_for_tier1(self, client, seeded_db):
         """Moreira-Muir fixture values flow correctly: dsr_p_value ≥ 0.95, passes_rigor_gate=True."""
         strategies = _list_all_strategies(client)
+        # Match Moreira-Muir specifically by its full title. A bare "Volatility"
+        # substring also matches Ang-Hodrick's "The Cross-Section of Volatility
+        # and Expected Returns", which sorts first and would hijack this lookup.
         mm = next(
-            (s for s in strategies if "Volatility" in s.get("paper_title", "")),
+            (s for s in strategies if "Volatility-Managed" in s.get("paper_title", "")),
             None,
         )
         if mm is None:
