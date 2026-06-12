@@ -34,6 +34,8 @@ import hashlib
 import inspect
 import logging
 import sys
+import time
+import tracemalloc
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -873,4 +875,126 @@ def walk_forward_validate(
         "max_cliff": max_cliff,
         "passes_cliff_gate": passes_cliff_gate,
         "n_splits": len(splits),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Profiling — micro-benchmark harness for the simulator hot loop
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def profile_backtest(
+    *,
+    panel: pd.DataFrame,
+    volume_panel: pd.DataFrame,
+    target_weights: dict[str, float] | pd.DataFrame,
+    rebalance_days: int = DEFAULT_REBALANCE_DAYS,
+    initial_cash: float = DEFAULT_INITIAL_CASH,
+    tx_cost_bps: int = DEFAULT_TX_COST_BPS,
+    n_runs: int = 20,
+) -> dict:
+    """Micro-benchmark harness for the :func:`_simulate_portfolio` hot loop.
+
+    Repeatedly runs the *existing* simulator ``n_runs`` times on the **same
+    pre-fetched** price/volume panel and reports wall-clock timing statistics,
+    peak memory, and a determinism check. This is a profiling tool for the
+    simulator's inner loop, not a backtest itself — it produces no
+    :class:`BacktestResult` and consults no rigor primitives.
+
+    The caller passes the already-fetched ``panel`` and ``volume_panel``
+    DataFrames (exactly the objects :func:`_simulate_portfolio` expects), so the
+    harness performs **no network I/O** and stays fully hermetic — no yfinance,
+    no DB, no Redis. This lets it run in CI and in tests without external
+    services.
+
+    Timing uses :func:`time.perf_counter`, not :func:`time.time` or any
+    wall-clock source (``datetime.now``). ``perf_counter`` is the highest-
+    resolution monotonic clock available; it is unaffected by system wall-clock
+    adjustments (NTP steps, manual changes, DST), so per-run deltas measure true
+    elapsed CPU+wall time rather than clock drift.
+
+    Peak memory is measured with :mod:`tracemalloc` around a single
+    representative run (start/stop bracketing one ``_simulate_portfolio`` call),
+    reported in KB.
+
+    Determinism: the simulator is deterministic for a fixed panel + weights, so
+    the daily-return series MUST be identical across runs. The harness asserts
+    this and reports ``deterministic`` (a paranoid regression guard — if it ever
+    flips to ``False``, non-determinism crept into the hot loop).
+
+    Args:
+        panel: Wide close-price panel — DatetimeIndex, one column per symbol.
+        volume_panel: Wide volume panel aligned to ``panel`` (same shape).
+        target_weights: ``{ticker: weight}`` map or a dynamic-weight DataFrame.
+        rebalance_days: Periodic rebalance interval (forwarded to the sim).
+        initial_cash: Starting equity (forwarded to the sim).
+        tx_cost_bps: Round-trip transaction cost in basis points.
+        n_runs: Number of timed repetitions (must be ≥ 1).
+
+    Returns:
+        dict with keys ``n_runs``, ``n_bars``, ``n_assets``, ``time_mean_ms``,
+        ``time_median_ms``, ``time_min_ms``, ``time_max_ms``, ``time_std_ms``,
+        ``peak_memory_kb``, ``bars_per_second``, ``deterministic``.
+
+    Raises:
+        ValueError: if ``n_runs < 1`` or the price ``panel`` is empty.
+    """
+    if n_runs < 1:
+        raise ValueError(f"n_runs must be ≥ 1; got {n_runs}")
+    if panel is None or len(panel) == 0 or panel.shape[1] == 0:
+        raise ValueError("panel must be a non-empty wide price DataFrame")
+
+    n_bars = len(panel)
+    n_assets = panel.shape[1]
+
+    sim_kwargs = {
+        "rebalance_days": rebalance_days,
+        "initial_cash": initial_cash,
+        "tx_cost_bps": tx_cost_bps,
+    }
+
+    # ── Timed repetitions (perf_counter: monotonic, wall-clock-immune) ──
+    timings_ms: list[float] = []
+    baseline_returns: list[float] | None = None
+    deterministic = True
+    for _ in range(n_runs):
+        t0 = time.perf_counter()
+        daily_returns, _equity = _simulate_portfolio(
+            panel,
+            volume_panel,
+            target_weights,
+            **sim_kwargs,
+        )
+        t1 = time.perf_counter()
+        timings_ms.append((t1 - t0) * 1_000.0)
+
+        if baseline_returns is None:
+            baseline_returns = daily_returns
+        elif daily_returns != baseline_returns:
+            deterministic = False
+
+    # ── Peak memory around a single representative run ──
+    tracemalloc.start()
+    _simulate_portfolio(panel, volume_panel, target_weights, **sim_kwargs)
+    _current, peak_bytes = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    peak_memory_kb = peak_bytes / 1024.0
+
+    times = np.asarray(timings_ms, dtype=float)
+    mean_ms = float(times.mean())
+    mean_seconds = mean_ms / 1_000.0
+    bars_per_second = (n_bars / mean_seconds) if mean_seconds > 0 else float("inf")
+
+    return {
+        "n_runs": n_runs,
+        "n_bars": n_bars,
+        "n_assets": n_assets,
+        "time_mean_ms": mean_ms,
+        "time_median_ms": float(np.median(times)),
+        "time_min_ms": float(times.min()),
+        "time_max_ms": float(times.max()),
+        "time_std_ms": float(times.std()),
+        "peak_memory_kb": float(peak_memory_kb),
+        "bars_per_second": float(bars_per_second),
+        "deterministic": deterministic,
     }
