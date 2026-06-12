@@ -77,3 +77,54 @@ class PortfolioRiskResponse(BaseModel):
 
     # Per-strategy breakdown
     strategies: list[StrategyRiskSummary]
+
+
+# ═══════════════════════════════════════════════════════════════
+# CVaR
+# ═══════════════════════════════════════════════════════════════
+
+
+class CVaRLevel(BaseModel):
+    confidence: float
+    var_historical: float
+    cvar_historical: float
+    var_parametric: float
+    cvar_parametric: float
+    fat_tails: bool
+    sample_size: int
+
+
+class PortfolioCVaRResponse(BaseModel):
+    strategy_count: int
+    lookback_days: int
+    levels: list[CVaRLevel]
+
+
+# ═══════════════════════════════════════════════════════════════
+# Greeks
+# ═══════════════════════════════════════════════════════════════
+
+
+class StrategyGreeks(BaseModel):
+    strategy_id: str
+    paper_title: str
+    implied_vol: float
+    delta: float
+    gamma: float
+    theta: float
+    vega: float
+    rho: float
+    weight: float
+
+
+class PortfolioGreeksResponse(BaseModel):
+    strategy_count: int
+    time_horizon_days: int
+    risk_free_rate: float
+    implied_vol_assumption: float
+    strategies: list[StrategyGreeks]
+    portfolio_delta: float
+    portfolio_gamma: float
+    portfolio_theta: float
+    portfolio_vega: float
+    portfolio_rho: float

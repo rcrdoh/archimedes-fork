@@ -6,12 +6,20 @@ on-chain vault holdings into portfolio-level risk summaries.
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
+import scipy.stats
 from fastapi import APIRouter
 
 from archimedes.api.risk_schemas import (
+    CVaRLevel,
+    PortfolioCVaRResponse,
+    PortfolioGreeksResponse,
     PortfolioRiskResponse,
     RiskProfileBand,
     RiskProfileBandsResponse,
+    StrategyGreeks,
     StrategyRiskSummary,
 )
 from archimedes.services.strategy_provider import default_provider
@@ -228,4 +236,167 @@ async def get_portfolio_risk():
         holding_count=holding_count,
         actual_risk_profile=_classify_risk_profile(worst_dd),
         strategies=summaries,
+    )
+
+
+@risk_router.get("/cvar", response_model=PortfolioCVaRResponse)
+async def get_portfolio_cvar():
+    """Portfolio-level CVaR at 90, 95, 99% confidence from persisted backtests.
+
+    Daily returns are derived from equity_curve via pct_change. Strategies are
+    equally weighted. Returns 200 with empty levels if no equity data is available.
+    """
+    strategies = _strategy_provider.list_strategies()
+
+    all_returns: list[np.ndarray] = []
+    for s in strategies:
+        bt = _strategy_provider.get_backtest_result(s.id)
+        if bt is None or len(bt.equity_curve) < 2:
+            continue
+        curve = np.array(bt.equity_curve, dtype=float)
+        # pct_change from equity levels; skip first NaN
+        rets = np.diff(curve) / curve[:-1]
+        if len(rets) > 0:
+            all_returns.append(rets)
+
+    if not all_returns:
+        return PortfolioCVaRResponse(
+            strategy_count=len(strategies),
+            lookback_days=0,
+            levels=[],
+        )
+
+    # Equal-weight portfolio daily returns: average across strategies
+    min_len = min(len(r) for r in all_returns)
+    stacked = np.stack([r[-min_len:] for r in all_returns], axis=1)
+    portfolio_returns = stacked.mean(axis=1)
+
+    n = len(portfolio_returns)
+    mu = portfolio_returns.mean()
+    sigma = portfolio_returns.std(ddof=1)
+
+    levels: list[CVaRLevel] = []
+    for conf in (0.90, 0.95, 0.99):
+        threshold = np.percentile(portfolio_returns, (1 - conf) * 100)
+        tail = portfolio_returns[portfolio_returns <= threshold]
+        cvar_hist = float(-tail.mean()) if len(tail) > 0 else float(-threshold)
+        var_hist = float(-threshold)
+
+        z = scipy.stats.norm.ppf(1 - conf)
+        var_param = float(-(mu + z * sigma))
+        # E[X | X <= mu + z*sigma] for normal = mu - sigma * phi(z) / (1 - conf)
+        cvar_param = float(-(mu - sigma * scipy.stats.norm.pdf(z) / (1 - conf)))
+
+        levels.append(
+            CVaRLevel(
+                confidence=conf,
+                var_historical=round(var_hist, 6),
+                cvar_historical=round(cvar_hist, 6),
+                var_parametric=round(var_param, 6),
+                cvar_parametric=round(cvar_param, 6),
+                fat_tails=bool(cvar_hist > cvar_param),
+                sample_size=n,
+            )
+        )
+
+    return PortfolioCVaRResponse(
+        strategy_count=len(strategies),
+        lookback_days=n,
+        levels=levels,
+    )
+
+
+def _bs_atm_greeks(sigma: float, tau: float, r: float, q: float) -> dict[str, float]:
+    """Black-Scholes ATM call Greeks for spot=strike=1."""
+    S = K = 1.0
+    sqrt_tau = math.sqrt(tau)
+    d1 = (math.log(S / K) + (r - q + 0.5 * sigma**2) * tau) / (sigma * sqrt_tau)
+    d2 = d1 - sigma * sqrt_tau
+    N = scipy.stats.norm.cdf
+    n_pdf = scipy.stats.norm.pdf
+    delta = math.exp(-q * tau) * N(d1)
+    gamma = math.exp(-q * tau) * n_pdf(d1) / (S * sigma * sqrt_tau)
+    theta = (
+        -(S * sigma * math.exp(-q * tau) * n_pdf(d1)) / (2 * sqrt_tau)
+        - r * K * math.exp(-r * tau) * N(d2)
+        + q * S * math.exp(-q * tau) * N(d1)
+    ) / 365
+    vega = S * math.exp(-q * tau) * n_pdf(d1) * sqrt_tau / 100
+    rho = K * tau * math.exp(-r * tau) * N(d2) / 100
+    return {"delta": delta, "gamma": gamma, "theta": theta, "vega": vega, "rho": rho}
+
+
+@risk_router.get("/greeks", response_model=PortfolioGreeksResponse)
+async def get_portfolio_greeks():
+    """ATM call Black-Scholes Greeks per strategy and equal-weight portfolio aggregate.
+
+    Vol is derived from Sharpe + CAGR: sigma = abs(CAGR) / Sharpe.
+    Falls back to 0.20 when not derivable. Returns 200 with zeros when no strategies exist.
+    """
+    _R = 0.045
+    _Q = 0.02
+    _TAU = 30 / 365
+    _FALLBACK_VOL = 0.20
+
+    strategies = _strategy_provider.list_strategies()
+
+    strategy_greeks: list[StrategyGreeks] = []
+    for s in strategies:
+        bt = _strategy_provider.get_backtest_result(s.id)
+        sharpe = bt.sharpe_ratio if bt else None
+        cagr = bt.cagr if bt else None
+
+        implied_vol = _FALLBACK_VOL
+        if sharpe is not None and sharpe > 0 and cagr is not None:
+            implied_vol = abs(cagr) / sharpe
+
+        g = _bs_atm_greeks(implied_vol, _TAU, _R, _Q)
+        strategy_greeks.append(
+            StrategyGreeks(
+                strategy_id=s.id,
+                paper_title=s.paper_title,
+                implied_vol=round(implied_vol, 6),
+                delta=round(g["delta"], 6),
+                gamma=round(g["gamma"], 6),
+                theta=round(g["theta"], 6),
+                vega=round(g["vega"], 6),
+                rho=round(g["rho"], 6),
+                weight=round(1.0 / len(strategies), 6) if strategies else 0.0,
+            )
+        )
+
+    n = len(strategy_greeks)
+    if n == 0:
+        return PortfolioGreeksResponse(
+            strategy_count=0,
+            time_horizon_days=30,
+            risk_free_rate=_R,
+            implied_vol_assumption=_FALLBACK_VOL,
+            strategies=[],
+            portfolio_delta=0.0,
+            portfolio_gamma=0.0,
+            portfolio_theta=0.0,
+            portfolio_vega=0.0,
+            portfolio_rho=0.0,
+        )
+
+    w = 1.0 / n
+    p_delta = sum(g.delta * w for g in strategy_greeks)
+    p_gamma = sum(g.gamma * w for g in strategy_greeks)
+    p_theta = sum(g.theta * w for g in strategy_greeks)
+    p_vega = sum(g.vega * w for g in strategy_greeks)
+    p_rho = sum(g.rho * w for g in strategy_greeks)
+    avg_vol = sum(g.implied_vol for g in strategy_greeks) / n
+
+    return PortfolioGreeksResponse(
+        strategy_count=n,
+        time_horizon_days=30,
+        risk_free_rate=_R,
+        implied_vol_assumption=round(avg_vol, 6),
+        strategies=strategy_greeks,
+        portfolio_delta=round(p_delta, 6),
+        portfolio_gamma=round(p_gamma, 6),
+        portfolio_theta=round(p_theta, 6),
+        portfolio_vega=round(p_vega, 6),
+        portfolio_rho=round(p_rho, 6),
     )
