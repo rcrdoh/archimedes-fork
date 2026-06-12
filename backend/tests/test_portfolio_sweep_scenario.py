@@ -7,7 +7,7 @@ so the endpoint logic is exercised without running actual backtests.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
