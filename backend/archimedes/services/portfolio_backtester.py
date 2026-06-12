@@ -508,3 +508,369 @@ def backtest_portfolio(
         },
     }
     return result, artifact
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 2.2 additions — Monte Carlo robustness, sensitivity sweep, walk-forward
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def monte_carlo_portfolio(
+    daily_returns: list[float],
+    *,
+    n_trials: int = 1000,
+    block_size: int = 20,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Block bootstrap to quantify uncertainty in portfolio performance metrics.
+
+    Generates ``n_trials`` resampled return series using a circular block
+    bootstrap (Politis & Romano 1992, "A Circular Block-Resampling Procedure for
+    Stationary Data") and computes Sharpe / CAGR / max-DD / Sortino on each.
+    Returns empirical confidence intervals and the per-trial distribution.
+
+    Block bootstrap preserves short-range autocorrelation (momentum / mean-
+    reversion at lags ≤ block_size), which standard i.i.d. bootstrap destroys.
+    Choosing block_size ≈ sqrt(T) is a common rule-of-thumb (Politis & White
+    2004, "Automatic Block-Length Selection for the Dependent Bootstrap").
+
+    Args:
+        daily_returns: Daily portfolio returns (length T).
+        n_trials: Number of bootstrap replicates.
+        block_size: Circular block size (default 20 ≈ monthly).
+        seed: RNG seed for reproducibility.
+
+    Returns:
+        dict with keys ``sharpe_ci_95``, ``cagr_ci_95``, ``max_dd_ci_95``,
+        ``sortino_ci_95`` (each a ``[low, high]`` 2-list), plus
+        ``trial_sharpes`` / ``trial_cagrs`` / ``trial_max_dds`` (full distributions),
+        ``observed_sharpe``, ``observed_cagr``, ``observed_max_dd``,
+        ``n_trials``, ``block_size``, ``pct_positive_sharpe``.
+    """
+    arr = np.asarray(daily_returns, dtype=float)
+    T = len(arr)
+    if T < block_size * 2:
+        raise ValueError(f"Need ≥ {block_size * 2} returns for block bootstrap; got {T}")
+
+    rng = np.random.default_rng(seed)
+    n_blocks = int(np.ceil(T / block_size))
+
+    # ── build all bootstrap samples at once (vectorised) ──
+    start_indices = rng.integers(0, T, size=(n_trials, n_blocks))
+    # circular index: (start + offset) % T for each block of length block_size
+    offsets = np.arange(block_size)  # (block_size,)
+    # shape: (n_trials, n_blocks, block_size)
+    idx = (start_indices[:, :, None] + offsets[None, None, :]) % T
+    # shape: (n_trials, T_raw) — might be slightly longer than T
+    samples = arr[idx.reshape(n_trials, -1)][:, :T]  # trim to exact T
+
+    # ── compute metrics per trial ──
+    mu = samples.mean(axis=1)
+    sigma = samples.std(axis=1, ddof=1)
+    safe_sigma = np.where(sigma > 0, sigma, np.inf)
+    trial_sharpes = ((mu - RF_DAILY) / safe_sigma * np.sqrt(ANNUALIZATION)).tolist()
+
+    # CAGR from cumulative product (geometric return)
+    log_rets = np.log1p(np.clip(samples, -0.999, None))
+    total_log = log_rets.sum(axis=1)
+    trial_cagrs = (np.exp(total_log * ANNUALIZATION / T) - 1.0).tolist()
+
+    # Max drawdown per trial
+    cum_eq = np.exp(np.cumsum(log_rets, axis=1))
+    running_max = np.maximum.accumulate(cum_eq, axis=1)
+    dd_series = cum_eq / running_max - 1.0
+    trial_max_dds = (-dd_series.min(axis=1)).tolist()
+
+    # Sortino
+    neg_mask = samples < 0
+    neg_sq = np.where(neg_mask, samples**2, 0.0)
+    down_rms = np.sqrt(neg_sq.mean(axis=1))
+    safe_down = np.where(down_rms > 0, down_rms, np.inf)
+    trial_sortinos = ((mu - RF_DAILY) / safe_down * np.sqrt(ANNUALIZATION)).tolist()
+
+    def _ci95(values: list[float]) -> list[float]:
+        v = np.asarray(values)
+        return [float(np.percentile(v, 2.5)), float(np.percentile(v, 97.5))]
+
+    obs = _annualized_metrics(daily_returns, list(np.cumprod(1.0 + arr)))
+    return {
+        "observed_sharpe": obs["sharpe_ratio"],
+        "observed_cagr": obs["cagr"],
+        "observed_max_dd": obs["max_drawdown"],
+        "observed_sortino": obs["sortino_ratio"],
+        "sharpe_ci_95": _ci95(trial_sharpes),
+        "cagr_ci_95": _ci95(trial_cagrs),
+        "max_dd_ci_95": _ci95(trial_max_dds),
+        "sortino_ci_95": _ci95(trial_sortinos),
+        "trial_sharpes": trial_sharpes,
+        "trial_cagrs": trial_cagrs,
+        "trial_max_dds": trial_max_dds,
+        "pct_positive_sharpe": float(np.mean(np.asarray(trial_sharpes) > 0)),
+        "n_trials": n_trials,
+        "block_size": block_size,
+    }
+
+
+def sensitivity_sweep(
+    *,
+    strategy_id: str,
+    weights: dict[str, float],
+    param_grid: dict[str, list[Any]],
+    start_date: str | None = None,
+    end_date: str | None = None,
+    metric: str = "sharpe_ratio",
+    n_workers: int = 1,
+) -> dict[str, Any]:
+    """Run ``backtest_portfolio`` across a grid of parameter combinations.
+
+    Tests how sensitive the strategy's ``metric`` is to changes in backtesting
+    parameters (``rebalance_days``, ``tx_cost_bps``, ``initial_cash``, etc.).
+    A robust strategy should maintain acceptable performance across the full
+    grid; sharp performance cliffs signal over-fitted parameter choices.
+
+    Args:
+        strategy_id: Strategy identifier (passed to each ``backtest_portfolio`` call).
+        weights: Static target weights.
+        param_grid: ``{param_name: [value1, value2, ...]}`` — all combinations
+            are expanded. Only the params accepted by ``backtest_portfolio``
+            (``rebalance_days``, ``tx_cost_bps``, ``start_date``, ``end_date``)
+            are forwarded; unknown keys are silently ignored.
+        start_date: ISO date for all runs. Defaults to ``backtest_portfolio`` default.
+        end_date: ISO date for all runs. Defaults to today.
+        metric: Which scalar metric to summarise (``"sharpe_ratio"`` default).
+        n_workers: Parallel workers (ProcessPoolExecutor). Default 1 (sequential).
+            Network I/O dominates, so >1 rarely helps in practice but is exposed
+            for test environments with a pre-populated cache.
+
+    Returns:
+        dict with keys:
+            ``"grid"`` — list of ``{params, metric_value}`` dicts for all cells
+            ``"metric"`` — name of the metric being tracked
+            ``"best_params"`` — parameter combination with the highest metric value
+            ``"worst_params"`` — combination with the lowest metric value
+            ``"metric_mean"`` — mean metric across the grid
+            ``"metric_std"`` — std of metric across the grid
+            ``"metric_range"`` — [min, max]
+            ``"sensitivity_ratio"`` — (max − min) / |mean|; > 0.5 flags instability
+
+    Raises:
+        ValueError: if ``param_grid`` is empty or yields zero combinations.
+    """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from itertools import product
+
+    _ALLOWED_PARAMS = {"rebalance_days", "tx_cost_bps", "start_date", "end_date", "initial_cash"}
+    grid_params = {k: v for k, v in param_grid.items() if k in _ALLOWED_PARAMS}
+    if not grid_params:
+        raise ValueError(f"param_grid must contain at least one of {_ALLOWED_PARAMS}")
+
+    param_names = list(grid_params.keys())
+    param_values = list(grid_params.values())
+    combinations = list(product(*param_values))
+
+    if not combinations:
+        raise ValueError("param_grid produced zero combinations")
+
+    def _run_one(combo: tuple) -> dict[str, Any]:
+        kw: dict[str, Any] = dict(zip(param_names, combo))
+        base = {
+            "strategy_id": strategy_id,
+            "weights": weights,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        base.update({k: v for k, v in kw.items() if k in _ALLOWED_PARAMS})
+        try:
+            result, _ = backtest_portfolio(**base)  # type: ignore[arg-type]
+            value = float(getattr(result, metric, 0.0) or 0.0)
+        except Exception as exc:
+            logger.debug("sensitivity_sweep cell failed %s: %s", kw, exc)
+            value = float("nan")
+        return {"params": kw, metric: value}
+
+    if n_workers > 1:
+        cells: list[dict[str, Any]] = []
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            futures = {pool.submit(_run_one, combo): combo for combo in combinations}
+            for fut in as_completed(futures):
+                cells.append(fut.result())
+    else:
+        cells = [_run_one(combo) for combo in combinations]
+
+    values = [c[metric] for c in cells if not (isinstance(c[metric], float) and c[metric] != c[metric])]
+    if not values:
+        return {
+            "grid": cells,
+            "metric": metric,
+            "best_params": None,
+            "worst_params": None,
+            "metric_mean": float("nan"),
+            "metric_std": float("nan"),
+            "metric_range": [float("nan"), float("nan")],
+            "sensitivity_ratio": float("nan"),
+        }
+
+    best = max(cells, key=lambda c: c[metric] if c[metric] == c[metric] else float("-inf"))
+    worst = min(cells, key=lambda c: c[metric] if c[metric] == c[metric] else float("inf"))
+    arr = np.asarray(values)
+    mean_v = float(arr.mean())
+    std_v = float(arr.std())
+    min_v, max_v = float(arr.min()), float(arr.max())
+    sensitivity_ratio = float((max_v - min_v) / abs(mean_v)) if abs(mean_v) > 1e-10 else float("inf")
+
+    return {
+        "grid": cells,
+        "metric": metric,
+        "best_params": best["params"],
+        "worst_params": worst["params"],
+        "metric_mean": mean_v,
+        "metric_std": std_v,
+        "metric_range": [min_v, max_v],
+        "sensitivity_ratio": sensitivity_ratio,
+    }
+
+
+def walk_forward_validate(
+    *,
+    strategy_id: str,
+    weights: dict[str, float],
+    start_date: str | None = None,
+    end_date: str | None = None,
+    n_splits: int = 5,
+    train_frac: float = 0.70,
+    tx_cost_bps: int = DEFAULT_TX_COST_BPS,
+    rebalance_days: int = DEFAULT_REBALANCE_DAYS,
+) -> dict[str, Any]:
+    """Combinatorial Purged Walk-Forward validation for a portfolio strategy.
+
+    Divides the full backtest period into ``n_splits`` adjacent windows. In each
+    window, the first ``train_frac`` fraction is "in-sample" and the remaining
+    ``1 - train_frac`` is "out-of-sample". The same static weights are applied
+    in every split (for a generated strategy, the LLM cannot be re-run per
+    split, so weights are fixed). The metric of interest is the OOS Sharpe
+    cliff: how much does OOS Sharpe lag IS Sharpe?
+
+    A large IS/OOS Sharpe cliff (> 30%) is a red flag for overfit or regime-
+    specific returns that will not generalise (Bailey & López de Prado 2014,
+    "The Deflated Sharpe Ratio").
+
+    This is the time-series equivalent of k-fold cross-validation, adapted for
+    the temporal ordering constraint (no future data in training). Unlike the
+    analytics-engine's walk-forward harness (which operates on a single
+    strategy's signal), this operates on a static-weight portfolio.
+
+    Args:
+        strategy_id: Passed to ``backtest_portfolio`` calls.
+        weights: Static target weights.
+        start_date: ISO start date of the full period.
+        end_date: ISO end date.
+        n_splits: Number of walk-forward windows.
+        train_frac: Fraction of each window used as in-sample.
+        tx_cost_bps: Transaction cost for each sub-backtest.
+        rebalance_days: Rebalance interval for each sub-backtest.
+
+    Returns:
+        dict with keys:
+            ``"splits"`` — list of per-split dicts with ``is_sharpe``,
+                ``oos_sharpe``, ``cliff``, ``is_start``, ``is_end``,
+                ``oos_start``, ``oos_end``
+            ``"mean_is_sharpe"`` — average in-sample Sharpe across splits
+            ``"mean_oos_sharpe"`` — average OOS Sharpe across splits
+            ``"mean_cliff"`` — average IS→OOS Sharpe drop (positive = degradation)
+            ``"max_cliff"`` — worst single split cliff
+            ``"passes_cliff_gate"`` — True if mean_cliff ≤ 0.30
+                (Bailey et al. 2014 30% degradation threshold)
+            ``"n_splits"`` — actual number of splits completed
+    """
+    end_iso = end_date or datetime.now(UTC).date().isoformat()
+    if start_date is None:
+        start_dt = datetime.fromisoformat(end_iso) - timedelta(days=365 * DEFAULT_LOOKBACK_YEARS)
+        start_iso = start_dt.date().isoformat()
+    else:
+        start_iso = start_date
+
+    start_dt = datetime.fromisoformat(start_iso)
+    end_dt = datetime.fromisoformat(end_iso)
+    total_days = (end_dt - start_dt).days
+    if total_days < n_splits * 60:
+        raise ValueError(f"Period too short ({total_days} days) for {n_splits} splits with meaningful windows")
+
+    window_days = total_days // n_splits
+    splits: list[dict[str, Any]] = []
+
+    for i in range(n_splits):
+        win_start = start_dt + timedelta(days=i * window_days)
+        win_end = win_start + timedelta(days=window_days)
+        split_days = (win_end - win_start).days
+        is_end_offset = int(split_days * train_frac)
+
+        is_start_iso = win_start.date().isoformat()
+        is_end_iso = (win_start + timedelta(days=is_end_offset)).date().isoformat()
+        oos_start_iso = (win_start + timedelta(days=is_end_offset + 1)).date().isoformat()
+        oos_end_iso = win_end.date().isoformat()
+
+        is_sharpe = float("nan")
+        oos_sharpe = float("nan")
+
+        try:
+            is_res, _ = backtest_portfolio(
+                strategy_id=strategy_id,
+                weights=weights,
+                start_date=is_start_iso,
+                end_date=is_end_iso,
+                rebalance_days=rebalance_days,
+                tx_cost_bps=tx_cost_bps,
+            )
+            is_sharpe = float(is_res.sharpe_ratio or 0.0)
+        except Exception as exc:
+            logger.debug("WF split %d IS failed: %s", i, exc)
+
+        try:
+            oos_res, _ = backtest_portfolio(
+                strategy_id=strategy_id,
+                weights=weights,
+                start_date=oos_start_iso,
+                end_date=oos_end_iso,
+                rebalance_days=rebalance_days,
+                tx_cost_bps=tx_cost_bps,
+            )
+            oos_sharpe = float(oos_res.sharpe_ratio or 0.0)
+        except Exception as exc:
+            logger.debug("WF split %d OOS failed: %s", i, exc)
+
+        cliff = float("nan")
+        if is_sharpe == is_sharpe and oos_sharpe == oos_sharpe and abs(is_sharpe) > 1e-10:
+            cliff = (is_sharpe - oos_sharpe) / abs(is_sharpe)
+
+        splits.append(
+            {
+                "split": i,
+                "is_start": is_start_iso,
+                "is_end": is_end_iso,
+                "oos_start": oos_start_iso,
+                "oos_end": oos_end_iso,
+                "is_sharpe": is_sharpe,
+                "oos_sharpe": oos_sharpe,
+                "cliff": cliff,
+            }
+        )
+
+    valid_cliffs = [s["cliff"] for s in splits if s["cliff"] == s["cliff"]]
+    valid_is = [s["is_sharpe"] for s in splits if s["is_sharpe"] == s["is_sharpe"]]
+    valid_oos = [s["oos_sharpe"] for s in splits if s["oos_sharpe"] == s["oos_sharpe"]]
+
+    mean_is = float(np.mean(valid_is)) if valid_is else float("nan")
+    mean_oos = float(np.mean(valid_oos)) if valid_oos else float("nan")
+    mean_cliff = float(np.mean(valid_cliffs)) if valid_cliffs else float("nan")
+    max_cliff = float(max(valid_cliffs)) if valid_cliffs else float("nan")
+    passes_cliff_gate = (mean_cliff == mean_cliff) and (mean_cliff <= 0.30)
+
+    return {
+        "splits": splits,
+        "mean_is_sharpe": mean_is,
+        "mean_oos_sharpe": mean_oos,
+        "mean_cliff": mean_cliff,
+        "max_cliff": max_cliff,
+        "passes_cliff_gate": passes_cliff_gate,
+        "n_splits": len(splits),
+    }
