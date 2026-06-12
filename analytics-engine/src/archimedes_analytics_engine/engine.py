@@ -18,6 +18,39 @@ BACKTEST_ENGINE_TAG = "backtrader"
 
 @dataclass
 class BacktestResult:
+    """Container for every metric a single backtest run produces.
+
+    Aggregates performance, risk, trade-level, cost-realism, and provenance
+    fields into one passport-ready record. Optional metrics are ``None`` when
+    they are undefined for the run (e.g. ``sortino_ratio`` when the strategy
+    never had a losing day). All ratios follow the engine's annualized
+    conventions (252 trading days, 5% annual risk-free rate).
+
+    Attributes
+    ----------
+    final_value : float
+        Portfolio value at the end of the backtest, in account currency.
+    total_return_pct : float
+        Total return over the whole period, in percent.
+    equity_curve : list of float
+        Per-bar portfolio value, seeded with the initial cash at index 0, so
+        ``len(equity_curve) == len(daily_returns) + 1``.
+    sharpe_ratio : float or None
+        Annualized net Sharpe (commissions and slippage included).
+    daily_returns : list of float
+        Per-bar net returns.
+    daily_return_dates : list of str
+        ISO ``"YYYY-MM-DD"`` dates aligned 1:1 with ``daily_returns``.
+    gross_sharpe_ratio : float or None
+        Sharpe with commissions added back (slippage is not recoverable).
+    look_ahead_audit_passed : bool
+        ``True`` when the broker used neither cheat-on-close nor cheat-on-open.
+
+    See Also
+    --------
+    run_backtest : Produces this result for a single-asset strategy.
+    """
+
     final_value: float
     total_return_pct: float
     equity_curve: list[float]
@@ -58,6 +91,13 @@ class BacktestResult:
 
 
 class BuyAndHoldStrategy(bt.Strategy):
+    """Baseline strategy: buy the asset on the first flat bar and hold to the end.
+
+    Allocates all available cash to a single long position the first time no
+    position is open, then never trades again — the passive benchmark every
+    active strategy is measured against.
+    """
+
     PAPER_ARXIV_ID: str | None = None
     PAPER_TITLE = "Buy-and-Hold Baseline"
     METHODOLOGY_TEXT = (
@@ -247,6 +287,34 @@ def run_backtest(
     cost_model: CostModel | None = None,
     strategy_params: dict | None = None,
 ) -> BacktestResult:
+    """Run a single-asset strategy over one OHLCV frame and extract its metrics.
+
+    Parameters
+    ----------
+    prices : pandas.DataFrame
+        OHLCV data with a ``DatetimeIndex``; columns ``Open``, ``High``,
+        ``Low``, ``Close``, ``Volume`` as consumed by ``bt.feeds.PandasData``.
+    strategy_cls : type[backtrader.Strategy]
+        The strategy class to run.
+    initial_cash : float
+        Starting account cash.
+    transaction_cost_bps : int, default 10
+        Flat per-side commission in basis points. Ignored when ``cost_model``
+        is supplied.
+    slippage_bps : int, default 0
+        Flat percent slippage in basis points. Ignored when ``cost_model``
+        is supplied.
+    cost_model : CostModel or None, default None
+        Per-feed cost model; supersedes the flat ``transaction_cost_bps`` /
+        ``slippage_bps`` arguments when given.
+    strategy_params : dict or None, default None
+        Keyword parameters forwarded to ``strategy_cls``.
+
+    Returns
+    -------
+    BacktestResult
+        Full metric record for the run.
+    """
     cerebro = bt.Cerebro(stdstats=False)
     transaction_cost_bps, slippage_bps = _configure_broker(
         cerebro,
@@ -507,6 +575,17 @@ def run_buy_and_hold(
     transaction_cost_bps: int = 10,
     slippage_bps: int = 0,
 ) -> BacktestResult:
+    """Run the passive :class:`BuyAndHoldStrategy` benchmark over ``prices``.
+
+    Convenience wrapper around :func:`run_backtest` that fixes the strategy to
+    the buy-and-hold baseline. Parameters and return value mirror
+    :func:`run_backtest`.
+
+    Returns
+    -------
+    BacktestResult
+        Metric record for the buy-and-hold run.
+    """
     return run_backtest(
         prices,
         strategy_cls=BuyAndHoldStrategy,
