@@ -17,10 +17,10 @@ dependencies:
       # --- Web backend ---
       - fastapi>=0.115
       - "starlette>=1.0.1"            # Pinned directly to close PYSEC-2026-161 (Host-header validation bypass); FastAPI's range can resolve to vulnerable 1.0.0 without this floor.
-      - "uvicorn[standard]>=0.32"
+      - "uvicorn[standard]>=0.49.0"
       - sqlalchemy>=2.0
       - psycopg2-binary>=2.9.12       # PostgreSQL driver (binary wheel; no system pq needed). Floor aligned with backend/requirements.txt via dependabot PR #247.
-      - redis>=7.4.0                  # Redis client for live regime/state cache (aligned with backend/requirements.txt)
+      - redis>=8.0.0                  # Redis client for live regime/state cache (aligned with backend/requirements.txt)
       - pydantic>=2.9
       - pydantic-settings>=2.14.1     # Floor aligned with backend/requirements.txt via dependabot PR #248.
       - python-dotenv>=1.0
@@ -47,7 +47,7 @@ dependencies:
 
       # --- On-chain / Web3 ---
       - web3>=7.0                     # Python EVM client; works with Arc (EVM-compatible)
-      - eth-account>=0.13             # Local key management for testnet wallets
+      - eth-account>=0.13.7           # Local key management for testnet wallets
       - eth-utils>=5.0
       - cryptography>=42.0            # RSA sign/serialize for the oracle signer (backend/archimedes/chain/oracle_updater.py); mirrors backend/requirements.txt
 
@@ -56,7 +56,7 @@ dependencies:
 
       # --- Paper ingestion (Q-fin corpus) ---
       - arxiv>=2.1                    # arxiv API client
-      - pypdf>=4.3                    # PDF text extraction
+      - pypdf>=6.13.0                 # PDF text extraction
 
       # --- Quality + tests ---
       - ruff>=0.6                     # Linter + formatter; configured at line length 120
