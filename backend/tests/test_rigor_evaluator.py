@@ -1037,3 +1037,151 @@ class TestRunRigorGateCpcvWiring:
         r_indep = run_rigor_gate("s1", daily, num_trials=25, average_correlation=0.0)
         r_corr = run_rigor_gate("s1", daily, num_trials=25, average_correlation=0.9)
         assert r_corr.deflated_sharpe > r_indep.deflated_sharpe
+
+
+class TestMonteCarloDSR:
+    """Tests for monte_carlo_dsr_pvalue — circular block bootstrap."""
+
+    def test_returns_expected_keys(self):
+        from archimedes.services.rigor_evaluator import monte_carlo_dsr_pvalue
+
+        rng = np.random.default_rng(0)
+        daily = list(rng.normal(0.001, 0.01, 300))
+        result = monte_carlo_dsr_pvalue(daily, dsr_threshold=0.0, n_trials=200, seed=42)
+        for key in ("pvalue", "bootstrap_sharpe_mean", "bootstrap_sharpe_std", "n_trials", "passes_at_5pct"):
+            assert key in result, f"Missing key: {key}"
+
+    def test_pvalue_in_unit_interval(self):
+        from archimedes.services.rigor_evaluator import monte_carlo_dsr_pvalue
+
+        rng = np.random.default_rng(1)
+        daily = list(rng.normal(0.001, 0.01, 400))
+        result = monte_carlo_dsr_pvalue(daily, dsr_threshold=0.0, n_trials=200, seed=7)
+        assert 0.0 <= result["pvalue"] <= 1.0
+
+    def test_strong_positive_series_low_pvalue(self):
+        """A series with very high Sharpe should have a low empirical p-value
+        (rarely beaten by bootstrap replicates)."""
+        from archimedes.services.rigor_evaluator import monte_carlo_dsr_pvalue
+
+        # 0.3% daily return, 0.5% daily vol → annualised Sharpe ≈ 9
+        rng = np.random.default_rng(2)
+        daily = list(rng.normal(0.003, 0.005, 500))
+        result = monte_carlo_dsr_pvalue(daily, dsr_threshold=0.0, n_trials=500, seed=99)
+        assert result["pvalue"] < 0.10, f"Expected low p-value for high-Sharpe series, got {result['pvalue']}"
+
+    def test_degenerate_constant_series_returns_nan(self):
+        from archimedes.services.rigor_evaluator import monte_carlo_dsr_pvalue
+
+        # Constant series: std = 0, Sharpe undefined
+        daily = [0.001] * 300
+        result = monte_carlo_dsr_pvalue(daily, dsr_threshold=0.0, n_trials=100, seed=0)
+        assert result["pvalue"] != result["pvalue"] or result["bootstrap_sharpe_std"] == pytest.approx(0.0, abs=1e-9)
+
+    def test_passes_at_5pct_consistent_with_pvalue(self):
+        from archimedes.services.rigor_evaluator import monte_carlo_dsr_pvalue
+
+        rng = np.random.default_rng(3)
+        daily = list(rng.normal(0.001, 0.01, 300))
+        result = monte_carlo_dsr_pvalue(daily, dsr_threshold=0.0, n_trials=300, seed=1)
+        expected = result["pvalue"] < 0.05
+        assert result["passes_at_5pct"] == expected
+
+
+class TestBenjaminiHochbergFDR:
+    """Tests for benjamini_hochberg_fdr — BH step-up procedure."""
+
+    def test_all_significant(self):
+        """Very small p-values should all be rejected."""
+        from archimedes.services.rigor_evaluator import benjamini_hochberg_fdr
+
+        pvalues = [0.001, 0.002, 0.003, 0.004, 0.005]
+        result = benjamini_hochberg_fdr(pvalues, fdr_level=0.05)
+        assert result["n_rejected"] == 5
+        assert all(result["rejected"])
+
+    def test_all_insignificant(self):
+        """Large p-values should not be rejected."""
+        from archimedes.services.rigor_evaluator import benjamini_hochberg_fdr
+
+        pvalues = [0.80, 0.85, 0.90, 0.95]
+        result = benjamini_hochberg_fdr(pvalues, fdr_level=0.05)
+        assert result["n_rejected"] == 0
+        assert not any(result["rejected"])
+
+    def test_mixed_pvalues_correct_threshold(self):
+        """BH threshold check: k/m * q at rank k."""
+        from archimedes.services.rigor_evaluator import benjamini_hochberg_fdr
+
+        # m=5, q=0.05 → thresholds [0.01, 0.02, 0.03, 0.04, 0.05]
+        pvalues = [0.009, 0.019, 0.04, 0.06, 0.10]
+        result = benjamini_hochberg_fdr(pvalues, fdr_level=0.05)
+        # Sorted: 0.009 ≤ 0.01 ✓, 0.019 ≤ 0.02 ✓, 0.04 > 0.03 ✗ → k*=2
+        assert result["n_rejected"] == 2
+
+    def test_output_keys(self):
+        from archimedes.services.rigor_evaluator import benjamini_hochberg_fdr
+
+        result = benjamini_hochberg_fdr([0.01, 0.05, 0.10], fdr_level=0.05)
+        for key in ("rejected", "bh_critical_values", "n_rejected", "adjusted_pvalues"):
+            assert key in result
+
+    def test_adjusted_pvalues_monotone(self):
+        """BH adjusted p-values should be monotone non-decreasing in sorted order."""
+        from archimedes.services.rigor_evaluator import benjamini_hochberg_fdr
+
+        rng = np.random.default_rng(5)
+        pvalues = list(rng.uniform(0, 1, 20))
+        result = benjamini_hochberg_fdr(pvalues, fdr_level=0.05)
+        adj = result["adjusted_pvalues"]
+        sorted_adj = sorted(adj)
+        # All adjusted p-values must be in [0,1]
+        assert all(0.0 <= p <= 1.0 for p in adj)
+
+
+class TestBonferroniCorrection:
+    """Tests for bonferroni_correction — family-wise error rate control."""
+
+    def test_single_pvalue_unchanged(self):
+        """Single hypothesis: Bonferroni correction multiplies by 1."""
+        from archimedes.services.rigor_evaluator import bonferroni_correction
+
+        result = bonferroni_correction([0.03], alpha=0.05)
+        assert result["adjusted_pvalues"][0] == pytest.approx(0.03)
+        assert result["rejected"][0] is True
+
+    def test_multiple_corrections_multiply(self):
+        """With m=10, each p-value is multiplied by 10."""
+        from archimedes.services.rigor_evaluator import bonferroni_correction
+
+        pvalues = [0.004, 0.006, 0.04, 0.10]
+        result = bonferroni_correction(pvalues, alpha=0.05)
+        # Adjusted: 0.016, 0.024, 0.16, 0.40
+        # Reject at 0.05: first two only
+        assert result["n_rejected"] == 2
+        assert result["rejected"] == [True, True, False, False]
+
+    def test_adjusted_capped_at_one(self):
+        from archimedes.services.rigor_evaluator import bonferroni_correction
+
+        pvalues = [0.9, 0.95]  # adjusted would exceed 1.0
+        result = bonferroni_correction(pvalues, alpha=0.05)
+        assert all(p <= 1.0 for p in result["adjusted_pvalues"])
+
+    def test_output_keys(self):
+        from archimedes.services.rigor_evaluator import bonferroni_correction
+
+        result = bonferroni_correction([0.01, 0.05], alpha=0.05)
+        for key in ("rejected", "adjusted_pvalues", "n_rejected"):
+            assert key in result
+
+    def test_bonferroni_stricter_than_bh(self):
+        """Bonferroni should reject fewer hypotheses than BH for correlated tests."""
+        from archimedes.services.rigor_evaluator import benjamini_hochberg_fdr, bonferroni_correction
+
+        rng = np.random.default_rng(6)
+        pvalues = list(rng.uniform(0.01, 0.10, 15))
+        bh_result = benjamini_hochberg_fdr(pvalues, fdr_level=0.05)
+        bonf_result = bonferroni_correction(pvalues, alpha=0.05)
+        # Bonferroni is always at least as conservative as BH
+        assert bonf_result["n_rejected"] <= bh_result["n_rejected"]
