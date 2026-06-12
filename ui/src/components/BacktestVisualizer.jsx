@@ -5,7 +5,7 @@
 // Suggested integration: import into the StrategyPassport / backtest detail
 // surface, e.g.
 //   import BacktestVisualizer from './components/BacktestVisualizer'
-// and render <BacktestVisualizer result={backtestResult} />.
+// and render <BacktestVisualizer result={backtestResult} strategyId={id} weights={weights} />.
 //
 // All inline SVG (no chart lib). Styling reuses shared App.css classes plus a
 // small colocated BacktestVisualizer.css.
@@ -19,6 +19,8 @@ import {
   seededRng,
 } from '../utils/riskMath'
 import './BacktestVisualizer.css'
+
+const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
 function fmt(v, d = 2) {
   return v != null && Number.isFinite(v) ? v.toFixed(d) : '—'
@@ -150,7 +152,7 @@ function WalkForwardBands({ folds }) {
 
 // ─── Parameter sweep heatmap ────────────────────────────────
 function ParameterSweepHeatmap({ sweep }) {
-  const { rows, cols, grid, max, min } = sweep
+  const { rows, cols, grid, max, min, param1Name, param2Name, metric } = sweep
   const range = max - min || 1
 
   function cellColor(v) {
@@ -159,11 +161,14 @@ function ParameterSweepHeatmap({ sweep }) {
     return `rgba(192,132,252,${(0.08 + 0.82 * t).toFixed(3)})`
   }
 
+  const headerLabel = `${param1Name ?? 'param1'} ↓ / ${param2Name ?? 'param2'} →`
+  const metricLabel = metric ?? 'metric'
+
   return (
     <div className="card-flat" style={{ padding: 20, marginBottom: 20 }}>
-      <div className="label mb-3">Parameter Sweep (Sharpe by parameter pair)</div>
+      <div className="label mb-3">Parameter Sweep ({metricLabel} by parameter pair)</div>
       <div className="bv-sweep" style={{ gridTemplateColumns: `auto repeat(${cols.length}, 1fr)` }}>
-        <div className="bv-sweep-corner caption">lookback ↓ / thresh →</div>
+        <div className="bv-sweep-corner caption">{headerLabel}</div>
         {cols.map((c) => (
           <div key={`c${c}`} className="bv-sweep-head mono">{c}</div>
         ))}
@@ -177,7 +182,7 @@ function ParameterSweepHeatmap({ sweep }) {
                   key={`${r}-${c}`}
                   className="bv-sweep-cell mono"
                   style={{ background: cellColor(v) }}
-                  title={`lookback=${r}, threshold=${c} → Sharpe ${v.toFixed(2)}`}
+                  title={`${param1Name ?? 'param1'}=${r}, ${param2Name ?? 'param2'}=${c} → ${metricLabel} ${v.toFixed(2)}`}
                 >
                   {v.toFixed(2)}
                 </div>
@@ -187,7 +192,7 @@ function ParameterSweepHeatmap({ sweep }) {
         ))}
       </div>
       <p className="caption" style={{ marginTop: 10, color: 'var(--text-4)', lineHeight: 1.5 }}>
-        Sharpe across a 2D parameter grid. A single bright island surrounded by dark cells is a fragile
+        {metricLabel} across a 2D parameter grid. A single bright island surrounded by dark cells is a fragile
         peak (likely overfit); a broad bright plateau means the edge is robust to parameter choice. We
         report the full grid rather than only the best cell — that&apos;s what the deflated-Sharpe
         multiple-testing correction accounts for.
@@ -341,7 +346,16 @@ function buildMockResult() {
     }),
   )
   const flat = grid.flat()
-  const sweep = { rows, cols, grid, max: Math.max(...flat), min: Math.min(...flat) }
+  const sweep = {
+    rows,
+    cols,
+    grid,
+    max: Math.max(...flat),
+    min: Math.min(...flat),
+    param1Name: 'lookback',
+    param2Name: 'threshold',
+    metric: 'sharpe_ratio',
+  }
   const actions = ['BUY', 'SELL', 'REBAL']
   const assets = ['sSPY', 'sBTC', 'sGOLD', 'sNVDA']
   const trades = Array.from({ length: 14 }, (_, i) => {
@@ -357,7 +371,25 @@ function buildMockResult() {
   return { returns, folds, sweep, trades }
 }
 
-export default function BacktestVisualizer({ result } = {}) {
+const METRIC_OPTIONS = [
+  { value: 'sharpe_ratio', label: 'Sharpe Ratio' },
+  { value: 'cagr', label: 'CAGR' },
+  { value: 'max_drawdown', label: 'Max Drawdown' },
+  { value: 'calmar_ratio', label: 'Calmar Ratio' },
+]
+
+export default function BacktestVisualizer({ result, strategyId, weights } = {}) {
+  const [sweepData, setSweepData] = useState(null)
+  const [sweepLoading, setSweepLoading] = useState(false)
+  const [sweepError, setSweepError] = useState('')
+  const [sweepConfig, setSweepConfig] = useState({
+    param1Name: 'rebalance_days',
+    param1Range: [5, 10, 20, 30, 60],
+    param2Name: 'tx_cost_bps',
+    param2Range: [2, 5, 10, 20, 50],
+    metric: 'sharpe_ratio',
+  })
+
   const data = useMemo(() => {
     const mock = buildMockResult()
     return {
@@ -367,6 +399,54 @@ export default function BacktestVisualizer({ result } = {}) {
       trades: result?.trades ?? mock.trades,
     }
   }, [result])
+
+  async function fetchSweep() {
+    if (!strategyId || !weights) return
+    setSweepLoading(true)
+    setSweepError('')
+    try {
+      const res = await fetch(`${API_BASE}/api/portfolio/parameter-sweep`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategy_id: strategyId,
+          weights,
+          param1_name: sweepConfig.param1Name,
+          param1_range: sweepConfig.param1Range,
+          param2_name: sweepConfig.param2Name,
+          param2_range: sweepConfig.param2Range,
+          metric: sweepConfig.metric,
+        }),
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      const json = await res.json()
+      setSweepData(json)
+    } catch (e) {
+      setSweepError(e.message || 'Sweep failed')
+    } finally {
+      setSweepLoading(false)
+    }
+  }
+
+  const sweepForHeatmap = useMemo(() => {
+    if (sweepData) {
+      const flat = sweepData.grid_2d.flat()
+      const validFlat = flat.filter((v) => Number.isFinite(v))
+      return {
+        rows: sweepData.rows,
+        cols: sweepData.cols,
+        grid: sweepData.grid_2d,
+        max: validFlat.length ? Math.max(...validFlat) : 2,
+        min: validFlat.length ? Math.min(...validFlat) : 0,
+        param1Name: sweepData.param1_name,
+        param2Name: sweepData.param2_name,
+        metric: sweepData.metric,
+      }
+    }
+    return data.sweep
+  }, [sweepData, data.sweep])
+
+  const sensRatio = sweepData?.sensitivity_ratio ?? null
 
   return (
     <div>
@@ -383,7 +463,92 @@ export default function BacktestVisualizer({ result } = {}) {
 
       <EquityDrawdownChart returns={data.returns} oosStartFrac={0.7} />
       <WalkForwardBands folds={data.folds} />
-      <ParameterSweepHeatmap sweep={data.sweep} />
+
+      {/* Parameter sweep section */}
+      <div className="card-flat" style={{ padding: 20, marginBottom: 20 }}>
+        <div className="label mb-3">Parameter Sweep ({sweepForHeatmap.metric ?? 'metric'} by parameter pair)</div>
+
+        {strategyId && (
+          <div className="bv-sweep-controls" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            <select
+              className="bv-metric-select"
+              value={sweepConfig.metric}
+              onChange={(e) => setSweepConfig((c) => ({ ...c, metric: e.target.value }))}
+              style={{ fontSize: '0.82rem', padding: '4px 8px', background: 'var(--glass)', border: '1px solid var(--glass-border)', borderRadius: 4, color: 'var(--text-1)' }}
+            >
+              {METRIC_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <button
+              className="bv-run-sweep"
+              onClick={fetchSweep}
+              disabled={sweepLoading}
+              style={{
+                fontSize: '0.82rem',
+                padding: '4px 14px',
+                background: sweepLoading ? 'rgba(192,132,252,0.2)' : 'var(--accent)',
+                color: sweepLoading ? 'var(--text-3)' : '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor: sweepLoading ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {sweepLoading ? 'Computing…' : 'Run Parameter Sweep'}
+            </button>
+            {sweepLoading && <span className="caption" style={{ color: 'var(--text-4)' }}>Computing sweep…</span>}
+            {sweepError && <div className="info-box warning" style={{ flex: '1 1 100%', marginTop: 4 }}>{sweepError}</div>}
+          </div>
+        )}
+
+        <div className="bv-sweep" style={{ gridTemplateColumns: `auto repeat(${sweepForHeatmap.cols.length}, 1fr)` }}>
+          <div className="bv-sweep-corner caption">
+            {`${sweepForHeatmap.param1Name ?? 'param1'} ↓ / ${sweepForHeatmap.param2Name ?? 'param2'} →`}
+          </div>
+          {sweepForHeatmap.cols.map((c) => (
+            <div key={`c${c}`} className="bv-sweep-head mono">{c}</div>
+          ))}
+          {sweepForHeatmap.rows.map((r, i) => {
+            const range = (sweepForHeatmap.max - sweepForHeatmap.min) || 1
+            return (
+              <div key={`r${r}`} style={{ display: 'contents' }}>
+                <div className="bv-sweep-head mono" style={{ textAlign: 'right', paddingRight: 8 }}>{r}</div>
+                {sweepForHeatmap.cols.map((c, j) => {
+                  const v = sweepForHeatmap.grid[i][j]
+                  const t = (v - sweepForHeatmap.min) / range
+                  const bg = `rgba(192,132,252,${(0.08 + 0.82 * t).toFixed(3)})`
+                  const metricName = sweepForHeatmap.metric ?? 'metric'
+                  const p1 = sweepForHeatmap.param1Name ?? 'param1'
+                  const p2 = sweepForHeatmap.param2Name ?? 'param2'
+                  return (
+                    <div
+                      key={`${r}-${c}`}
+                      className="bv-sweep-cell mono"
+                      style={{ background: bg }}
+                      title={`${p1}=${r}, ${p2}=${c} → ${metricName} ${v.toFixed(2)}`}
+                    >
+                      {v.toFixed(2)}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+
+        <p className="caption" style={{ marginTop: 10, color: 'var(--text-4)', lineHeight: 1.5 }}>
+          {sensRatio != null
+            ? `Sensitivity ratio: ${sensRatio.toFixed(2)} — ${sensRatio > 0.5 ? 'fragile (high sensitivity)' : 'robust (low sensitivity)'}.`
+            : null}
+          {sensRatio != null ? ' ' : null}
+          {sweepForHeatmap.metric ?? 'metric'} across a 2D parameter grid. A single bright island surrounded by dark cells is a fragile
+          peak (likely overfit); a broad bright plateau means the edge is robust to parameter choice. We
+          report the full grid rather than only the best cell — that&apos;s what the deflated-Sharpe
+          multiple-testing correction accounts for.
+        </p>
+      </div>
+
       <TradeLog trades={data.trades} />
       <RollingStatBand returns={data.returns} window={60} />
     </div>
