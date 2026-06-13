@@ -165,8 +165,8 @@ Then <http://localhost> for the UI mockups and <http://localhost:8000/docs> for 
 backend API. See README § "Run Archimedes locally" for the full walkthrough.
 
 **Tests:** from the repo root in the `archimedes` conda env, just `pytest` —
-`pytest.ini` sets `pythonpath`/`testpaths` and a verbose default (~860 tests
-on `main` as of 2026-05-26; suite is still growing). Coverage:
+`pytest.ini` sets `pythonpath`/`testpaths` and a verbose default (~1400 backend
+`def test_` cases on `main` as of 2026-06-13; suite is still growing). Coverage:
 `pytest --cov=archimedes --cov-report=term-missing`. The
 analytics-engine runs its own suite: `cd analytics-engine && uv run pytest`. See
 README § "Running the test suite" for the honest coverage picture and the
