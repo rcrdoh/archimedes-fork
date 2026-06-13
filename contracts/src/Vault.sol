@@ -47,6 +47,10 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     /// @notice Sink for dead shares (OZ ERC20 forbids minting to address(0)).
     address public constant DEAD_SHARES_SINK = address(0xdEaD);
 
+    /// @notice Hard cap on the owner-configurable slippage tolerance (5%).
+    ///         Prevents the owner from effectively disabling swap protection.
+    uint256 public constant MAX_SLIPPAGE_CAP_BPS = 500;
+
     // ─── Immutables ──────────────────────────────────────────────────
 
     address public immutable override asset;
@@ -84,6 +88,12 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     /// @notice Oracle address for each held token (for NAV pricing)
     mapping(address => address) public override tokenOracle;
 
+    /// @notice Max slippage tolerance (in bps) applied to every AMM swap,
+    ///         relative to the oracle-implied fair output. Owner-configurable,
+    ///         hard-capped at MAX_SLIPPAGE_CAP_BPS. Default 100 bps (1%) —
+    ///         covers the 30 bps AMM fee plus bounded price impact.
+    uint256 public maxSlippageBps = 100;
+
     // ─── Errors ──────────────────────────────────────────────────────
 
     error ZeroAmount();
@@ -93,6 +103,13 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     error InvalidAllocations();
     error InsufficientBalance();
     error InsufficientLiquidity();
+    error SlippageBpsTooHigh();
+    error OracleNotSet();
+    error InvalidOraclePrice();
+
+    // ─── Events (Vault-local) ────────────────────────────────────────
+
+    event MaxSlippageBpsSet(uint256 oldBps, uint256 newBps);
 
     // ─── Constructor ─────────────────────────────────────────────────
 
@@ -289,8 +306,9 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
             // Approve router
             IERC20(tokenOut).safeIncreaseAllowance(address(ammRouter), amount);
 
-            // Swap tokenOut -> USDC
-            uint256 usdcReceived = ammRouter.swap(tokenOut, asset, amount, 0);
+            // Swap tokenOut -> USDC with oracle-derived slippage floor
+            uint256 usdcReceived =
+                ammRouter.swap(tokenOut, asset, amount, _oracleMinOut(tokenOut, asset, amount));
 
             _removeHolding(tokenOut, amount);
             _addHolding(address(asset), usdcReceived);
@@ -309,8 +327,9 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
             // Approve router
             IERC20(asset).safeIncreaseAllowance(address(ammRouter), amount);
 
-            // Swap USDC -> tokenIn
-            uint256 tokensReceived = ammRouter.swap(asset, tokenIn, amount, 0);
+            // Swap USDC -> tokenIn with oracle-derived slippage floor
+            uint256 tokensReceived =
+                ammRouter.swap(asset, tokenIn, amount, _oracleMinOut(asset, tokenIn, amount));
 
             _removeHolding(asset, amount);
             _addHolding(tokenIn, tokensReceived);
@@ -395,6 +414,15 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
         platformFeeRecipient = _recipient;
     }
 
+    /// @notice Set the max slippage tolerance applied to all AMM swaps.
+    ///         Bounded by MAX_SLIPPAGE_CAP_BPS so swap protection can never
+    ///         be effectively disabled.
+    function setMaxSlippageBps(uint256 _maxSlippageBps) external onlyOwner {
+        if (_maxSlippageBps > MAX_SLIPPAGE_CAP_BPS) revert SlippageBpsTooHigh();
+        emit MaxSlippageBpsSet(maxSlippageBps, _maxSlippageBps);
+        maxSlippageBps = _maxSlippageBps;
+    }
+
     function pause() external onlyOwner {
         _pause();
     }
@@ -404,6 +432,39 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     // ─── Internal ────────────────────────────────────────────────────
+
+    /// @notice Compute the minimum acceptable output for an AMM swap from the
+    ///         on-chain oracle price, minus the bounded slippage tolerance.
+    /// @dev    Exactly one side of every vault swap is USDC (the vault asset);
+    ///         the other side is a synth token. Decimal conventions (matching
+    ///         totalAssets()): USDC has 6 decimals; synth tokens have 18;
+    ///         oracle prices are USDC (6 decimals) per 1e18 synth units.
+    ///
+    ///         synth -> USDC: expectedOut(6) = amountIn(18) * price(6) / 1e18
+    ///         USDC -> synth: expectedOut(18) = amountIn(6) * 1e18 / price(6)
+    ///
+    ///         Reverts if the non-USDC side has no registered oracle (an
+    ///         unpriced swap would be unprotected) or the oracle price is zero.
+    ///         PriceOracle.getPrice() itself reverts when the price is stale,
+    ///         so stale oracles block swaps rather than mispricing them.
+    function _oracleMinOut(address tokenIn, address tokenOut, uint256 amountIn)
+        internal
+        view
+        returns (uint256 minAmountOut)
+    {
+        address synth = tokenIn == address(asset) ? tokenOut : tokenIn;
+        address oracle = tokenOracle[synth];
+        if (oracle == address(0)) revert OracleNotSet();
+
+        uint256 price = PriceOracle(oracle).getPrice();
+        if (price == 0) revert InvalidOraclePrice();
+
+        uint256 expectedOut = tokenIn == address(asset)
+            ? (amountIn * 1e18) / price // buy: USDC(6) -> synth(18)
+            : (amountIn * price) / 1e18; // sell: synth(18) -> USDC(6)
+
+        minAmountOut = (expectedOut * (BPS - maxSlippageBps)) / BPS;
+    }
 
     /// @notice Liquidate non-USDC positions to cover a USDC shortfall.
     ///         Sells proportionally from each held token via the AMM.
@@ -444,9 +505,11 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
             if (tokensToSell == 0) continue;
             if (tokensToSell > balance) tokensToSell = balance;
 
-            // Approve router and swap to USDC
+            // Approve router and swap to USDC with oracle-derived slippage floor
             IERC20(heldTokens[i]).safeIncreaseAllowance(address(ammRouter), tokensToSell);
-            ammRouter.swap(heldTokens[i], asset, tokensToSell, 0);
+            ammRouter.swap(
+                heldTokens[i], asset, tokensToSell, _oracleMinOut(heldTokens[i], asset, tokensToSell)
+            );
         }
 
         // Verify we now have enough USDC
