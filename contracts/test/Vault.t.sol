@@ -39,6 +39,10 @@ contract VaultTest is Test {
     Vault public vault;
 
     MockToken public sTSLA;
+    PriceOracle public tslaOracle;
+
+    /// @dev sTSLA oracle price: 2 USDC per token (6-decimal USDC units per 1e18 synth)
+    uint256 public constant TSLA_PRICE = 2 * 10**6;
 
     address public owner = address(0x1);
     address public alice = address(0x2);
@@ -82,9 +86,11 @@ contract VaultTest is Test {
         );
         vault = Vault(payable(vaultAddr));
 
-        // Seed AMM pool with liquidity
-        uint256 poolUsdc = 100_000 * 10**6;
-        uint256 poolTsla = 50_000 * 1e18;
+        // Seed AMM pool with liquidity at the oracle price (2 USDC per sTSLA).
+        // Deep pool so a 10k USDC rebalance has price impact well below the
+        // vault's default 1% slippage tolerance (impact ~0.1% + 0.3% AMM fee).
+        uint256 poolUsdc = 10_000_000 * 10**6;
+        uint256 poolTsla = 5_000_000 * 1e18;
 
         usdc.mint(address(this), poolUsdc);
         sTSLA.mint(address(this), poolTsla);
@@ -92,6 +98,52 @@ contract VaultTest is Test {
         usdc.approve(address(router), poolUsdc);
         sTSLA.approve(address(router), poolTsla);
         router.addLiquidity(address(usdc), address(sTSLA), poolUsdc, poolTsla, 0);
+
+        // Deploy oracle for sTSLA and register it on the vault — swaps now
+        // require an oracle-derived minAmountOut (issue #506).
+        tslaOracle = new PriceOracle("sTSLA", TSLA_PRICE, owner);
+        address[] memory oracleTokens = new address[](1);
+        oracleTokens[0] = address(sTSLA);
+        address[] memory oracles = new address[](1);
+        oracles[0] = address(tslaOracle);
+        vm.prank(agent);
+        vault.setTokenOracles(oracleTokens, oracles);
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────────────
+
+    /// @dev Rebalance the vault: buy `amount` USDC worth of sTSLA.
+    function _rebalanceBuyTsla(uint256 amount) internal {
+        address[] memory tokensIn = new address[](1);
+        tokensIn[0] = address(sTSLA);
+        uint256[] memory amountsIn = new uint256[](1);
+        amountsIn[0] = amount;
+        address[] memory tokensOut = new address[](0);
+        uint256[] memory amountsOut = new uint256[](0);
+
+        vm.prank(agent);
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+    }
+
+    /// @dev Rebalance the vault: sell `amount` sTSLA back to USDC.
+    function _rebalanceSellTsla(uint256 amount) internal {
+        address[] memory tokensIn = new address[](0);
+        uint256[] memory amountsIn = new uint256[](0);
+        address[] memory tokensOut = new address[](1);
+        tokensOut[0] = address(sTSLA);
+        uint256[] memory amountsOut = new uint256[](1);
+        amountsOut[0] = amount;
+
+        vm.prank(agent);
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+    }
+
+    /// @dev Deposit USDC into the vault as alice.
+    function _depositAsAlice(uint256 amount) internal {
+        vm.startPrank(alice);
+        usdc.approve(address(vault), amount);
+        vault.deposit(amount, alice);
+        vm.stopPrank();
     }
 
     // ─── Deposit Tests ───────────────────────────────────────────────
@@ -350,6 +402,217 @@ contract VaultTest is Test {
         vm.prank(agent);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
         // No tokens swapped, but no revert — success
+    }
+
+    // ─── Swap Slippage Protection (issue #506) ───────────────────────
+
+    function test_maxSlippageBps_default() public view {
+        assertEq(vault.maxSlippageBps(), 100);
+        assertEq(vault.MAX_SLIPPAGE_CAP_BPS(), 500);
+    }
+
+    function test_setMaxSlippageBps() public {
+        // Vault owner is the creator (agent in setUp)
+        vm.prank(agent);
+        vault.setMaxSlippageBps(50);
+        assertEq(vault.maxSlippageBps(), 50);
+
+        // Boundary: exactly the cap is allowed
+        vm.prank(agent);
+        vault.setMaxSlippageBps(500);
+        assertEq(vault.maxSlippageBps(), 500);
+    }
+
+    function test_revert_setMaxSlippageBps_above_cap() public {
+        vm.prank(agent);
+        vm.expectRevert(Vault.SlippageBpsTooHigh.selector);
+        vault.setMaxSlippageBps(501);
+    }
+
+    function test_revert_setMaxSlippageBps_unauthorized() public {
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, bob));
+        vault.setMaxSlippageBps(50);
+    }
+
+    /// @dev Decimal scaling, buy direction: USDC(6) in -> synth(18) out.
+    ///      10,000 USDC at 2 USDC/sTSLA → fair output 5,000e18; the floor at
+    ///      1% tolerance is 4,950e18. The aligned pool fills at ~4,983e18
+    ///      (0.3% fee + ~0.1% impact), which must clear the floor.
+    function test_rebalance_buy_min_out_decimal_scaling() public {
+        _depositAsAlice(50_000 * 10**6);
+        _rebalanceBuyTsla(10_000 * 10**6);
+
+        uint256 received = sTSLA.balanceOf(address(vault));
+        uint256 fairOut = (10_000 * 10**6 * 1e18) / TSLA_PRICE; // 5_000e18
+        assertGe(received, (fairOut * 9900) / 10000); // >= oracle floor
+        assertLe(received, fairOut); // can't beat fair price in an aligned pool
+    }
+
+    /// @dev Decimal scaling, sell direction: synth(18) in -> USDC(6) out.
+    ///      1,000 sTSLA at 2 USDC/sTSLA → fair output 2,000e6; floor 1,980e6.
+    function test_rebalance_sell_min_out_decimal_scaling() public {
+        _depositAsAlice(50_000 * 10**6);
+        _rebalanceBuyTsla(10_000 * 10**6);
+
+        uint256 usdcBefore = usdc.balanceOf(address(vault));
+        _rebalanceSellTsla(1_000 * 1e18);
+        uint256 received = usdc.balanceOf(address(vault)) - usdcBefore;
+
+        uint256 fairOut = (1_000 * 1e18 * TSLA_PRICE) / 1e18; // 2_000e6
+        assertGe(received, (fairOut * 9900) / 10000); // >= oracle floor
+        assertLe(received, fairOut);
+    }
+
+    /// @dev With tolerance 0 the floor equals the oracle-fair output; the
+    ///      30 bps AMM fee alone must trip it — proves maxSlippageBps is
+    ///      actually enforced in the min-out computation.
+    function test_maxSlippageBps_enforced_zero_tolerance() public {
+        _depositAsAlice(50_000 * 10**6);
+
+        vm.prank(agent);
+        vault.setMaxSlippageBps(0);
+
+        address[] memory tokensIn = new address[](1);
+        tokensIn[0] = address(sTSLA);
+        uint256[] memory amountsIn = new uint256[](1);
+        amountsIn[0] = 10_000 * 10**6;
+        address[] memory tokensOut = new address[](0);
+        uint256[] memory amountsOut = new uint256[](0);
+
+        vm.prank(agent);
+        vm.expectRevert(AMMRouter.SlippageExceeded.selector);
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+    }
+
+    /// @dev Attack scenario (audit finding #3): attacker skews the pool ahead
+    ///      of a rebalance BUY (front-run buys sTSLA, raising its pool price).
+    ///      The vault must revert instead of buying at the manipulated price.
+    function test_revert_rebalance_buy_manipulated_pool() public {
+        _depositAsAlice(50_000 * 10**6);
+
+        // Attacker front-runs: dumps 5M USDC into the pool, ~halving the
+        // sTSLA reserve and pushing the pool price far above the oracle.
+        usdc.mint(bob, 5_000_000 * 10**6);
+        vm.startPrank(bob);
+        usdc.approve(address(router), 5_000_000 * 10**6);
+        router.swap(address(usdc), address(sTSLA), 5_000_000 * 10**6, 0);
+        vm.stopPrank();
+
+        address[] memory tokensIn = new address[](1);
+        tokensIn[0] = address(sTSLA);
+        uint256[] memory amountsIn = new uint256[](1);
+        amountsIn[0] = 10_000 * 10**6;
+        address[] memory tokensOut = new address[](0);
+        uint256[] memory amountsOut = new uint256[](0);
+
+        vm.prank(agent);
+        vm.expectRevert(AMMRouter.SlippageExceeded.selector);
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+    }
+
+    /// @dev Attack scenario, sell direction: attacker dumps sTSLA into the
+    ///      pool (crashing its pool price) before the vault sells. The vault
+    ///      must revert instead of selling at the manipulated price.
+    function test_revert_rebalance_sell_manipulated_pool() public {
+        _depositAsAlice(50_000 * 10**6);
+        _rebalanceBuyTsla(10_000 * 10**6);
+
+        // Attacker front-runs: dumps 5M sTSLA into the pool.
+        sTSLA.mint(bob, 5_000_000 * 1e18);
+        vm.startPrank(bob);
+        sTSLA.approve(address(router), 5_000_000 * 1e18);
+        router.swap(address(sTSLA), address(usdc), 5_000_000 * 1e18, 0);
+        vm.stopPrank();
+
+        address[] memory tokensIn = new address[](0);
+        uint256[] memory amountsIn = new uint256[](0);
+        address[] memory tokensOut = new address[](1);
+        tokensOut[0] = address(sTSLA);
+        uint256[] memory amountsOut = new uint256[](1);
+        amountsOut[0] = 1_000 * 1e18;
+
+        vm.prank(agent);
+        vm.expectRevert(AMMRouter.SlippageExceeded.selector);
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+    }
+
+    /// @dev A swap on a token with no registered oracle is unprotected and
+    ///      must revert rather than fall back to minAmountOut = 0.
+    function test_revert_rebalance_without_oracle() public {
+        MockToken sNVDA = new MockToken("Synthetic NVDA", "sNVDA");
+        router.createPool(address(usdc), address(sNVDA));
+
+        uint256 poolUsdc = 1_000_000 * 10**6;
+        uint256 poolNvda = 1_000_000 * 1e18;
+        usdc.mint(address(this), poolUsdc);
+        sNVDA.mint(address(this), poolNvda);
+        usdc.approve(address(router), poolUsdc);
+        sNVDA.approve(address(router), poolNvda);
+        router.addLiquidity(address(usdc), address(sNVDA), poolUsdc, poolNvda, 0);
+
+        _depositAsAlice(50_000 * 10**6);
+
+        address[] memory tokensIn = new address[](1);
+        tokensIn[0] = address(sNVDA);
+        uint256[] memory amountsIn = new uint256[](1);
+        amountsIn[0] = 10_000 * 10**6;
+        address[] memory tokensOut = new address[](0);
+        uint256[] memory amountsOut = new uint256[](0);
+
+        vm.prank(agent);
+        vm.expectRevert(Vault.OracleNotSet.selector);
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+    }
+
+    /// @dev Withdrawal-driven liquidation (_liquidateToUsdc) succeeds against
+    ///      an oracle-aligned pool — the min-out floor doesn't block honest flow.
+    function test_withdraw_liquidation_with_min_out() public {
+        _depositAsAlice(50_000 * 10**6);
+        _rebalanceBuyTsla(40_000 * 10**6);
+
+        // Vault now holds ~10k USDC; withdrawing 30k forces a synth liquidation.
+        vm.prank(alice);
+        vault.withdraw(30_000 * 10**6, alice, alice);
+
+        assertGe(usdc.balanceOf(alice), 950_000 * 10**6 + 30_000 * 10**6 - 50_000 * 10**6);
+    }
+
+    /// @dev Withdrawal-driven liquidation against a manipulated pool must
+    ///      revert — rebalance/liquidation authority cannot be converted into
+    ///      a bad-price drain.
+    function test_revert_withdraw_liquidation_manipulated_pool() public {
+        _depositAsAlice(50_000 * 10**6);
+        _rebalanceBuyTsla(40_000 * 10**6);
+
+        // Attacker crashes the sTSLA pool price before the liquidation sell.
+        sTSLA.mint(bob, 5_000_000 * 1e18);
+        vm.startPrank(bob);
+        sTSLA.approve(address(router), 5_000_000 * 1e18);
+        router.swap(address(sTSLA), address(usdc), 5_000_000 * 1e18, 0);
+        vm.stopPrank();
+
+        vm.prank(alice);
+        vm.expectRevert(AMMRouter.SlippageExceeded.selector);
+        vault.withdraw(30_000 * 10**6, alice, alice);
+    }
+
+    /// @dev Stale oracle blocks swaps entirely (PriceOracle.getPrice reverts).
+    function test_revert_rebalance_stale_oracle() public {
+        _depositAsAlice(50_000 * 10**6);
+
+        vm.warp(block.timestamp + 25 hours);
+
+        address[] memory tokensIn = new address[](1);
+        tokensIn[0] = address(sTSLA);
+        uint256[] memory amountsIn = new uint256[](1);
+        amountsIn[0] = 10_000 * 10**6;
+        address[] memory tokensOut = new address[](0);
+        uint256[] memory amountsOut = new uint256[](0);
+
+        vm.prank(agent);
+        vm.expectRevert(PriceOracle.StalePrice.selector);
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
     }
 
     // ─── Target Allocations ──────────────────────────────────────────
