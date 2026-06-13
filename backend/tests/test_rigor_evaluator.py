@@ -721,6 +721,33 @@ class TestPassesAllBranches:
         )
         assert r.passes_all is True
 
+    # NaN-hardening: every IEEE-754 comparison against NaN is False, so a NaN
+    # metric (not None) used to skip its fail branch and let the gate continue
+    # toward PASS. Each numeric metric must now fail on a non-finite value.
+    def test_nan_dsr_p_value_fails(self):
+        r = RigorGateResult("s", dsr_p_value=float("nan"), pbo_score=0.2, oos_sharpe=1.0, look_ahead_passed=True)
+        assert r.passes_all is False
+
+    def test_nan_pbo_score_fails(self):
+        r = RigorGateResult("s", dsr_p_value=0.97, pbo_score=float("nan"), oos_sharpe=1.0, look_ahead_passed=True)
+        assert r.passes_all is False
+
+    def test_nan_oos_sharpe_fails(self):
+        r = RigorGateResult("s", dsr_p_value=0.97, pbo_score=0.2, oos_sharpe=float("nan"), look_ahead_passed=True)
+        assert r.passes_all is False
+
+    def test_nan_cpcv_positive_fraction_fails(self):
+        r = RigorGateResult(
+            "s",
+            dsr_p_value=0.97,
+            pbo_score=0.2,
+            oos_sharpe=1.0,
+            look_ahead_passed=True,
+            in_sample_sharpe=2.0,
+            cpcv_positive_fraction=float("nan"),
+        )
+        assert r.passes_all is False
+
 
 # ─── RigorGateResult.gate_details — every branch ─────────────────────
 

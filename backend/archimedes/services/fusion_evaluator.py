@@ -11,6 +11,7 @@ Orchestrates the full pipeline for fusion-generated strategies:
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -20,6 +21,7 @@ from archimedes.services.dsl_to_backtrader import interpret_spec, interpret_vari
 from archimedes.services.rigor_evaluator import (
     compute_average_pairwise_correlation,
     compute_dsr,
+    compute_in_sample_sharpe,
     compute_oos_sharpe,
     compute_pbo,
 )
@@ -67,6 +69,9 @@ class RigorVerdict:
     oos_sharpe: float | None
     look_ahead_clean: bool
     num_trials: int
+    # In-sample (training-slice) Sharpe, surfaced so the OOS/IS cliff that the
+    # gate enforces is visible on the passport, not just used internally.
+    in_sample_sharpe: float | None = None
     # Provenance carried through from the backtest. ``admissible`` is the
     # honest gate: a strategy can only be certified Tier-1 if it both passes
     # the statistics AND those statistics were computed on real market data.
@@ -424,6 +429,7 @@ def apply_rigor_gate(
     avg_correlation = compute_average_pairwise_correlation(variant_returns) if len(variant_returns) >= 2 else 0.0
     dsr, dsr_p = compute_dsr(daily_returns, effective_trials, avg_correlation)
     oos_sharpe = compute_oos_sharpe(daily_returns)
+    in_sample_sharpe = compute_in_sample_sharpe(daily_returns)
 
     # PBO: compute real CSCV PBO when >= 2 variant backtests are available.
     pbo_score: float | None = None
@@ -444,16 +450,29 @@ def apply_rigor_gate(
     # 0.5 (p ≈ 0.69) would pass here while the same strategy fails the API gate,
     # creating an inconsistency that could admit under-credentialed Tier-1 strategies
     # through the fusion path.
-    dsr_pass = dsr_p is not None and dsr_p >= 0.95
+    # NaN-harden every numeric comparison: a NaN metric makes `>=`/`<` False,
+    # which would silently skip a fail branch. Treat non-finite as fail.
+    dsr_pass = dsr_p is not None and math.isfinite(dsr_p) and dsr_p >= 0.95
 
     # Walk-forward OOS Sharpe is the fourth admission primitive (DSL look-ahead
-    # safety, DSR, PBO, walk-forward OOS). It was computed above but never
-    # enforced — the gate silently dropped it. Mirror the curated path's
-    # absolute floor (run_rigor_gate / RigorGateResult.passes_all): a strategy
-    # with a non-positive out-of-sample Sharpe cannot pass.
-    oos_pass = oos_sharpe is not None and oos_sharpe > 0.0
+    # safety, DSR, PBO, walk-forward OOS). Mirror the curated path's
+    # RigorGateResult.passes_all in full: an absolute floor (OOS > 0) AND the
+    # in-/out-of-sample cliff (OOS/IS >= 0.5). Before this, the fusion path
+    # enforced only the floor, so a strategy grossly overfit in-sample (e.g. IS
+    # Sharpe 5.0, OOS Sharpe +0.05) passed the fusion gate and was certified
+    # Tier-1 while the identical strategy failed the curated API gate.
+    oos_pass = oos_sharpe is not None and math.isfinite(oos_sharpe) and oos_sharpe > 0.0
+    if (
+        oos_pass
+        and in_sample_sharpe is not None
+        and math.isfinite(in_sample_sharpe)
+        and in_sample_sharpe > 0
+        and oos_sharpe / in_sample_sharpe < 0.5
+    ):
+        oos_pass = False
 
-    passing = dsr_pass and oos_pass and look_ahead_clean and (pbo_score is None or pbo_score < 0.5)
+    pbo_pass = pbo_score is None or (math.isfinite(pbo_score) and pbo_score < 0.5)
+    passing = dsr_pass and oos_pass and look_ahead_clean and pbo_pass
 
     # Provenance gate: a strategy is only admissible for Tier-1 if it passes
     # the statistics AND those statistics were computed on real market data.
@@ -473,6 +492,7 @@ def apply_rigor_gate(
         dsr_p_value=dsr_p,
         pbo_score=pbo_score,
         oos_sharpe=oos_sharpe,
+        in_sample_sharpe=in_sample_sharpe,
         look_ahead_clean=look_ahead_clean,
         num_trials=effective_trials,
         data_source=source,

@@ -340,6 +340,32 @@ def compute_oos_sharpe(
     return round(float(((oos.mean() - _RF_DAILY) / sigma) * math.sqrt(_ANNUALIZATION)), 6)
 
 
+def compute_in_sample_sharpe(
+    daily_returns: list[float],
+    train_fraction: float = 0.70,
+) -> float | None:
+    """Annualized Sharpe on the in-sample (training) slice.
+
+    The chronological complement of ``compute_oos_sharpe``: the first
+    ``train_fraction`` of bars. Uses the same excess-return convention
+    (rf=5%/252, sqrt(252) annualization) and the same length thresholds, so the
+    OOS/IS cliff ratio enforced in ``RigorGateResult.passes_all`` (and mirrored
+    by the fusion gate) compares like with like. Returns None when the series is
+    too short to split meaningfully (mirrors ``compute_oos_sharpe`` so the IS
+    Sharpe is available exactly when the OOS Sharpe is).
+    """
+    arr = np.asarray(daily_returns, dtype=float)
+    T = len(arr)
+    if T < 10:
+        return None
+    split = int(T * train_fraction)
+    is_arr = arr[:split]
+    if len(is_arr) < 21:  # 1 trading month minimum — mirrors compute_oos_sharpe's OOS floor
+        return None
+    s = _annualized_sharpe_arr(is_arr)
+    return round(s, 6) if s is not None else None
+
+
 def _annualized_sharpe_arr(arr: np.ndarray) -> float | None:
     """Annualized Sharpe of a 1-D return array, or None if degenerate."""
     if len(arr) < 2:
@@ -724,23 +750,35 @@ class RigorGateResult:
 
     @property
     def passes_all(self) -> bool:
-        if self.dsr_p_value is None:
+        # NaN-hardening: every IEEE-754 comparison against NaN is False, so a NaN
+        # metric (not None — None is guarded) would silently skip its fail branch
+        # and let an under-credentialed strategy pass. Treat any non-finite metric
+        # as an automatic fail. pbo_score is sourced from an external dict; oos/IS
+        # Sharpe can carry NaN if upstream returns contain NaN.
+        if self.dsr_p_value is None or not math.isfinite(self.dsr_p_value):
             return False
         if self.dsr_p_value < 0.95:
             return False
-        if self.pbo_score is None:
+        if self.pbo_score is None or not math.isfinite(self.pbo_score):
             return False
         if self.pbo_score >= 0.5:
             return False
-        if self.oos_sharpe is None:
+        if self.oos_sharpe is None or not math.isfinite(self.oos_sharpe):
             return False
         if self.oos_sharpe <= 0.0:  # absolute OOS floor: negative OOS cannot pass
             return False
-        if self.in_sample_sharpe and self.in_sample_sharpe > 0 and self.oos_sharpe / self.in_sample_sharpe < 0.5:
+        if (
+            self.in_sample_sharpe is not None
+            and math.isfinite(self.in_sample_sharpe)
+            and self.in_sample_sharpe > 0
+            and self.oos_sharpe / self.in_sample_sharpe < 0.5
+        ):
             return False
         # Combinatorial Purged CV: when computed, the edge must hold OOS across a
         # majority of held-out paths (not just the single 70/30 tail above).
-        if self.cpcv_positive_fraction is not None and self.cpcv_positive_fraction < 0.5:
+        if self.cpcv_positive_fraction is not None and (
+            not math.isfinite(self.cpcv_positive_fraction) or self.cpcv_positive_fraction < 0.5
+        ):
             return False
         return self.look_ahead_passed
 

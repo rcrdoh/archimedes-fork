@@ -441,6 +441,42 @@ class TestFusionGateEnforcesOosSharpe:
         assert verdict.passing is True
 
 
+class TestFusionGateEnforcesIsOosCliff:
+    """Regression for the audit finding that the fusion gate enforced only the
+    absolute OOS floor (OOS > 0) and omitted the in-/out-of-sample cliff
+    (OOS/IS >= 0.5) that the curated RigorGateResult.passes_all enforces. An
+    overfit strategy with a huge in-sample Sharpe but a collapsed (yet still
+    positive) OOS Sharpe used to pass the fusion gate while failing the curated
+    one."""
+
+    @staticmethod
+    def _overfit_curve() -> list[float]:
+        # IS slice (first 70% = 560 bars): very strong, low-vol uptrend → huge IS
+        # Sharpe and a high full-sample DSR. OOS slice (last 30% = 240 bars):
+        # weakly positive, higher relative vol → OOS Sharpe > 0 (clears the floor)
+        # but OOS/IS << 0.5 (fails the cliff).
+        curve = [100_000.0]
+        for i in range(560):
+            curve.append(curve[-1] * (1.010 if i % 2 == 0 else 1.006))  # IS: ~+0.8%/bar
+        for i in range(240):
+            curve.append(curve[-1] * (1.004 if i % 2 == 0 else 0.998))  # OOS: weakly +, noisy
+        return curve
+
+    def test_overfit_is_high_oos_collapsed_fails_on_cliff(self):
+        verdict = apply_rigor_gate(_metrics_from_curve(self._overfit_curve()))
+        # Test-setup invariants: DSR passes, OOS clears the absolute floor, and IS
+        # Sharpe is strongly positive — so ONLY the cliff can be the deciding gate.
+        assert verdict.dsr_p_value is not None and verdict.dsr_p_value >= 0.95, "setup: DSR should pass"
+        assert verdict.oos_sharpe is not None and verdict.oos_sharpe > 0.0, "setup: OOS must clear the floor"
+        assert verdict.in_sample_sharpe is not None and verdict.in_sample_sharpe > 0.0, "setup: IS Sharpe positive"
+        assert verdict.oos_sharpe / verdict.in_sample_sharpe < 0.5, "setup: ratio must trip the cliff"
+        assert verdict.passing is False, "cliff must reject an overfit strategy with a collapsed OOS Sharpe"
+
+    def test_in_sample_sharpe_surfaced_on_verdict(self):
+        verdict = apply_rigor_gate(_metrics_from_curve(self._overfit_curve()))
+        assert verdict.in_sample_sharpe is not None
+
+
 class TestFusionGateUsesRealTrialCount:
     """Regression for the audit finding that num_trials was hardcoded to 10
     regardless of the actual variant-selection set size."""
