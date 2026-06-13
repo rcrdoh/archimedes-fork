@@ -189,6 +189,14 @@ def run_dsl_backtest(
         for i in range(1, len(equity_curve))
         if equity_curve[i - 1] > 0
     ]
+    # rf-convention (deliberate split — do NOT "reconcile" to one rate):
+    #   DISPLAY (here) = raw Sharpe/Sortino with rf=0. This is the passport
+    #   headline and matches how backtrader's analyzer / practitioners quote it.
+    #   GATE = rigor_evaluator._RF_ANNUAL = 0.05: the DSR deflates an *excess*-
+    #   return Sharpe because Bailey-LdP (2014) is defined on excess returns.
+    # The two answer different questions (headline performance vs. selection-bias-
+    # corrected significance); forcing a single rf would corrupt one of them.
+    # See rigor_evaluator.py for the gate side. (audit 2026-06-13, MEDIUM #8)
     sharpe = _annualized_sharpe(daily_returns, rf_annual=0.0)
     sortino = _annualized_sortino(daily_returns, rf_annual=0.0)
     max_dd = _max_drawdown(equity_curve)
@@ -327,6 +335,14 @@ def _run_variant_backtest(
         for i in range(1, len(equity_curve))
         if equity_curve[i - 1] > 0
     ]
+    # rf-convention (deliberate split — do NOT "reconcile" to one rate):
+    #   DISPLAY (here) = raw Sharpe/Sortino with rf=0. This is the passport
+    #   headline and matches how backtrader's analyzer / practitioners quote it.
+    #   GATE = rigor_evaluator._RF_ANNUAL = 0.05: the DSR deflates an *excess*-
+    #   return Sharpe because Bailey-LdP (2014) is defined on excess returns.
+    # The two answer different questions (headline performance vs. selection-bias-
+    # corrected significance); forcing a single rf would corrupt one of them.
+    # See rigor_evaluator.py for the gate side. (audit 2026-06-13, MEDIUM #8)
     sharpe = _annualized_sharpe(daily_returns, rf_annual=0.0)
     sortino = _annualized_sortino(daily_returns, rf_annual=0.0)
     max_dd = _max_drawdown(equity_curve)

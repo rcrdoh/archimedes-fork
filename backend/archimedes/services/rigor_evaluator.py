@@ -36,6 +36,11 @@ logger = logging.getLogger(__name__)
 
 _EULER_MASCHERONI = 0.5772156649
 _ANNUALIZATION = 252
+# GATE-side rf convention: the DSR deflates an EXCESS-return Sharpe, because
+# Bailey-LdP (2014) is defined on excess returns. This deliberately differs from
+# the passport DISPLAY Sharpe, which uses rf=0 (raw) — see fusion_evaluator.py's
+# rf_annual=0.0 call sites. The split is intentional (gate=excess, display=raw),
+# not drift; the two metrics answer different questions. (audit 2026-06-13 #8)
 _RF_ANNUAL = 0.05  # 5% annual risk-free rate (Fed funds 2024-2025 environment)
 _RF_DAILY = _RF_ANNUAL / _ANNUALIZATION
 
