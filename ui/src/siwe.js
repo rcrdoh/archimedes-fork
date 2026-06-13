@@ -10,6 +10,9 @@
  */
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
+// Must match the backend's ARC_CHAIN_ID (auth_siwe.py `_EXPECTED_CHAIN_ID`).
+// Configurable so a chain change is a single env flip, not a silent auth break.
+const CHAIN_ID = import.meta.env.VITE_ARC_CHAIN_ID ?? '5042002'
 
 /**
  * Perform SIWE authentication: request nonce, sign message, verify.
@@ -33,7 +36,7 @@ export async function authenticateWithSIWE(walletClient, address) {
     '',
     `URI: https://${domain}`,
     `Version: 1`,
-    `Chain ID: 5042002`,
+    `Chain ID: ${CHAIN_ID}`,
     `Nonce: ${nonce}`,
     `Issued At: ${new Date(issued_at * 1000).toISOString()}`,
   ].join('\n')
