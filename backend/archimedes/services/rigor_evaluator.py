@@ -734,6 +734,10 @@ class RigorGateResult:
             details["dsr"] = f"FAIL (p={self.dsr_p_value:.4f}, need ≥ 0.95)"
         else:
             details["dsr"] = "MISSING"
+        # Disclose the Sharpe convention behind the DSR (#547). The backend gate
+        # computes excess-return Sharpe; served library fixtures carry their own
+        # per-entry "dsr_convention" ("raw" for frozen legacy, "excess" for new).
+        details["dsr_convention"] = "excess"
 
         if self.pbo_score is not None and self.pbo_score < 0.5:
             details["pbo"] = f"PASS (PBO={self.pbo_score:.4f})"

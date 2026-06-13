@@ -21,8 +21,10 @@ import numpy as np
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from archimedes_analytics_engine.data import fetch_ohlcv
-from archimedes_analytics_engine.engine import BuyAndHoldStrategy, run_backtest
+# NOTE: the heavy data/engine imports (yfinance, backtrader) are deliberately
+# deferred into main() so this module can be imported for its numpy-only DSR
+# math alone — see backend/tests/test_dsr_parity.py, which imports compute_dsr
+# from here and must not drag backtrader/yfinance into the backend venv.
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BACKTEST_START = "2004-01-02"
@@ -32,6 +34,12 @@ TX_COST_BPS = 10
 _FIXTURE_PATH = ROOT / "strategies" / "backtest_fixtures.json"
 _EULER = 0.5772156649
 _ANN = 252
+# Risk-free rate for the excess-return Sharpe convention (#547). MUST stay
+# identical to backend/archimedes/services/rigor_evaluator.py (_RF_ANNUAL /
+# _RF_DAILY) — test_dsr_parity.py asserts the two compute_dsr paths agree, so a
+# drift here is caught in CI rather than silently re-opening the gap #547 closed.
+_RF_ANNUAL = 0.05
+_RF_DAILY = _RF_ANNUAL / _ANN
 
 
 # ── Pure-numpy normal CDF (Zelen & Severo rational approximation) ─────────────
@@ -119,7 +127,11 @@ def compute_dsr(
     if sigma <= 0:
         return None, None
 
-    sr_hat = float(arr.mean()) / sigma
+    # Excess-return Sharpe (#547): subtract the daily risk-free rate, matching the
+    # backend rigor gate (rigor_evaluator.compute_dsr). Prior to #547 this path used
+    # a raw mean/sigma Sharpe, which was systematically more lenient and could flip
+    # gate outcomes vs the backend path that already subtracted rf.
+    sr_hat = (float(arr.mean()) - _RF_DAILY) / sigma
     g3 = _skew(arr)
     g4 = _raw_kurtosis(arr)  # Pearson raw kurtosis; DSR formula uses (γ₄−1)/4
     trials = max(1, num_trials)
@@ -222,6 +234,11 @@ def _compute_passes_rigor_gate(
 
 
 def main(write: bool = False) -> None:
+    # Deferred so the module is importable for its numpy-only DSR math without
+    # pulling in backtrader/yfinance (see the note at the top of this file).
+    from archimedes_analytics_engine.data import fetch_ohlcv
+    from archimedes_analytics_engine.engine import BuyAndHoldStrategy, run_backtest
+
     try:
         fixtures = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError) as exc:
@@ -287,6 +304,9 @@ def main(write: bool = False) -> None:
         "paper_claimed_max_dd": None,
         "deflated_sharpe_ratio": dsr,
         "dsr_p_value": dsr_p,
+        # Sharpe convention used for the DSR above. "excess" subtracts the daily
+        # risk-free rate (#547); legacy frozen entries are tagged "raw".
+        "dsr_convention": "excess",
         "num_trials_in_selection": num_trials,
         # PBO requires all strategies' daily returns simultaneously; carry forward.
         "pbo_score": existing.get("pbo_score"),

@@ -801,10 +801,11 @@ class TestGateDetailsBranches:
         assert r.gate_details["look_ahead"] == "FAIL"
 
     def test_gate_details_returns_all_four_keys(self):
-        """gate_details must always contain all four gate keys."""
+        """gate_details must always contain the four gate keys + the DSR convention disclosure (#547)."""
         r = RigorGateResult("s")
         keys = set(r.gate_details.keys())
-        assert keys == {"dsr", "pbo", "oos_sharpe", "look_ahead", "cpcv"}
+        assert keys == {"dsr", "dsr_convention", "pbo", "oos_sharpe", "look_ahead", "cpcv"}
+        assert r.gate_details["dsr_convention"] == "excess"
 
 
 # ─── run_rigor_gate — all branches in lines 509-555 ──────────────────
@@ -888,9 +889,9 @@ class TestRunRigorGatePaths:
         assert isinstance(result, RigorGateResult)
 
     def test_gate_details_populated_by_run_rigor_gate(self):
-        """gate_details on the returned result must have all four keys."""
+        """gate_details on the returned result must have the four gate keys + DSR convention (#547)."""
         result = run_rigor_gate("s", _RETURNS_80)
-        assert set(result.gate_details.keys()) == {"dsr", "pbo", "oos_sharpe", "look_ahead", "cpcv"}
+        assert set(result.gate_details.keys()) == {"dsr", "dsr_convention", "pbo", "oos_sharpe", "look_ahead", "cpcv"}
 
     def test_num_trials_stored_on_result(self):
         """num_trials argument must be stored on the result."""

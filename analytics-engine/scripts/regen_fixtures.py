@@ -237,6 +237,9 @@ def _build_entry(result, *, metadata: dict, num_trials: int, corr_spy: float | N
         "paper_claimed_max_dd": metadata.get("paper_claimed_max_dd"),
         "deflated_sharpe_ratio": dsr,
         "dsr_p_value": dsr_p,
+        # Sharpe convention used for the DSR above. "excess" subtracts the daily
+        # risk-free rate (#547); legacy frozen entries are tagged "raw".
+        "dsr_convention": "excess",
         "num_trials_in_selection": num_trials,
         "pbo_score": None,  # filled in after cohort PBO is computed
         "passes_rigor_gate": _compute_passes_rigor_gate(
