@@ -72,7 +72,7 @@ backend/archimedes/
 - **`generate_schemas.py`** *(NEW Day-11)* — request/response shapes for the streaming generation surface. **Gap:** none.
 - **`explore_routes.py`** *(NEW Day-11)* — Explore page backend (`/api/explore/assets`, `/api/explore/assets/{symbol}/history`). Reads from yfinance via `asset_market_service.py`, not the on-chain oracle (oracle has no history). **Gap:** none.
 - **`explore_schemas.py`** *(NEW Day-11)* — Explore response shapes. **Gap:** none.
-- **`corpus_routes.py`** *(NEW Day-11)* — corpus graph + KG endpoints (`/api/papers/corpus/graph`, `/api/papers/corpus/kg`), moved out of `routes.py` per the cross-cutting "dedicated router" discipline. **Gap:** none.
+- **`corpus_routes.py`** *(NEW Day-11)* — corpus graph + KG endpoints (`/api/corpus/graph`, `/api/corpus/kg/entities`, `/api/corpus/kg/entity/{id}`, `/api/corpus/kg/paper/{id}`), moved out of `routes.py` per the cross-cutting "dedicated router" discipline. These read real KB-pipeline output and return 503 until the first artifact lands; the legacy `/api/papers/corpus/*` endpoints were deleted (issue #201) and must not be reintroduced. **Gap:** none.
 
 ---
 
