@@ -101,7 +101,10 @@ async def create_vault(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Vault deployment failed: {exc}") from exc
+        # Don't leak the raw exception string to the client (DB/chain internals);
+        # log the full detail server-side and return a generic message.
+        logger.exception("Vault deployment failed")
+        raise HTTPException(status_code=500, detail="Vault deployment failed") from exc
 
     return VaultCreateResponse(vault_address=vault_address, strategy_ids=req.strategy_ids)
 
@@ -179,7 +182,9 @@ async def store_vault_metadata(
         raise
     except Exception as exc:
         session.rollback()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        # Generic message to the client; full detail logged server-side only.
+        logger.exception("Vault metadata update failed")
+        raise HTTPException(status_code=500, detail="Vault metadata update failed") from exc
     finally:
         session.close()
 

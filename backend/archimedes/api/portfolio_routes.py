@@ -9,10 +9,13 @@ selector POSTs here).
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 portfolio_router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -232,9 +235,12 @@ async def parameter_sweep(req: ParameterSweepRequest) -> dict:
             n_workers=2,
         )
     except ValueError as exc:
+        # ValueError carries intentional, user-facing validation feedback.
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Sensitivity sweep failed: {exc}") from exc
+        # Unexpected failure — log full detail server-side, return generic message.
+        logger.exception("Sensitivity sweep failed")
+        raise HTTPException(status_code=503, detail="Sensitivity sweep failed") from exc
 
     rows = sorted({int(v) for v in req.param1_range})
     cols = sorted({int(v) for v in req.param2_range})

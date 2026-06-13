@@ -68,6 +68,7 @@ data/corpus/text/
 # the backend run outside docker-compose). Never commit it: an out-of-container
 # run with live per-vault chat would otherwise leak local data into the repo.
 archimedes_chat.db
+*.db
 *.sqlite
 *.sqlite3
 
