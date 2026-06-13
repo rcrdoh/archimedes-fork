@@ -110,6 +110,8 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     // ─── Events (Vault-local) ────────────────────────────────────────
 
     event MaxSlippageBpsSet(uint256 oldBps, uint256 newBps);
+    event AgentSet(address indexed oldAgent, address indexed newAgent);
+    event PlatformFeeRecipientSet(address indexed oldRecipient, address indexed newRecipient);
 
     // ─── Constructor ─────────────────────────────────────────────────
 
@@ -423,10 +425,12 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     // ─── Admin ───────────────────────────────────────────────────────
 
     function setAgent(address _agent) external onlyOwner {
+        emit AgentSet(agent, _agent);
         agent = _agent;
     }
 
     function setPlatformFeeRecipient(address _recipient) external onlyOwner {
+        emit PlatformFeeRecipientSet(platformFeeRecipient, _recipient);
         platformFeeRecipient = _recipient;
     }
 

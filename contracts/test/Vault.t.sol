@@ -494,6 +494,23 @@ contract VaultTest is Test {
         vault.setMaxSlippageBps(50);
     }
 
+    function test_setAgent_emits_event() public {
+        // `agent` state starts unset (address(0)); creator (agent addr) is the owner.
+        vm.expectEmit(true, true, false, false, address(vault));
+        emit Vault.AgentSet(address(0), bob);
+        vm.prank(agent);
+        vault.setAgent(bob);
+        assertEq(vault.agent(), bob);
+    }
+
+    function test_setPlatformFeeRecipient_emits_event() public {
+        vm.expectEmit(true, true, false, false, address(vault));
+        emit Vault.PlatformFeeRecipientSet(platformRecipient, bob);
+        vm.prank(agent);
+        vault.setPlatformFeeRecipient(bob);
+        assertEq(vault.platformFeeRecipient(), bob);
+    }
+
     /// @dev Decimal scaling, buy direction: USDC(6) in -> synth(18) out.
     ///      10,000 USDC at 2 USDC/sTSLA → fair output 5,000e18; the floor at
     ///      1% tolerance is 4,950e18. The aligned pool fills at ~4,983e18
