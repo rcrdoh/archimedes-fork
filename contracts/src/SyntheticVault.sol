@@ -83,14 +83,53 @@ contract SyntheticVault is Ownable, ReentrancyGuard {
     }
 
     /// @notice Burn synth tokens and receive USDC back.
+    ///
+    /// @dev SOLVENCY MECHANISM — pro-rata redemption under stress (audit 2026-06-10
+    ///      finding #14, issue #509).
+    ///
+    ///      Mint collateralizes against the *mint-time* price (a user deposits
+    ///      `collateralRatio` (120%) of the mint-price value of the synth issued), but
+    ///      burn pays the *current-price* value. If the asset appreciates more than the
+    ///      collateral buffer (>20% at the default ratio), total redemption liability
+    ///      exceeds vault collateral. Pre-fix behavior was first-come-first-served:
+    ///      early redeemers extracted full current-price value and late redeemers
+    ///      reverted with `InsufficientCollateral` against an empty vault.
+    ///
+    ///      Design decision — option (b) pro-rata haircut, NOT option (a) raising the
+    ///      collateral ratio:
+    ///      * No finite ratio fixes the mechanism: because collateral is keyed to the
+    ///        mint-time price, raising 120% → 150% only moves the insolvency cliff from
+    ///        +20% to +50% appreciation; beyond it the FCFS drain is unchanged. (a) also
+    ///        worsens capital efficiency for every healthy-state user.
+    ///      * Pro-rata is order-independent in this exact code shape. When available
+    ///        collateral C < total liability L (= totalSupply × price), each redemption
+    ///        is scaled by C/L, i.e. a redeemer burning s of supply S receives gross
+    ///        s·C/S. Collateral then falls to C·(1 − s/S) and supply to S − s, so the
+    ///        per-synth payout C/S is invariant across sequential redemptions: early
+    ///        redeemers cannot extract more than their pro-rata share, and the last
+    ///        redeemer is paid the same rate instead of reverting. Integer division
+    ///        rounds the haircut payout down, so dust errs in the vault's favor.
+    ///      * When the vault is healthy (C ≥ L) the scale factor is 1 and behavior is
+    ///        identical to the pre-fix path: full current-price value, minus burn fee.
     function burn(uint256 synthAmount) external nonReentrant returns (uint256) {
         if (synthAmount == 0) revert ZeroAmount();
 
         uint256 assetPrice = oracle.getPrice();
         uint256 usdcValue = (synthAmount * assetPrice) / (10 ** SYNTH_DECIMALS);
+
+        // Pro-rata solvency cap: under stress, scale the claim by C/L so redemption
+        // order cannot redistribute value between holders (see @dev above).
+        uint256 available = usdc.balanceOf(address(this)) - protocolFees;
+        uint256 totalLiability = (synthToken.totalSupply() * assetPrice) / (10 ** SYNTH_DECIMALS);
+        if (totalLiability > available) {
+            usdcValue = (usdcValue * available) / totalLiability;
+        }
+
         uint256 fee = (usdcValue * burnFeeBps) / BPS;
         uint256 usdcOut = usdcValue - fee;
 
+        // Defense-in-depth only: with the pro-rata cap above, usdcOut <= available
+        // always holds (s <= S implies s·C/S <= C), so this cannot revert in practice.
         if (usdc.balanceOf(address(this)) < usdcOut + protocolFees) {
             revert InsufficientCollateral();
         }
@@ -115,6 +154,14 @@ contract SyntheticVault is Ownable, ReentrancyGuard {
     function previewBurn(uint256 synthAmount) external view returns (uint256) {
         uint256 assetPrice = oracle.getPrice();
         uint256 usdcValue = (synthAmount * assetPrice) / (10 ** SYNTH_DECIMALS);
+
+        // Mirror burn()'s pro-rata solvency cap so preview == actual under stress.
+        uint256 available = usdc.balanceOf(address(this)) - protocolFees;
+        uint256 totalLiability = (synthToken.totalSupply() * assetPrice) / (10 ** SYNTH_DECIMALS);
+        if (totalLiability > available) {
+            usdcValue = (usdcValue * available) / totalLiability;
+        }
+
         uint256 fee = (usdcValue * burnFeeBps) / BPS;
         return usdcValue - fee;
     }
