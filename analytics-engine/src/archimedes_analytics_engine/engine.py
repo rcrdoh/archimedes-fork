@@ -108,9 +108,13 @@ class BuyAndHoldStrategy(bt.Strategy):
 
     def next(self) -> None:
         if not self.position:
-            size = int(self.broker.getcash() / self.data.close[0])
-            if size > 0:
-                self.buy(size=size)
+            if self.data.close[0] <= 0:
+                return
+            # Target ~100% of equity rather than int(cash / price): the latter
+            # floors share count and strands up to (price - ε) of capital per
+            # trade, biasing this passive benchmark's return downward (and so
+            # flattering every active strategy measured against it).
+            self.order_target_percent(data=self.data, target=1.0)
 
 
 def _safe_get(d: Any, *keys: str, default: Any = None) -> Any:

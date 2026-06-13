@@ -23,6 +23,7 @@ from __future__ import annotations
 import ast
 import logging
 import math
+import warnings
 from itertools import combinations
 from typing import Any
 
@@ -227,7 +228,21 @@ def compute_pbo(
     sorted_ids = sorted(returns_matrix.keys())
     N = len(sorted_ids)
 
-    T = min(len(v) for v in returns_matrix.values())
+    lengths = {sid: len(returns_matrix[sid]) for sid in sorted_ids}
+    T = min(lengths.values())
+    T_max = max(lengths.values())
+    if T_max != T:
+        # Mirror of analytics-engine pbo.py: truncating to the shortest series
+        # silently drops the most recent (most forward-looking) OOS bars from
+        # longer series. Surface it so the caller date-aligns rather than
+        # getting an optimistic PBO from misaligned data.
+        discarded = {sid: lengths[sid] - T for sid in sorted_ids if lengths[sid] > T}
+        warnings.warn(
+            f"compute_pbo: series length mismatch (min={T}, max={T_max}); "
+            f"trailing bars discarded per id: {discarded}. Pass date-aligned "
+            f"series to suppress this warning.",
+            stacklevel=2,
+        )
 
     # Build (T, N) matrix, columns in sorted_ids order
     R = np.array([returns_matrix[sid][:T] for sid in sorted_ids], dtype=float).T  # shape (T, N)

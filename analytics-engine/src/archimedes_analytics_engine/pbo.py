@@ -18,6 +18,7 @@ identically.
 from __future__ import annotations
 
 import math
+import warnings
 from itertools import combinations
 
 import numpy as np
@@ -58,7 +59,21 @@ def compute_pbo(returns_matrix: dict[str, list[float]], s_partitions: int = 16) 
 
     sorted_ids = sorted(returns_matrix.keys())
     N = len(sorted_ids)
-    T = min(len(v) for v in returns_matrix.values())
+    lengths = {sid: len(returns_matrix[sid]) for sid in sorted_ids}
+    T = min(lengths.values())
+    T_max = max(lengths.values())
+    if T_max != T:
+        # Truncating to the shortest series silently drops the most recent
+        # (most forward-looking) OOS bars from longer series — exactly the bars
+        # that matter most for detecting overfitting. Surface it so the caller
+        # date-aligns rather than getting an optimistic PBO from misaligned data.
+        discarded = {sid: lengths[sid] - T for sid in sorted_ids if lengths[sid] > T}
+        warnings.warn(
+            f"compute_pbo: series length mismatch (min={T}, max={T_max}); "
+            f"trailing bars discarded per id: {discarded}. Pass date-aligned "
+            f"series to suppress this warning.",
+            stacklevel=2,
+        )
     R = np.array([returns_matrix[sid][:T] for sid in sorted_ids], dtype=float).T  # (T, N)
 
     S = s_partitions if (s_partitions % 2 == 0 and s_partitions >= 2) else 16
