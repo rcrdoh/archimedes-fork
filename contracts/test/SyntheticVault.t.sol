@@ -79,15 +79,96 @@ contract SyntheticVaultTest is Test {
     }
 
     function test_revert_stale_price() public {
-        vm.warp(block.timestamp + 2 hours); // past MAX_STALENESS
+        vm.warp(block.timestamp + 25 hours); // past MAX_STALENESS (24 hours)
         vm.expectRevert();
         oracle.getPrice();
     }
 
     function test_isFresh() public {
         assertTrue(oracle.isFresh());
-        vm.warp(block.timestamp + 2 hours);
+        vm.warp(block.timestamp + 25 hours); // past MAX_STALENESS (24 hours)
         assertFalse(oracle.isFresh());
+    }
+
+    function test_revert_setPrice_zero() public {
+        vm.prank(owner);
+        vm.expectRevert(PriceOracle.ZeroPrice.selector);
+        oracle.setPrice(0);
+    }
+
+    function test_revert_setPrice_deviation_too_large() public {
+        // +25% jump vs prior price — beyond the 20% (2000 bps) default bound
+        uint256 jumped = (INITIAL_PRICE * 125) / 100;
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(PriceOracle.PriceDeviationTooLarge.selector, INITIAL_PRICE, jumped, 2000)
+        );
+        oracle.setPrice(jumped);
+    }
+
+    function test_revert_setPrice_deviation_too_large_downward() public {
+        // -25% drop is equally out of bounds
+        uint256 dropped = (INITIAL_PRICE * 75) / 100;
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(PriceOracle.PriceDeviationTooLarge.selector, INITIAL_PRICE, dropped, 2000)
+        );
+        oracle.setPrice(dropped);
+    }
+
+    function test_setPrice_within_deviation_bound() public {
+        // +19% stays inside the 20% default bound
+        uint256 within = (INITIAL_PRICE * 119) / 100;
+        vm.prank(owner);
+        oracle.setPrice(within);
+        assertEq(oracle.price(), within);
+    }
+
+    function test_forceSetPrice_bypasses_deviation_bound() public {
+        // Owner escape hatch for a legitimately gapped market: +50% accepted
+        uint256 gapped = (INITIAL_PRICE * 150) / 100;
+        vm.prank(owner);
+        oracle.forceSetPrice(gapped);
+        assertEq(oracle.price(), gapped);
+    }
+
+    function test_revert_forceSetPrice_zero() public {
+        vm.prank(owner);
+        vm.expectRevert(PriceOracle.ZeroPrice.selector);
+        oracle.forceSetPrice(0);
+    }
+
+    function test_revert_forceSetPrice_non_owner() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        oracle.forceSetPrice(INITIAL_PRICE);
+    }
+
+    function test_setMaxDeviationBps() public {
+        vm.prank(owner);
+        oracle.setMaxDeviationBps(5000);
+        assertEq(oracle.maxDeviationBps(), 5000);
+
+        // A +40% move now passes under the widened 50% bound
+        uint256 jumped = (INITIAL_PRICE * 140) / 100;
+        vm.prank(owner);
+        oracle.setPrice(jumped);
+        assertEq(oracle.price(), jumped);
+    }
+
+    function test_revert_setMaxDeviationBps_invalid_bounds() public {
+        vm.startPrank(owner);
+        vm.expectRevert(PriceOracle.InvalidDeviationBound.selector);
+        oracle.setMaxDeviationBps(0);
+        vm.expectRevert(PriceOracle.InvalidDeviationBound.selector);
+        oracle.setMaxDeviationBps(10_001);
+        vm.stopPrank();
+    }
+
+    function test_revert_setMaxDeviationBps_non_owner() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        oracle.setMaxDeviationBps(5000);
     }
 
     // ─── Mint Tests ───────────────────────────────────────────────
