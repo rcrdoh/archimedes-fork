@@ -5,9 +5,12 @@ Endpoints:
   POST   /api/vaults/{address}/chat       — post a message
   GET    /api/vaults/{address}/chat/count  — message count
 
-Design (per ecosystem-design-spec.md § 16–17):
+Design (per ecosystem-design-spec.md § 16–17, identity hardened per issue #524):
   - Fully open: any connected wallet can read/write
-  - Wallet address = identity
+  - Wallet address = identity. With a SIWE session the identity comes from the
+    session and the message is stored `verified=True`; a mismatched body wallet
+    is rejected with 403. Without a session, posts are accepted but explicitly
+    marked `verified=False` — attribution is never silently trusted.
   - AI auto-responds to @archimedes mentions
 """
 
@@ -19,6 +22,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from archimedes.api.auth_guard import require_internal_agent_key
+from archimedes.api.auth_siwe import get_verified_wallet
 from archimedes.api.limiter import limiter
 from archimedes.api.schemas import (
     ChatMessageListResponse,
@@ -56,6 +60,7 @@ async def get_chat_messages(
                 wallet_address=m["wallet_address"],
                 message=m["message"],
                 is_ai=m["is_ai"],
+                verified=m.get("verified", False),
                 created_at=m["created_at"],
             )
             for m in messages
@@ -72,14 +77,35 @@ async def post_chat_message(
     body: ChatPostRequest,
     request: Request,  # noqa: ARG001 — slowapi @limiter.limit inspects param name
     response: Response,  # noqa: ARG001
+    session_wallet: str | None = Depends(get_verified_wallet),
 ):
-    """Post a message to a vault's chat. Triggers AI response if @archimedes is mentioned."""
+    """Post a message to a vault's chat. Triggers AI response if @archimedes is mentioned.
+
+    Identity binding (#524): with a SIWE session, the message is attributed to
+    the session wallet and stored verified; a body wallet that contradicts the
+    session is rejected with 403. Without a session, the body wallet is
+    accepted but the message is explicitly marked unverified.
+    """
     if not body.message or not body.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
-    if not body.wallet_address or not _WALLET_RE.match(body.wallet_address):
-        raise HTTPException(status_code=422, detail="wallet_address must match ^0x[a-fA-F0-9]{40}$")
     if len(body.message) > 2000:
         raise HTTPException(status_code=400, detail="Message too long (max 2000 chars)")
+
+    if session_wallet is not None:
+        # SIWE-verified caller — session is the identity, not the body.
+        if body.wallet_address and body.wallet_address.lower() != session_wallet:
+            raise HTTPException(
+                status_code=403,
+                detail="wallet_address does not match the authenticated SIWE session",
+            )
+        wallet_address = session_wallet
+        verified = True
+    else:
+        # No session — open chat stays open, but attribution is unverified.
+        if not body.wallet_address or not _WALLET_RE.match(body.wallet_address):
+            raise HTTPException(status_code=422, detail="wallet_address must match ^0x[a-fA-F0-9]{40}$")
+        wallet_address = body.wallet_address
+        verified = False
 
     # post_message is fully synchronous and, when @archimedes is mentioned, makes
     # a blocking Anthropic call plus sync DB writes. Calling it directly inside
@@ -88,8 +114,9 @@ async def post_chat_message(
     result = await asyncio.to_thread(
         chat_service.post_message,
         vault_address=address,
-        wallet_address=body.wallet_address,
+        wallet_address=wallet_address,
         message=body.message.strip(),
+        verified=verified,
     )
 
     ai_response = None
@@ -101,6 +128,7 @@ async def post_chat_message(
             wallet_address=ai_data["wallet_address"],
             message=ai_data["message"],
             is_ai=ai_data["is_ai"],
+            verified=ai_data.get("verified", False),
             created_at=ai_data["created_at"],
         )
 
@@ -111,6 +139,7 @@ async def post_chat_message(
             wallet_address=result["wallet_address"],
             message=result["message"],
             is_ai=result["is_ai"],
+            verified=result.get("verified", False),
             created_at=result["created_at"],
         ),
         ai_response=ai_response,

@@ -70,8 +70,13 @@ class ChatService:
         vault_address: str,
         wallet_address: str,
         message: str,
+        verified: bool = False,
     ) -> dict:
-        """Post a user message and optionally trigger an AI response."""
+        """Post a user message and optionally trigger an AI response.
+
+        `verified` is True only when the caller proved wallet ownership via a
+        SIWE session (#524); body-supplied identities stay False.
+        """
         session = get_session()
         try:
             msg = ChatMessage(
@@ -79,6 +84,7 @@ class ChatService:
                 wallet_address=wallet_address.lower(),
                 message=message,
                 is_ai=False,
+                verified=verified,
                 created_at=datetime.now(UTC),
             )
             session.add(msg)
@@ -114,6 +120,7 @@ class ChatService:
                 wallet_address=AI_WALLET_ADDRESS,
                 message=message,
                 is_ai=True,
+                verified=True,  # backend-authored — identity is the configured agent wallet
                 created_at=datetime.now(UTC),
             )
             session.add(msg)

@@ -75,6 +75,10 @@ class ChatMessage(Base):
     wallet_address: Mapped[str] = mapped_column(String(42), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     is_ai: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # True when the wallet identity was proven by a SIWE session at post time
+    # (issue #524). Default False keeps pre-existing rows honest: they were
+    # body-supplied and never verified.
+    verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -91,5 +95,6 @@ class ChatMessage(Base):
             "wallet_address": self.wallet_address,
             "message": self.message,
             "is_ai": self.is_ai,
+            "verified": self.verified,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
