@@ -148,10 +148,14 @@ async def get_portfolio_risk():
         corr = bt.correlation_to_spy if bt else None
 
         # Derive annualized volatility: σ ≈ |CAGR| / Sharpe
-        # (rough approximation from Sharpe = (r - rf) / σ, assuming rf ≈ 0)
+        # (rough approximation from Sharpe = (r - rf) / σ, assuming rf ≈ 0).
+        # Floor the Sharpe denominator: a sub-normal-but-positive value (e.g.
+        # 1e-300) passes `> 0` yet yields a non-finite ratio that serializes to
+        # `null` and breaks the UI. Drop any non-finite result.
         volatility = None
-        if sharpe and sharpe > 0 and cagr is not None:
-            volatility = abs(cagr) / sharpe
+        if sharpe is not None and cagr is not None and sharpe > 1e-4:
+            raw_vol = abs(cagr) / sharpe
+            volatility = raw_vol if math.isfinite(raw_vol) else None
 
         if sharpe is not None:
             sharpe_vals.append(sharpe)
@@ -364,8 +368,10 @@ async def get_portfolio_greeks():
         cagr = bt.cagr if bt else None
 
         implied_vol = _FALLBACK_VOL
-        if sharpe is not None and sharpe > 0 and cagr is not None:
-            implied_vol = abs(cagr) / sharpe
+        if sharpe is not None and cagr is not None and sharpe > 1e-4:
+            raw_vol = abs(cagr) / sharpe
+            if math.isfinite(raw_vol) and raw_vol > 0:
+                implied_vol = raw_vol
 
         g = _bs_atm_greeks(implied_vol, _TAU, _R, _Q)
         strategy_greeks.append(

@@ -19,7 +19,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from archimedes.agents.generation_pipeline import run_generation
@@ -191,10 +191,10 @@ async def cancel_job(job_id: str) -> dict[str, str]:
 
 
 @generate_router.get("/jobs", response_model=JobsListResponse)
-async def list_jobs(limit: int = 20) -> JobsListResponse:
+async def list_jobs(limit: int = Query(default=20, ge=1, le=100)) -> JobsListResponse:
     """Recent jobs for the GenerationStatus UI."""
     store = get_job_store()
-    raw = await store.list_recent_jobs(limit=max(1, min(limit, 100)))
+    raw = await store.list_recent_jobs(limit=limit)
     summaries: list[JobSummary] = []
     for j in raw:
         if j.get("type") != "generate":

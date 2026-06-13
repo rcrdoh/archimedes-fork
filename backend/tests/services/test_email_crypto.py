@@ -19,15 +19,21 @@ def _reset_fernet_singleton():
     email_crypto._fernet = None
 
 
-def test_derive_key_returns_url_safe_base64() -> None:
+def test_derive_key_returns_url_safe_base64(monkeypatch) -> None:
     key = _derive_key()
     # Fernet keys are 44 bytes when base64-encoded
     assert isinstance(key, bytes)
     assert len(key) == 44
 
-    # Deterministic when the env is identical
-    key2 = _derive_key()
-    assert key == key2
+    # Deterministic when EMAIL_ENCRYPTION_KEY is set
+    monkeypatch.setenv("EMAIL_ENCRYPTION_KEY", "stable-secret")
+    assert _derive_key() == _derive_key()
+
+
+def test_derive_key_random_when_env_unset(monkeypatch) -> None:
+    # No fixed fallback secret: each derivation is a fresh random key.
+    monkeypatch.delenv("EMAIL_ENCRYPTION_KEY", raising=False)
+    assert _derive_key() != _derive_key()
 
 
 def test_encrypt_decrypt_roundtrip() -> None:

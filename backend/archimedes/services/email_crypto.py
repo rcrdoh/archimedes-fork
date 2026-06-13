@@ -1,36 +1,50 @@
 """Email encryption at rest using Fernet (symmetric encryption).
 
 Uses a key derived from the ``EMAIL_ENCRYPTION_KEY`` env var. If the env var
-is not set, a deterministic key is generated from a fixed secret — this is
-acceptable for the hackathon MVP (no real user data in production).
+is not set, a *random per-process* key is generated at startup — emails
+encrypted in one dev session cannot be decrypted in another. This is
+intentional: dev data is disposable, and it means there is no fixed fallback
+secret that could decrypt a deployment that merely forgot to set the env var.
 
 The Fernet key must be a URL-safe base64-encoded 32-byte value.
-```
 
 Security model:
   - Email is encrypted before storage and decrypted on read.
   - The DB column stores the Fernet token as a string.
   - If the key is rotated, existing tokens become unreadable — a migration
-    script would need to re-encrypt. For v1, the key is fixed.
+    script would need to re-encrypt. For v1, the key is fixed (per deployment).
+  - Production startup rejects a missing EMAIL_ENCRYPTION_KEY (fail-closed in
+    main.py when PUBLIC_DOMAIN is set), so the random fallback only ever runs
+    in local dev / CI where no real user data is at risk.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 
 from cryptography.fernet import Fernet
 
-# Local-dev fallback — production startup rejects missing EMAIL_ENCRYPTION_KEY
-# (fail-closed in main.py when PUBLIC_DOMAIN is set). This fallback only runs
-# in local dev / CI where no real user data is at risk.
-_LOCAL_DEV_FALLBACK = "archimedes-local-dev-only-not-for-production"
+logger = logging.getLogger(__name__)
 
 
 def _derive_key() -> bytes:
-    """Derive a Fernet key from env var or local-dev fallback."""
-    secret = os.getenv("EMAIL_ENCRYPTION_KEY", _LOCAL_DEV_FALLBACK)
+    """Derive a Fernet key from env var, or a random per-process key in dev.
+
+    With ``EMAIL_ENCRYPTION_KEY`` set the key is deterministic (so tokens
+    survive restarts). Unset, we generate a fresh random key — there is no
+    fixed, publicly-known fallback secret.
+    """
+    secret = os.getenv("EMAIL_ENCRYPTION_KEY", "").strip()
+    if not secret:
+        logger.warning(
+            "EMAIL_ENCRYPTION_KEY is not set — using a random per-process key. "
+            "Encrypted emails will NOT survive a process restart. Set "
+            "EMAIL_ENCRYPTION_KEY for any persistent deployment."
+        )
+        return Fernet.generate_key()
     # Fernet requires a URL-safe base64-encoded 32-byte key
     digest = hashlib.sha256(secret.encode("utf-8")).digest()
     return base64.urlsafe_b64encode(digest)
