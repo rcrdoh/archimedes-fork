@@ -182,6 +182,136 @@ contract SyntheticVaultTest is Test {
         assertGt(vault.protocolFees(), 0);
     }
 
+    // ─── Solvency / Pro-Rata Redemption Tests (issue #509, audit #14) ──
+
+    /// @dev Total issued synth is redeemed across multiple holders after an adverse
+    ///      (upward) price move that makes the vault under-collateralized. Pre-fix:
+    ///      alice (first) extracted full current-price value and bob's burn reverted
+    ///      with InsufficientCollateral. Post-fix: both succeed and, holding equal
+    ///      synth, receive equal pro-rata payouts regardless of redemption order.
+    function test_burn_total_supply_pro_rata_after_price_spike() public {
+        uint256 usdcAmount = 10_000 * 10**6;
+
+        // Alice and bob mint identical amounts at the initial price.
+        vm.startPrank(alice);
+        usdc.approve(address(vault), usdcAmount);
+        uint256 aliceSynth = vault.mint(usdcAmount);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        usdc.approve(address(vault), usdcAmount);
+        uint256 bobSynth = vault.mint(usdcAmount);
+        vm.stopPrank();
+
+        // Price spikes +50% — beyond the 20% mint-side buffer, so total liability
+        // (totalSupply * price) now exceeds vault collateral.
+        vm.prank(owner);
+        oracle.setPrice((INITIAL_PRICE * 150) / 100);
+
+        uint256 collateralBefore = usdc.balanceOf(address(vault)) - vault.protocolFees();
+        uint256 liability = (sTSLA.totalSupply() * oracle.getPrice()) / 1e18;
+        assertGt(liability, collateralBefore, "scenario must be under-collateralized");
+
+        // Alice redeems everything first...
+        vm.prank(alice);
+        uint256 alicePayout = vault.burn(aliceSynth);
+
+        // ...and bob redeems the entire remaining supply. Pre-fix this reverted.
+        vm.prank(bob);
+        uint256 bobPayout = vault.burn(bobSynth);
+
+        assertEq(sTSLA.totalSupply(), 0, "all issued synth redeemed");
+
+        // Equal holders get equal value: redemption order must not redistribute.
+        // (1 wei tolerance for integer-division dust; dust favors the vault.)
+        assertApproxEqAbs(alicePayout, bobPayout, 1, "order-independent pro-rata payout");
+
+        // Early redeemer capped at her pro-rata share of available collateral
+        // (alice held half the supply -> at most half the collateral, gross of fee).
+        assertLe(alicePayout, collateralBefore / 2, "no more than pro-rata share");
+
+        // Vault stays solvent: balance still covers accrued protocol fees.
+        assertGe(usdc.balanceOf(address(vault)), vault.protocolFees());
+    }
+
+    /// @dev Unequal holders, full-supply redemption under stress: per-synth payout
+    ///      rate is the same for both, and total payouts never exceed collateral.
+    function test_burn_pro_rata_unequal_holders() public {
+        vm.startPrank(alice);
+        usdc.approve(address(vault), 30_000 * 10**6);
+        uint256 aliceSynth = vault.mint(30_000 * 10**6); // 3x bob's position
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        usdc.approve(address(vault), 10_000 * 10**6);
+        uint256 bobSynth = vault.mint(10_000 * 10**6);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        oracle.setPrice(INITIAL_PRICE * 2); // +100%
+
+        uint256 collateralBefore = usdc.balanceOf(address(vault)) - vault.protocolFees();
+
+        // Bob (small holder) redeems first this time.
+        vm.prank(bob);
+        uint256 bobPayout = vault.burn(bobSynth);
+
+        vm.prank(alice);
+        uint256 alicePayout = vault.burn(aliceSynth);
+
+        assertEq(sTSLA.totalSupply(), 0);
+
+        // Same per-synth rate (scaled to 1e18 synth units; tolerate division dust).
+        uint256 bobRate = (bobPayout * 1e18) / bobSynth;
+        uint256 aliceRate = (alicePayout * 1e18) / aliceSynth;
+        assertApproxEqRel(bobRate, aliceRate, 1e12, "equal per-synth payout rate"); // 0.0001%
+
+        // Vault never pays out more than it had.
+        assertLe(alicePayout + bobPayout, collateralBefore, "payouts bounded by collateral");
+        assertGe(usdc.balanceOf(address(vault)), vault.protocolFees());
+    }
+
+    /// @dev When the vault is healthy (collateral >= liability), the pro-rata cap is
+    ///      inactive and burn pays full current-price value minus fee, as before.
+    function test_burn_no_haircut_when_healthy() public {
+        uint256 usdcAmount = 10_000 * 10**6;
+        vm.startPrank(alice);
+        usdc.approve(address(vault), usdcAmount);
+        uint256 synthOut = vault.mint(usdcAmount);
+
+        // Price unchanged: 120% mint collateral comfortably covers 100% redemption.
+        uint256 usdcValue = (synthOut * oracle.getPrice()) / 1e18;
+        uint256 expected = usdcValue - (usdcValue * 50) / 10000; // minus 0.5% burn fee
+
+        uint256 payout = vault.burn(synthOut);
+        vm.stopPrank();
+
+        assertEq(payout, expected, "full price value when solvent");
+    }
+
+    /// @dev previewBurn must mirror burn exactly while the haircut is active.
+    function test_preview_burn_matches_under_stress() public {
+        uint256 usdcAmount = 10_000 * 10**6;
+        vm.startPrank(alice);
+        usdc.approve(address(vault), usdcAmount);
+        uint256 synthOut = vault.mint(usdcAmount);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        usdc.approve(address(vault), usdcAmount);
+        vault.mint(usdcAmount);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        oracle.setPrice((INITIAL_PRICE * 150) / 100);
+
+        uint256 preview = vault.previewBurn(synthOut);
+        vm.prank(alice);
+        uint256 actual = vault.burn(synthOut);
+
+        assertEq(preview, actual, "preview == actual under haircut");
+    }
+
     // ─── View Tests ───────────────────────────────────────────────
 
     function test_preview_mint() public {
