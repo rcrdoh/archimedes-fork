@@ -27,6 +27,17 @@ contract AMMPool is IAMMPool, ERC20, Ownable, ReentrancyGuard {
 
     uint256 private _totalSupply;
 
+    /// @notice First-depositor LP-inflation guard (same Option-B mitigation as
+    ///         Vault.sol). On the first deposit MIN_LIQUIDITY LP tokens are
+    ///         minted to an unrecoverable sink, so an attacker can no longer own
+    ///         ~100% of a dust LP supply and donate tokens to inflate NAV per
+    ///         share and round later mints to zero. Cost: the first LP forfeits
+    ///         MIN_LIQUIDITY LP-wei — negligible.
+    uint256 public constant MIN_LIQUIDITY = 1e3;
+
+    /// @notice Sink for the locked dead shares (OZ ERC20 forbids minting to address(0)).
+    address public constant DEAD_SHARES_SINK = address(0xdEaD);
+
     // ─── Errors ──────────────────────────────────────────────────────
 
     error SameToken();
@@ -80,6 +91,8 @@ contract AMMPool is IAMMPool, ERC20, Ownable, ReentrancyGuard {
         if (amountOut == 0) revert InsufficientOutput();
         if (amountOut >= rOut) revert InsufficientLiquidity();
 
+        uint256 kBefore = rIn * rOut;
+
         // Update reserves
         if (isToken0) {
             reserve0 += amountIn;
@@ -88,6 +101,10 @@ contract AMMPool is IAMMPool, ERC20, Ownable, ReentrancyGuard {
             reserve1 += amountIn;
             reserve0 -= amountOut;
         }
+
+        // Constant-product invariant: fees mean k must never shrink across a
+        // swap. Guards against any future fee-math change silently leaking value.
+        if (reserve0 * reserve1 < kBefore) revert InsufficientOutput();
 
         // Transfer tokens
         address tokenOut = isToken0 ? token1 : token0;
@@ -110,8 +127,12 @@ contract AMMPool is IAMMPool, ERC20, Ownable, ReentrancyGuard {
         uint256 _total = totalSupply();
 
         if (_total == 0) {
-            // First deposit: geometric mean
-            lpTokens = _sqrt(amount0 * amount1);
+            // First deposit: geometric mean, minus a permanently-locked
+            // MIN_LIQUIDITY minted to the dead sink (inflation-attack guard).
+            uint256 minted = _sqrt(amount0 * amount1);
+            if (minted <= MIN_LIQUIDITY) revert InsufficientLiquidity();
+            _mint(DEAD_SHARES_SINK, MIN_LIQUIDITY);
+            lpTokens = minted - MIN_LIQUIDITY;
         } else {
             // Subsequent deposits: min of the two ratios
             uint256 lp0 = (amount0 * _total) / reserve0;

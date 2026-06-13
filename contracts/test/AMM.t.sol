@@ -138,8 +138,41 @@ contract AMMTest is Test {
 
         // Bob should get roughly the same LP tokens as Alice
         assertGt(lp2, 0);
-        // They should be approximately equal (same deposit amounts)
-        assertApproxEqAbs(lp1, lp2, 100);
+        // Equal deposits → equal LP, except the first depositor (Alice) forfeited
+        // MIN_LIQUIDITY to the dead-share inflation guard.
+        assertApproxEqAbs(lp1 + AMMPool(pool).MIN_LIQUIDITY(), lp2, 100);
+    }
+
+    function test_addLiquidity_first_deposit_locks_dead_shares() public {
+        address pool = router.createPool(address(tokenA), address(tokenB));
+        uint256 amountA = 10_000 * 1e18;
+        uint256 amountB = 20_000 * 1e18;
+
+        vm.startPrank(alice);
+        tokenA.approve(address(router), amountA);
+        tokenB.approve(address(router), amountB);
+        uint256 lpTokens = router.addLiquidity(address(tokenA), address(tokenB), amountA, amountB, 0);
+        vm.stopPrank();
+
+        uint256 minLiq = AMMPool(pool).MIN_LIQUIDITY();
+        // MIN_LIQUIDITY is permanently locked in the dead sink and excluded
+        // from the depositor's balance — the canonical Uniswap-V2 guard.
+        assertEq(IERC20(pool).balanceOf(AMMPool(pool).DEAD_SHARES_SINK()), minLiq);
+        assertEq(IERC20(pool).balanceOf(alice), lpTokens);
+        assertEq(AMMPool(pool).totalSupply(), lpTokens + minLiq);
+    }
+
+    function test_revert_addLiquidity_first_deposit_below_min_liquidity() public {
+        router.createPool(address(tokenA), address(tokenB));
+
+        // sqrt(1 * 1) = 1 <= MIN_LIQUIDITY → first deposit must revert rather
+        // than mint a dust LP supply an attacker could inflate.
+        vm.startPrank(alice);
+        tokenA.approve(address(router), 1);
+        tokenB.approve(address(router), 1);
+        vm.expectRevert();
+        router.addLiquidity(address(tokenA), address(tokenB), 1, 1, 0);
+        vm.stopPrank();
     }
 
     function test_revert_addLiquidity_zero() public {
