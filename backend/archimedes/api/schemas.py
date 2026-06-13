@@ -411,6 +411,7 @@ class ChatMessageResponse(BaseModel):
     wallet_address: str
     message: str
     is_ai: bool = False
+    verified: bool = False  # True when the wallet identity was SIWE-session-proven at post time (#524)
     created_at: str  # ISO 8601
 
 
@@ -423,9 +424,14 @@ class ChatMessageListResponse(BaseModel):
 
 
 class ChatPostRequest(BaseModel):
-    """Post a new message to a vault's chat."""
+    """Post a new message to a vault's chat.
 
-    wallet_address: str
+    wallet_address is optional when the caller has a SIWE session — identity
+    then comes from the session, not the body (#524). Without a session it is
+    required and the message is stored as unverified.
+    """
+
+    wallet_address: str | None = None
     message: str
 
 
