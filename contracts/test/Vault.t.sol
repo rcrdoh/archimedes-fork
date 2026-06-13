@@ -104,9 +104,11 @@ contract VaultTest is Test {
         uint256 shares = vault.deposit(amount, alice);
         vm.stopPrank();
 
-        // First deposit: 1:1 rate
-        assertEq(shares, amount);
+        // First deposit: 1:1 rate minus MIN_LIQUIDITY dead shares (inflation guard, #507)
+        assertEq(shares, amount - vault.MIN_LIQUIDITY());
         assertEq(vault.balanceOf(alice), shares);
+        assertEq(vault.balanceOf(vault.DEAD_SHARES_SINK()), vault.MIN_LIQUIDITY());
+        assertEq(vault.totalSupply(), amount); // 1:1 share:asset scale preserved
         assertEq(usdc.balanceOf(address(vault)), amount);
     }
 
@@ -145,11 +147,14 @@ contract VaultTest is Test {
         usdc.approve(address(vault), amount);
         vault.deposit(amount, alice);
 
+        // First depositor's max withdraw is amount - MIN_LIQUIDITY: the dead shares
+        // (inflation guard, #507) keep their pro-rata sliver of assets locked.
+        uint256 withdrawable = amount - vault.MIN_LIQUIDITY();
         uint256 aliceUsdcBefore = usdc.balanceOf(alice);
-        vault.withdraw(amount, alice, alice);
+        vault.withdraw(withdrawable, alice, alice);
         vm.stopPrank();
 
-        assertEq(usdc.balanceOf(alice) - aliceUsdcBefore, amount);
+        assertEq(usdc.balanceOf(alice) - aliceUsdcBefore, withdrawable);
         assertEq(vault.balanceOf(alice), 0);
     }
 
@@ -164,7 +169,9 @@ contract VaultTest is Test {
         vault.redeem(shares, alice, alice);
         vm.stopPrank();
 
-        assertEq(usdc.balanceOf(alice) - aliceUsdcBefore, amount);
+        // shares = amount - MIN_LIQUIDITY (dead shares, #507); redeeming them all
+        // returns the matching pro-rata assets at the unchanged 1:1 rate.
+        assertEq(usdc.balanceOf(alice) - aliceUsdcBefore, amount - vault.MIN_LIQUIDITY());
         assertEq(vault.balanceOf(alice), 0);
     }
 
@@ -200,6 +207,82 @@ contract VaultTest is Test {
         vm.stopPrank();
 
         assertEq(preview, actual);
+    }
+
+    // ─── Inflation-Attack Tests (audit 2026-06-10 #4 / issue #507) ───
+
+    /// @dev Classic first-depositor inflation attack: deposit 1 wei, donate USDC
+    ///      directly to the vault to inflate NAV, and let the victim's deposit
+    ///      round to zero shares. With MIN_LIQUIDITY dead shares the 1-wei seed
+    ///      deposit is impossible and the donation is absorbed by the dead shares,
+    ///      so the victim keeps ~full value and the attacker takes a massive loss.
+    function test_inflation_attack_fails() public {
+        uint256 minLiq = vault.MIN_LIQUIDITY();
+
+        // Step 1: the canonical 1-wei first deposit now reverts —
+        // previewDeposit(1) == 0 because MIN_LIQUIDITY is subtracted.
+        vm.startPrank(bob); // bob = attacker
+        usdc.approve(address(vault), type(uint256).max);
+        vm.expectRevert(Vault.ZeroShares.selector);
+        vault.deposit(1, bob);
+
+        // Step 2: attacker falls back to the smallest viable first deposit
+        // (MIN_LIQUIDITY + 1 wei → exactly 1 share; dead sink holds MIN_LIQUIDITY).
+        uint256 attackerCost = minLiq + 1;
+        uint256 attackerShares = vault.deposit(attackerCost, bob);
+        assertEq(attackerShares, 1);
+
+        // Step 3: attacker donates USDC directly to the vault to inflate NAV
+        uint256 donation = 10_000 * 10**6;
+        usdc.transfer(address(vault), donation);
+        attackerCost += donation;
+        vm.stopPrank();
+
+        // Step 4: victim deposits
+        uint256 victimDeposit = 10_000 * 10**6;
+        vm.startPrank(alice); // alice = victim
+        usdc.approve(address(vault), victimDeposit);
+        uint256 victimShares = vault.deposit(victimDeposit, alice);
+        vm.stopPrank();
+
+        // Victim's shares MUST NOT round to zero
+        assertGt(victimShares, 0);
+
+        // Victim's redeemable value ≈ deposit (within 0.1% rounding tolerance)
+        uint256 victimValue = vault.previewRedeem(victimShares);
+        assertApproxEqRel(victimValue, victimDeposit, 0.001e18);
+
+        // Attack is strictly unprofitable: the dead shares absorb
+        // MIN_LIQUIDITY/(MIN_LIQUIDITY+1) of the donation, so the attacker
+        // recovers only a dust fraction of what they spent.
+        uint256 attackerValue = vault.previewRedeem(attackerShares);
+        assertLt(attackerValue, attackerCost / 100); // lost > 99% of outlay
+    }
+
+    /// @dev Donation alone (no zero-share rounding) must not let any depositor
+    ///      capture more than their pro-rata claim from a later depositor.
+    function test_donation_does_not_dilute_later_depositor() public {
+        uint256 amount = 10_000 * 10**6;
+
+        // Honest first depositor
+        vm.startPrank(alice);
+        usdc.approve(address(vault), amount);
+        vault.deposit(amount, alice);
+        vm.stopPrank();
+
+        // Third party donates to the vault
+        usdc.mint(address(this), amount);
+        usdc.transfer(address(vault), amount);
+
+        // Bob deposits after the donation: his shares price in the doubled NAV,
+        // and his redeemable value still ≈ his deposit.
+        vm.startPrank(bob);
+        usdc.approve(address(vault), amount);
+        uint256 bobShares = vault.deposit(amount, bob);
+        vm.stopPrank();
+
+        assertGt(bobShares, 0);
+        assertApproxEqRel(vault.previewRedeem(bobShares), amount, 0.001e18);
     }
 
     // ─── Rebalance Tests ─────────────────────────────────────────────
@@ -438,11 +521,12 @@ contract VaultTest is Test {
         vm.startPrank(alice);
         usdc.approve(address(vault), amount);
         vault.deposit(amount, alice);
-        vault.withdraw(amount, alice, alice);
+        vault.withdraw(amount - vault.MIN_LIQUIDITY(), alice, alice);
         vm.stopPrank();
 
-        // Alice should have her USDC back (no fees accrued since time didn't pass)
-        assertEq(usdc.balanceOf(alice), aliceUsdcBefore);
+        // Alice gets her USDC back minus the one-time MIN_LIQUIDITY dead-share cost
+        // (1e3 share-wei = 0.001 USDC, inflation guard #507; no fees — no time passed)
+        assertEq(usdc.balanceOf(alice), aliceUsdcBefore - vault.MIN_LIQUIDITY());
     }
 
     function test_multiple_deposits_withdraws() public {
@@ -459,11 +543,13 @@ contract VaultTest is Test {
         usdc.approve(address(vault), amount2);
         vault.deposit(amount2, bob);
 
-        // Alice withdraws
+        // Alice withdraws her full entitlement: amount1 minus the MIN_LIQUIDITY
+        // dead shares locked by her first deposit (inflation guard, #507)
         vm.startPrank(alice);
-        vault.withdraw(amount1, alice, alice);
+        vault.withdraw(amount1 - vault.MIN_LIQUIDITY(), alice, alice);
 
-        assertEq(vault.totalAssets(), amount2);
+        // Vault retains amount2 plus the dead shares' pro-rata assets
+        assertEq(vault.totalAssets(), amount2 + vault.MIN_LIQUIDITY());
         assertEq(vault.balanceOf(alice), 0);
         assertEq(vault.balanceOf(bob), amount2);
     }

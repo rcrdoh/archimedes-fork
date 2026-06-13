@@ -25,6 +25,28 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     uint256 public constant SECONDS_PER_YEAR = 365 days;
     uint256 public constant PLATFORM_FEE_BPS = 1000; // 10% platform cut
 
+    /// @notice First-depositor share-inflation guard (audit 2026-06-10 finding #4, issue #507).
+    ///
+    ///         Chosen mitigation: **Option B — dead shares.** On the first deposit a fixed
+    ///         MIN_LIQUIDITY of shares is minted to an unrecoverable sink and subtracted from
+    ///         the receiver. An attacker can no longer own ~100% of a dust supply and then
+    ///         donate USDC to inflate NAV: the sink permanently holds MIN_LIQUIDITY shares,
+    ///         so the attacker's share of any donation is at most 1/(MIN_LIQUIDITY+1) — the
+    ///         donation is overwhelmingly burned, making the attack strictly unprofitable,
+    ///         and later depositors' shares no longer round to zero.
+    ///
+    ///         Why not Option A (OZ-style virtual decimals offset): a decimals offset of
+    ///         d > 0 rescales shares-per-asset by 10**d, which silently breaks this vault's
+    ///         performance-fee math — `highWaterMark` is initialized to 1e18 assuming a 1:1
+    ///         share:asset scale, so nav-per-share would start at 1e18/10**d and the
+    ///         performance fee would never (or wrongly) accrue. Dead shares preserve the
+    ///         1:1 scale and leave the fee logic untouched. Cost: the first depositor
+    ///         forfeits MIN_LIQUIDITY share-wei (1e3 = 0.001 USDC at 6 decimals) — negligible.
+    uint256 public constant MIN_LIQUIDITY = 1e3;
+
+    /// @notice Sink for dead shares (OZ ERC20 forbids minting to address(0)).
+    address public constant DEAD_SHARES_SINK = address(0xdEaD);
+
     // ─── Immutables ──────────────────────────────────────────────────
 
     address public immutable override asset;
@@ -119,6 +141,13 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
 
         shares = previewDeposit(assets);
         if (shares == 0) revert ZeroShares();
+
+        // Inflation-attack guard: lock MIN_LIQUIDITY dead shares on the first deposit.
+        // previewDeposit already subtracted MIN_LIQUIDITY from the receiver's shares,
+        // so total minted == assets and the 1:1 share:asset scale is preserved.
+        if (totalSupply() == 0) {
+            _mint(DEAD_SHARES_SINK, MIN_LIQUIDITY);
+        }
 
         // Mint shares to receiver
         _mint(receiver, shares);
@@ -217,8 +246,14 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
         uint256 _totalSupply = totalSupply();
         uint256 _totalAssets = totalAssets();
 
-        if (_totalSupply == 0 || _totalAssets == 0) {
-            // 1:1 initial rate
+        if (_totalSupply == 0) {
+            // First deposit: 1:1 rate minus the MIN_LIQUIDITY dead shares locked in
+            // deposit() (inflation-attack guard — see MIN_LIQUIDITY doc above).
+            // Deposits of <= MIN_LIQUIDITY return 0 and deposit() reverts ZeroShares,
+            // so a 1-wei first deposit (the classic attack setup) is impossible.
+            shares = assets > MIN_LIQUIDITY ? assets - MIN_LIQUIDITY : 0;
+        } else if (_totalAssets == 0) {
+            // Degenerate: supply exists but NAV is zero — keep legacy 1:1 fallback.
             shares = assets;
         } else {
             shares = (assets * _totalSupply) / _totalAssets;
@@ -483,13 +518,16 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
         lastFeeTimestamp = block.timestamp;
     }
 
+    /// @dev Shares to burn for an exact-assets withdraw. Rounds UP (against the
+    ///      withdrawer), per ERC-4626 previewWithdraw semantics — audit finding #4
+    ///      flagged the old round-down as a depositor-favored rounding leak.
     function _convertToShares(uint256 assets) internal view returns (uint256 shares) {
         uint256 _totalSupply = totalSupply();
         uint256 _totalAssets = totalAssets();
         if (_totalSupply == 0 || _totalAssets == 0) {
             shares = assets;
         } else {
-            shares = (assets * _totalSupply) / _totalAssets;
+            shares = (assets * _totalSupply + _totalAssets - 1) / _totalAssets;
         }
     }
 
