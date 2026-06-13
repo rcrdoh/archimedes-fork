@@ -233,6 +233,65 @@ contract VaultTest is Test {
         vault.withdraw(0, alice, alice);
     }
 
+    // ─── Allowance Enforcement (audit 2026-06-13 CRITICAL: share theft) ──
+
+    /// @dev An attacker must NOT be able to burn a victim's shares by passing the
+    ///      victim as `owner_` and itself as `receiver`. Without the allowance check
+    ///      this drains the victim's deposit; with it, the call reverts.
+    function test_revert_redeem_steal_without_allowance() public {
+        uint256 amount = 10_000 * 10**6;
+
+        vm.startPrank(alice);
+        usdc.approve(address(vault), amount);
+        uint256 shares = vault.deposit(amount, alice);
+        vm.stopPrank();
+
+        // Bob (attacker) tries to redeem Alice's shares into his own wallet.
+        vm.prank(bob);
+        vm.expectRevert(); // ERC20InsufficientAllowance — Bob has no allowance from Alice
+        vault.redeem(shares, bob, alice);
+
+        // Alice's shares and the vault's USDC are untouched.
+        assertEq(vault.balanceOf(alice), shares);
+        assertEq(usdc.balanceOf(address(vault)), amount);
+    }
+
+    function test_revert_withdraw_steal_without_allowance() public {
+        uint256 amount = 10_000 * 10**6;
+
+        vm.startPrank(alice);
+        usdc.approve(address(vault), amount);
+        vault.deposit(amount, alice);
+        vm.stopPrank();
+
+        uint256 withdrawable = amount - vault.MIN_LIQUIDITY();
+        vm.prank(bob);
+        vm.expectRevert(); // no allowance from Alice
+        vault.withdraw(withdrawable, bob, alice);
+
+        assertEq(usdc.balanceOf(address(vault)), amount);
+    }
+
+    /// @dev With an explicit share allowance, a delegate CAN redeem on the owner's
+    ///      behalf, and the allowance is decremented (canonical ERC-4626 path).
+    function test_redeem_with_allowance_succeeds() public {
+        uint256 amount = 10_000 * 10**6;
+
+        vm.startPrank(alice);
+        usdc.approve(address(vault), amount);
+        uint256 shares = vault.deposit(amount, alice);
+        vault.approve(bob, shares); // Alice grants Bob a share allowance
+        vm.stopPrank();
+
+        uint256 aliceUsdcBefore = usdc.balanceOf(alice);
+        vm.prank(bob);
+        vault.redeem(shares, alice, alice); // receiver = owner (Alice)
+
+        assertEq(usdc.balanceOf(alice) - aliceUsdcBefore, amount - vault.MIN_LIQUIDITY());
+        assertEq(vault.balanceOf(alice), 0);
+        assertEq(vault.allowance(alice, bob), 0); // allowance consumed
+    }
+
     // ─── Preview Functions ───────────────────────────────────────────
 
     function test_previewDeposit() public {

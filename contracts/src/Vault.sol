@@ -200,6 +200,14 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
             _liquidateToUsdc(assets - usdcOnHand);
         }
 
+        // ERC-4626 allowance enforcement (audit 2026-06-13 CRITICAL): a caller may only
+        // burn `owner_`'s shares when it IS the owner, or when the owner has granted it a
+        // share allowance. Without this, anyone could pass a victim as `owner_` and a
+        // chosen `receiver` to drain the victim's deposit. `_spendAllowance` is a no-op
+        // for an infinite (type(uint256).max) allowance, matching the canonical pattern.
+        if (msg.sender != owner_) {
+            _spendAllowance(owner_, msg.sender, shares);
+        }
         _burn(owner_, shares);
 
         IERC20(asset).safeTransfer(receiver, assets);
@@ -229,6 +237,14 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
             _liquidateToUsdc(assets - usdcOnHand);
         }
 
+        // ERC-4626 allowance enforcement (audit 2026-06-13 CRITICAL): a caller may only
+        // burn `owner_`'s shares when it IS the owner, or when the owner has granted it a
+        // share allowance. Without this, anyone could pass a victim as `owner_` and a
+        // chosen `receiver` to drain the victim's deposit. `_spendAllowance` is a no-op
+        // for an infinite (type(uint256).max) allowance, matching the canonical pattern.
+        if (msg.sender != owner_) {
+            _spendAllowance(owner_, msg.sender, shares);
+        }
         _burn(owner_, shares);
 
         IERC20(asset).safeTransfer(receiver, assets);
