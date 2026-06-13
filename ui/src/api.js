@@ -15,7 +15,9 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? ''
  * @returns {Promise<any>} parsed JSON
  */
 export async function apiGet(path) {
-  const res = await fetch(`${API_BASE}${path}`)
+  // credentials:'include' sends the SIWE session cookie so authenticated
+  // endpoints work whether or not the API is same-origin.
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include' })
   if (!res.ok) {
     throw new Error(`Backend returned ${res.status}`)
   }
@@ -32,6 +34,7 @@ export async function apiPost(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include', // send SIWE session cookie
     body: JSON.stringify(body),
   })
   if (!res.ok) {

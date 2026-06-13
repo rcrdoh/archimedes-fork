@@ -104,6 +104,31 @@ def require_verified_wallet(request: Request) -> str:
     return wallet
 
 
+def _generation_auth_required() -> bool:
+    """Whether expensive LLM-generation endpoints require a SIWE session.
+
+    Off by default so enabling is an explicit, post-verification flip — gating
+    paid endpoints can never *silently* break the live Generate flow on deploy.
+    Set REQUIRE_SIWE_FOR_GENERATION=true once the UI SIWE round-trip is confirmed
+    working end-to-end (a session cookie is established before Generate is called).
+    """
+    return os.getenv("REQUIRE_SIWE_FOR_GENERATION", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def gate_generation(request: Request) -> str | None:
+    """FastAPI dependency for paid LLM-generation endpoints.
+
+    When REQUIRE_SIWE_FOR_GENERATION is enabled, behaves like
+    ``require_verified_wallet`` (401 without a session). When disabled (default),
+    returns the best-effort wallet for attribution without enforcing — preserving
+    today's open behavior. This mitigates the unauthenticated-LLM budget-drain
+    vector (audit 2026-06-13) without a flag-day risk to the live demo.
+    """
+    if _generation_auth_required():
+        return require_verified_wallet(request)
+    return get_verified_wallet(request)
+
+
 # ── Endpoints ─────────────────────────────────────────────────
 
 

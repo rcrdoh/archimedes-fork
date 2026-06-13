@@ -12,7 +12,7 @@ import json
 import math
 from datetime import UTC
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from archimedes.api._route_helpers import (
     architect,
@@ -25,6 +25,7 @@ from archimedes.api.architect_schemas import (
     StrategyConstructionRequest,
     StrategyConstructionResponse,
 )
+from archimedes.api.auth_siwe import gate_generation
 from archimedes.api.limiter import limiter
 from archimedes.api.schemas import (
     SignalResponse,
@@ -1174,6 +1175,7 @@ async def generate_strategy(
     strategic_direction: str = "",
     max_papers: int = 4,
     mode: str = "fusion",
+    _wallet: str | None = Depends(gate_generation),  # 401 when REQUIRE_SIWE_FOR_GENERATION is on
 ):
     """Queue a strategy generation job. Returns 202 + job_id immediately."""
     from fastapi import HTTPException
@@ -1531,7 +1533,12 @@ async def _run_fusion_job(job_id: str) -> None:
 
 @strategies_router.post("/construct", response_model=StrategyConstructionResponse)
 @limiter.limit("20/minute")
-async def construct_strategy(req: StrategyConstructionRequest, request: Request, response: Response):  # noqa: ARG001 — slowapi @limiter.limit inspects param name
+async def construct_strategy(
+    req: StrategyConstructionRequest,
+    request: Request,
+    response: Response,
+    _wallet: str | None = Depends(gate_generation),
+):  # noqa: ARG001 — slowapi @limiter.limit inspects param name
     """Interactive strategy architect -- the 'design me a portfolio' path."""
     from fastapi import HTTPException
 

@@ -75,6 +75,18 @@ export default function Generate({ onNavigate }) {
   }, [])
 
   // ── Start unified generation job ──
+  // Establish a SIWE session on demand. Generation is gated server-side only
+  // when REQUIRE_SIWE_FOR_GENERATION is enabled; until then this is invoked
+  // lazily on a 401 so the flow keeps working the moment the flag flips.
+  const ensureSiweSession = async () => {
+    const { getWalletClient, getAddress } = await import('../config')
+    const { authenticateWithSIWE } = await import('../siwe')
+    const address = getAddress()
+    if (!address) throw new Error('Connect your wallet, then sign in to generate.')
+    const walletClient = await getWalletClient()
+    await authenticateWithSIWE(walletClient, address)
+  }
+
   const startJob = async () => {
     setStartError('')
     setPipelineFromEvent(null)
@@ -83,25 +95,34 @@ export default function Generate({ onNavigate }) {
       return
     }
     setStarting(true)
-    try {
-      const res = await fetch(`${API_BASE}/api/generate/start`, {
+    // Mode is intentionally omitted — the backend's _pick_pipeline() auto-routes
+    // between Fusion / Architect / Agent; the choice is surfaced in the SSE stream.
+    const payload = {
+      brief: {
+        intent,
+        risk_appetite: riskAppetite,
+        asset_classes: selectedAssets.length > 0 ? selectedAssets : undefined,
+        max_papers: depth,
+      },
+    }
+    const postStart = () =>
+      fetch(`${API_BASE}/api/generate/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          brief: {
-            intent,
-            risk_appetite: riskAppetite,
-            asset_classes: selectedAssets.length > 0 ? selectedAssets : undefined,
-            max_papers: depth,
-          },
-          // Mode is intentionally omitted — the backend's _pick_pipeline()
-          // auto-routes between Fusion / Architect / Agent based on corpus
-          // state and LLM availability. The selected route is surfaced in
-          // the SSE stream's "Pipeline selected" event so the user can see
-          // it transparently without us forcing a tab choice.
-        }),
+        credentials: 'include', // send SIWE session cookie
+        body: JSON.stringify(payload),
       })
-      if (!res.ok) throw new Error(`Generation start failed (${res.status})`)
+    try {
+      let res = await postStart()
+      // If generation is auth-gated and we have no session yet, sign in and retry once.
+      if (res.status === 401) {
+        await ensureSiweSession()
+        res = await postStart()
+      }
+      if (!res.ok) {
+        if (res.status === 401) throw new Error('Sign in with your wallet to generate.')
+        throw new Error(`Generation start failed (${res.status})`)
+      }
       const data = await res.json()
       localStorage.setItem(STORAGE_JOB_KEY, data.job_id)
       setJobId(data.job_id)
