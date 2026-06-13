@@ -5,18 +5,39 @@ import "forge-std/Test.sol";
 import "../src/ReasoningTraceRegistry.sol";
 import "../src/AssetRegistry.sol";
 
+/// @dev Minimal Vault-shaped contract for testing live role introspection.
+contract MockVaultWithAgent {
+    address public agent;
+    address public creator;
+
+    constructor(address _agent, address _creator) {
+        agent = _agent;
+        creator = _creator;
+    }
+}
+
 contract ReasoningTraceRegistryTest is Test {
     ReasoningTraceRegistry public registry;
 
     address public owner = address(0x1);
     address public agent1 = address(0x2);
     address public agent2 = address(0x3);
+    address public attacker = address(0xBAD);
     address public vault1 = address(0x10);
     address public vault2 = address(0x11);
 
     function setUp() public {
         vm.prank(owner);
         registry = new ReasoningTraceRegistry(owner);
+
+        // v1.5: anchoring is gated — grant the test agents authority over the
+        // (codeless) test vault addresses.
+        vm.startPrank(owner);
+        registry.setVaultAgent(vault1, agent1, true);
+        registry.setVaultAgent(vault1, agent2, true);
+        registry.setVaultAgent(vault2, agent1, true);
+        registry.setVaultAgent(vault2, agent2, true);
+        vm.stopPrank();
     }
 
     // ─── Publish Trace ───────────────────────────────────────────────
@@ -184,6 +205,235 @@ contract ReasoningTraceRegistryTest is Test {
         vm.prank(agent2);
         registry.publishTrace(vault2, keccak256("2"), "");
         assertEq(registry.traceCount(), 2);
+    }
+
+    // ─── Authorization (audit #18: no forged anchors) ────────────────
+
+    function test_revert_publishTrace_unauthorized() public {
+        vm.prank(attacker);
+        vm.expectRevert("Not authorized for vault");
+        registry.publishTrace(vault1, keccak256("forged"), "");
+    }
+
+    function test_revert_commit_unauthorized() public {
+        vm.prank(attacker);
+        vm.expectRevert("Not authorized for vault");
+        registry.commit(vault1, keccak256("forged"), uint64(block.timestamp + 60), "");
+    }
+
+    function test_revert_setVaultAgent_non_owner() public {
+        vm.prank(attacker);
+        vm.expectRevert();
+        registry.setVaultAgent(vault1, attacker, true);
+    }
+
+    function test_setVaultAgent_revoke() public {
+        vm.prank(owner);
+        registry.setVaultAgent(vault1, agent1, false);
+
+        vm.prank(agent1);
+        vm.expectRevert("Not authorized for vault");
+        registry.publishTrace(vault1, keccak256("trace"), "");
+    }
+
+    function test_isAuthorizedForVault_via_vault_roles() public {
+        // A Vault-shaped contract exposing agent()/creator() is recognized live,
+        // without an explicit setVaultAgent grant.
+        address vaultAgent = address(0x20);
+        address vaultCreator = address(0x21);
+        MockVaultWithAgent vault = new MockVaultWithAgent(vaultAgent, vaultCreator);
+
+        assertTrue(registry.isAuthorizedForVault(address(vault), vaultAgent));
+        assertTrue(registry.isAuthorizedForVault(address(vault), vaultCreator));
+        assertFalse(registry.isAuthorizedForVault(address(vault), attacker));
+
+        vm.prank(vaultAgent);
+        uint256 traceId = registry.commit(
+            address(vault), keccak256("trace"), uint64(block.timestamp + 60), ""
+        );
+        assertEq(traceId, 1);
+    }
+
+    // ─── Commit-reveal (v1.5 temporal binding) ───────────────────────
+
+    function test_commit_reveal_happy_path() public {
+        bytes memory content = "canonical trace json";
+        bytes32 contentHash = keccak256(content);
+        uint64 executionTime = uint64(block.timestamp + 10);
+        bytes memory intent = abi.encode("rebalance", uint256(3), uint256(50_000e6));
+
+        // T-2: commit BEFORE the trade
+        vm.expectEmit(true, true, true, true);
+        emit IReasoningTraceRegistry.TraceCommitted(
+            1, contentHash, agent1, vault1, block.number, executionTime
+        );
+        vm.prank(agent1);
+        uint256 traceId = registry.commit(vault1, contentHash, executionTime, intent);
+        assertEq(traceId, 1);
+
+        // T-3: next block — the trade executes (simulated by advancing the chain)
+        vm.roll(block.number + 1);
+        vm.warp(executionTime);
+
+        // T-5: reveal AFTER settlement
+        vm.roll(block.number + 1);
+        vm.warp(executionTime + 5);
+        vm.expectEmit(true, false, false, true);
+        emit IReasoningTraceRegistry.TraceRevealed(1, "ipfs://QmTrace", block.number);
+        vm.prank(agent1);
+        registry.reveal(traceId, "ipfs://QmTrace", content);
+
+        // Commitment is promoted to revealed with the temporal binding recorded
+        (
+            bytes32 storedHash,
+            address committer,
+            address vault,
+            uint256 commitBlock,
+            uint64 claimedExecutionTime,
+            bool revealed,
+            uint256 revealBlock,
+            string memory storagePointer
+        ) = registry.getCommitment(traceId);
+
+        assertEq(storedHash, contentHash);
+        assertEq(committer, agent1);
+        assertEq(vault, vault1);
+        assertEq(claimedExecutionTime, executionTime);
+        assertTrue(revealed);
+        assertGt(revealBlock, commitBlock); // commit block strictly precedes reveal block
+        assertEq(storagePointer, "ipfs://QmTrace");
+
+        // The committed trace is also verifiable through the standard v1 read path
+        assertTrue(registry.verifyTrace(traceId, content));
+        assertEq(registry.traceCount(), 1);
+    }
+
+    function test_revert_reveal_without_commitment() public {
+        // No commit at all
+        vm.prank(agent1);
+        vm.expectRevert("No commitment");
+        registry.reveal(999, "ipfs://x", "content");
+
+        // A v1 publishTrace anchor is NOT a commitment — reveal against it reverts
+        vm.prank(agent1);
+        uint256 publishedId = registry.publishTrace(vault1, keccak256("content"), "");
+        vm.roll(block.number + 1);
+        vm.prank(agent1);
+        vm.expectRevert("No commitment");
+        registry.reveal(publishedId, "ipfs://x", "content");
+    }
+
+    function test_revert_reveal_hash_mismatch() public {
+        vm.prank(agent1);
+        uint256 traceId = registry.commit(
+            vault1, keccak256("the real trace"), uint64(block.timestamp + 10), ""
+        );
+
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 10);
+
+        vm.prank(agent1);
+        vm.expectRevert("Hash mismatch");
+        registry.reveal(traceId, "ipfs://x", "a tampered trace");
+    }
+
+    function test_revert_commit_same_block_as_execution() public {
+        // Time-lock: claiming execution in the commit block itself must fail —
+        // the covered trade has to land at least one block after the commit.
+        vm.prank(agent1);
+        vm.expectRevert("Time-lock: execution must follow commit");
+        registry.commit(vault1, keccak256("trace"), uint64(block.timestamp), "");
+
+        // Claimed execution in the past fails too
+        vm.warp(block.timestamp + 100);
+        vm.prank(agent1);
+        vm.expectRevert("Time-lock: execution must follow commit");
+        registry.commit(vault1, keccak256("trace"), uint64(block.timestamp - 1), "");
+    }
+
+    function test_revert_reveal_in_commit_block() public {
+        bytes memory content = "trace";
+        vm.prank(agent1);
+        uint256 traceId = registry.commit(
+            vault1, keccak256(content), uint64(block.timestamp + 1), ""
+        );
+
+        // Same block as the commit — temporal binding cannot hold
+        vm.warp(block.timestamp + 1);
+        vm.prank(agent1);
+        vm.expectRevert("Time-lock: reveal in commit block");
+        registry.reveal(traceId, "ipfs://x", content);
+    }
+
+    function test_revert_reveal_before_claimed_execution() public {
+        bytes memory content = "trace";
+        uint64 executionTime = uint64(block.timestamp + 100);
+        vm.prank(agent1);
+        uint256 traceId = registry.commit(vault1, keccak256(content), executionTime, "");
+
+        vm.roll(block.number + 1); // later block, but execution time not reached
+        vm.prank(agent1);
+        vm.expectRevert("Reveal before claimed execution");
+        registry.reveal(traceId, "ipfs://x", content);
+    }
+
+    function test_revert_reveal_not_committer() public {
+        bytes memory content = "trace";
+        vm.prank(agent1);
+        uint256 traceId = registry.commit(
+            vault1, keccak256(content), uint64(block.timestamp + 1), ""
+        );
+
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 1);
+        vm.prank(agent2);
+        vm.expectRevert("Not committer");
+        registry.reveal(traceId, "ipfs://x", content);
+    }
+
+    function test_revert_reveal_twice() public {
+        bytes memory content = "trace";
+        vm.prank(agent1);
+        uint256 traceId = registry.commit(
+            vault1, keccak256(content), uint64(block.timestamp + 1), ""
+        );
+
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 1);
+        vm.startPrank(agent1);
+        registry.reveal(traceId, "ipfs://x", content);
+
+        vm.expectRevert("Already revealed");
+        registry.reveal(traceId, "ipfs://y", content);
+        vm.stopPrank();
+    }
+
+    function test_revert_commit_empty_hash() public {
+        vm.prank(agent1);
+        vm.expectRevert("Empty content hash");
+        registry.commit(vault1, bytes32(0), uint64(block.timestamp + 1), "");
+    }
+
+    function test_revert_getCommitment_nonexistent() public {
+        vm.expectRevert("No commitment");
+        registry.getCommitment(999);
+    }
+
+    function test_commit_shares_trace_id_space_with_publishTrace() public {
+        vm.prank(agent1);
+        uint256 id1 = registry.publishTrace(vault1, keccak256("v1 anchor"), "");
+
+        vm.prank(agent1);
+        uint256 id2 = registry.commit(
+            vault1, keccak256("committed"), uint64(block.timestamp + 1), ""
+        );
+
+        assertEq(id1, 1);
+        assertEq(id2, 2);
+        assertEq(registry.traceCount(), 2);
+
+        uint256[] memory vaultIds = registry.getTracesByVault(vault1);
+        assertEq(vaultIds.length, 2);
     }
 }
 
