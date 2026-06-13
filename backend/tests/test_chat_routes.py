@@ -123,6 +123,12 @@ class TestReadEndpointsRegression:
     """(d) Existing read endpoints keep working and surface the verified flag."""
 
     def test_list_and_count_surface_verified(self, client):
+        # Delta-based, message-specific assertions — the shared sqlite engine
+        # (sqlite:///./archimedes_chat.db) persists rows across runs, so an
+        # absolute `total == 2` is brittle on re-run. Mirror the before/after
+        # pattern used in TestMismatchRejected above.
+        before = client.get(f"/api/vaults/{_VAULT_READ}/chat/count").json()["message_count"]
+
         client.post(
             f"/api/vaults/{_VAULT_READ}/chat",
             json={"message": "verified one"},
@@ -136,12 +142,12 @@ class TestReadEndpointsRegression:
         res = client.get(f"/api/vaults/{_VAULT_READ}/chat")
         assert res.status_code == 200
         data = res.json()
-        assert data["total"] == 2
         by_text = {m["message"]: m for m in data["messages"]}
         assert by_text["verified one"]["verified"] is True
         assert by_text["verified one"]["wallet_address"] == _W_SESSION.lower()
         assert by_text["unverified one"]["verified"] is False
+        assert by_text["unverified one"]["wallet_address"] == _W_BODY.lower()
 
         count = client.get(f"/api/vaults/{_VAULT_READ}/chat/count")
         assert count.status_code == 200
-        assert count.json()["message_count"] == 2
+        assert count.json()["message_count"] == before + 2
