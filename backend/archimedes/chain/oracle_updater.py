@@ -226,11 +226,15 @@ class OracleUpdater:
            PriceOracle.sol's maxDeviationBps). First-ever pushes with no
            reference are allowed.
 
-        TODO(#508): multi-source corroboration. Each symbol currently has
-        exactly one upstream source (yfinance for equities/futures, CoinGecko
-        for sBTC), so requiring N corroborating sources cannot be implemented
-        honestly today. When a second independent feed is added, require
-        agreement within the deviation cap across >= 2 sources before pushing.
+        Single-source design (deferred multi-source to v2 per issue #508):
+        Each symbol currently has exactly one upstream source (yfinance for
+        equities/futures, CoinGecko for sBTC). Multi-source corroboration
+        would require N independent feeds; that is a v2 enhancement documented
+        in docs/design.md § Price Oracle. Today, we validate upstream
+        freshness and deviation bounds against the last known good on-chain
+        price, but do not require cross-source agreement. This is an
+        intentional tradeoff: simplicity for v1 MVP, and the protocol is
+        extensible should a second feed be added.
         """
         if price_int <= 0:
             return f"non-positive on-chain price ({price.price_usd} → {price_int})"

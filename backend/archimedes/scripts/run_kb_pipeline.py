@@ -90,9 +90,12 @@ def run_pipeline(*, corpus_dir: Path | None = None, artifact_dir: Path | None = 
     #   papers_analysis.knowledge_graph.extract_triples(text_dir) → list
     #   papers_analysis.graph.aggregate(triples) → {nodes, edges}
     #
-    # See spec for the canonical wiring. Left as TODO under flag because the
-    # full implementation pulls in ~6 GB of model weights and only runs
-    # meaningfully inside the dedicated docker service.
+    # The canonical wiring (entry points, atomic-swap semantics, output schema)
+    # is documented in docs/corpus-architecture.md. The full implementation is
+    # gated behind REQUIRE_KB_PIPELINE_RUN because it pulls in ~6 GB of model
+    # weights (SPECTER2, REBEL, SciSpacy) and runs meaningfully only inside
+    # the dedicated container. Once that container ships, set the flag and this
+    # NotImplementedError will be replaced with the real pipeline invocation.
     raise NotImplementedError(
         "KB_PIPELINE_ENABLED set, but the full pipeline invocation is not yet wired. "
         "See docs/specs/kb-integration-spec.md § Pipeline invocation for the canonical shape. "
