@@ -318,6 +318,40 @@ class TestMaxSharpe:
         assert w is not None
         assert np.all(w <= cap + 1e-6)
 
+    def test_bearish_excess_returns_falls_back_to_gmv(self):
+        # Every asset's expected return is at/below the risk-free rate
+        # (mu == 0 << _RF_DAILY). Without the bearish guard, neg_sharpe's
+        # numerator (excess = w·mu - rf) is negative for every feasible w,
+        # so minimizing -(excess/vol) PUSHES VOL UP — the solver would pick
+        # the highest-volatility corner of the simplex. The guard must
+        # short-circuit to _gmv instead.
+        rng = np.random.default_rng(7)
+        X = rng.normal(0, [0.01, 0.01, 0.05], (200, 3))
+        mu = np.zeros(3)  # mu <= _RF_DAILY for every asset
+        Sigma = np.cov(X.T) + np.eye(3) * 1e-8
+
+        w_sharpe = _max_sharpe(mu, Sigma, 3, cap=_CAP_DEFAULT)
+        w_gmv = _gmv(Sigma, 3, cap=_CAP_DEFAULT)
+
+        assert w_sharpe is not None
+        assert w_gmv is not None
+        np.testing.assert_allclose(w_sharpe, w_gmv)
+
+    def test_slightly_negative_mu_also_falls_back_to_gmv(self):
+        # max(mu) strictly below _RF_DAILY (small negative drift across the
+        # board) must also trigger the GMV fallback, not just the mu==0 case.
+        rng = np.random.default_rng(8)
+        X = rng.normal(0, [0.01, 0.02, 0.03], (200, 3))
+        mu = np.array([-0.0005, -0.0003, -0.0001])  # all << _RF_DAILY
+        Sigma = np.cov(X.T) + np.eye(3) * 1e-8
+
+        w_sharpe = _max_sharpe(mu, Sigma, 3, cap=_CAP_DEFAULT)
+        w_gmv = _gmv(Sigma, 3, cap=_CAP_DEFAULT)
+
+        assert w_sharpe is not None
+        assert w_gmv is not None
+        np.testing.assert_allclose(w_sharpe, w_gmv)
+
 
 # ---------------------------------------------------------------------------
 # Section 8 — TestMaxExpectedReturn

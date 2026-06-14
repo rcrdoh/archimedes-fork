@@ -327,7 +327,20 @@ def _max_sharpe(
     n: int,
     cap: float,
 ) -> np.ndarray | None:
-    """Max Sharpe: maximize (μ-rf)'w / sqrt(w'Σw)  s.t. 1'w=1, 0 ≤ w ≤ cap."""
+    """Max Sharpe: maximize (μ-rf)'w / sqrt(w'Σw)  s.t. 1'w=1, 0 ≤ w ≤ cap.
+
+    Bearish-market guard: when every asset's expected return is at or below
+    the risk-free rate (``max(mu) <= _RF_DAILY``), the numerator ``w·μ - rf``
+    is <= 0 for every feasible w. Minimizing ``-(excess / vol)`` with
+    excess <= 0 then PUSHES vol UP (toward the least-negative ratio) — the
+    solver deliberately picks the highest-volatility corner of the simplex,
+    the opposite of prudent during a downturn. Short-circuit to the Global
+    Minimum Variance portfolio instead, which is the textbook fallback when
+    no asset offers a positive risk premium.
+    """
+    if float(np.max(mu)) <= _RF_DAILY:
+        return _gmv(Sigma, n, cap)
+
     w0 = np.ones(n) / n
     constraints = [{"type": "eq", "fun": lambda w: float(np.sum(w)) - 1.0}]
     bounds = [(0.0, cap)] * n
