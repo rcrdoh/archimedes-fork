@@ -75,14 +75,17 @@ contract VaultTest is Test {
         // Create AMM pool for USDC/sTSLA
         router.createPool(address(usdc), address(sTSLA));
 
-        // Create a vault as agent (Tier 1)
+        // Create a vault as agent (Tier 1).
+        // Pass address(0) for _vaultOwner so the contract defaults to msg.sender
+        // (agent), preserving pre-B1 behaviour for the shared setUp vault.
         vm.prank(agent);
         address vaultAddr = factory.createVault(
             "Momentum Alpha",
             "vMOM",
             150,   // 1.5% management fee
             2000,  // 20% performance fee
-            true   // agent assisted
+            true,  // agent assisted
+            address(0) // _vaultOwner: default to msg.sender (agent)
         );
         vault = Vault(payable(vaultAddr));
 
@@ -501,10 +504,10 @@ contract VaultTest is Test {
         address distinctAgent = address(0xA9E27);
 
         vm.prank(creator);
-        address vaultAddr = factory.createVault("T", "T", 0, 0, true);
+        address vaultAddr = factory.createVault("T", "T", 0, 0, true, address(0));
         Vault v = Vault(payable(vaultAddr));
 
-        vm.prank(creator); // creator == Ownable owner
+        vm.prank(creator); // creator == Ownable owner (address(0) defaults to msg.sender)
         v.setAgent(distinctAgent);
 
         address[] memory tokens = new address[](1);
@@ -907,7 +910,7 @@ contract VaultTest is Test {
 
     function test_factory_create_tier1() public {
         vm.prank(agent);
-        address v = factory.createVault("Tier1 Vault", "vT1", 100, 1000, true);
+        address v = factory.createVault("Tier1 Vault", "vT1", 100, 1000, true, address(0));
 
         assertEq(Vault(payable(v)).tier(), 1);
         assertEq(Vault(payable(v)).creator(), agent);
@@ -915,7 +918,7 @@ contract VaultTest is Test {
 
     function test_factory_create_tier2() public {
         vm.prank(alice);
-        address v = factory.createVault("Community Vault", "vCOM", 200, 1500, false);
+        address v = factory.createVault("Community Vault", "vCOM", 200, 1500, false, address(0));
 
         assertEq(Vault(payable(v)).tier(), 2);
         assertEq(Vault(payable(v)).creator(), alice);
@@ -923,10 +926,10 @@ contract VaultTest is Test {
 
     function test_factory_getVaults() public {
         vm.prank(agent);
-        factory.createVault("V1", "v1", 100, 1000, true);
+        factory.createVault("V1", "v1", 100, 1000, true, address(0));
 
         vm.prank(alice);
-        factory.createVault("V2", "v2", 200, 1500, false);
+        factory.createVault("V2", "v2", 200, 1500, false, address(0));
 
         address[] memory vaults = factory.getVaults();
         assertEq(vaults.length, 3); // 1 from setUp + 2 new
@@ -934,7 +937,7 @@ contract VaultTest is Test {
 
     function test_factory_getVaultsByCreator() public {
         vm.prank(alice);
-        factory.createVault("Alice Vault", "vAL", 200, 1500, false);
+        factory.createVault("Alice Vault", "vAL", 200, 1500, false, address(0));
 
         address[] memory aliceVaults = factory.getVaultsByCreator(alice);
         assertEq(aliceVaults.length, 1);
@@ -947,8 +950,27 @@ contract VaultTest is Test {
         assertEq(factory.vaultCount(), 1); // from setUp
 
         vm.prank(alice);
-        factory.createVault("V2", "v2", 200, 1500, false);
+        factory.createVault("V2", "v2", 200, 1500, false, address(0));
         assertEq(factory.vaultCount(), 2);
+    }
+
+    /// @dev B1 (AUDIT 2026-06-14): when an explicit governance address is passed,
+    ///      it becomes the vault owner — not the creator/msg.sender. The
+    ///      onlyOwner guards (setTokenOracles, setMaxSlippageBps, pause) are now
+    ///      exercisable by the cold governance key and NOT by the agent/creator.
+    function test_vault_owner_separate_from_creator() public {
+        address governance = address(0xABCD);
+
+        vm.prank(agent);
+        address vaultAddr = factory.createVault("Gov Vault", "vGOV", 0, 0, true, governance);
+        Vault v = Vault(payable(vaultAddr));
+
+        // Governance key is the Ownable owner
+        assertEq(v.owner(), governance);
+        // Creator is still the agent (for Tier 1 detection and fee accrual)
+        assertEq(v.creator(), agent);
+        // owner != creator — this is the B1 invariant
+        assertNotEq(v.owner(), v.creator());
     }
 
     function test_factory_agentAddress() public view {

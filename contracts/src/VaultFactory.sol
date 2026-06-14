@@ -47,22 +47,29 @@ contract VaultFactory is IVaultFactory, Ownable {
         string calldata symbol,
         uint16 managementFeeBps,
         uint16 performanceFeeBps,
-        bool agentAssisted
+        bool agentAssisted,
+        address _vaultOwner // explicit owner; address(0) defaults to msg.sender
     ) external override returns (address vault) {
         // Tier determination: agent address creates Tier 1, anyone else creates Tier 2
         uint8 vaultTier = msg.sender == agentAddress ? uint8(1) : uint8(2);
 
+        // Resolve owner: explicit governance key preferred; fall back to msg.sender.
+        // This separates Ownable admin rights (setTokenOracles, setMaxSlippageBps, pause)
+        // from the creator role (Tier 1 detection, fee accrual, rebalance authority).
+        address resolvedOwner = _vaultOwner != address(0) ? _vaultOwner : msg.sender;
+
         Vault newVault = new Vault(
             usdc,
             ammRouter,
-            msg.sender,
+            msg.sender, // creator (unchanged — determines tier, receives fees)
             vaultTier,
             managementFeeBps,
             performanceFeeBps,
             agentAssisted,
             platformFeeRecipient,
             name,
-            symbol
+            symbol,
+            resolvedOwner // owner separate from creator (AUDIT B1)
         );
 
         vault = address(newVault);

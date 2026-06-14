@@ -125,8 +125,9 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
         bool _agentAssisted,
         address _platformFeeRecipient,
         string memory _name,
-        string memory _symbol
-    ) ERC20(_name, _symbol) Ownable(_creator) {
+        string memory _symbol,
+        address _owner // NEW: explicit Ownable owner; may differ from creator
+    ) ERC20(_name, _symbol) Ownable(_owner) {
         asset = _usdc;
         ammRouter = IAMMRouter(_ammRouter);
         creator = _creator;
