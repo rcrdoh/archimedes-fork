@@ -523,6 +523,8 @@ async def execute_smoke_test(wallet_key: str | None = None) -> None:
 
     for poll in range(MAX_POLLS):
         try:
+            # PERF: synchronous urllib in a polling loop is fine here — this is an
+            # E2E smoke-test script bounded by MAX_POLLS, not production code.
             import urllib.request
 
             req = urllib.request.Request(f"{API_BASE}/api/traces/?limit=5&vault={vault_address}")

@@ -258,6 +258,8 @@ async def parameter_sweep(req: ParameterSweepRequest) -> dict:
         c_val = int(p.get(req.param2_name, 0))
         cell_lookup[(r_val, c_val)] = cell.get("metric_value", 0.0)
 
+    # PERF: O(R*C) dense matrix build — bounded by the 25x25 (625-cell) sweep
+    # schema cap, so this stays well under 1ms.
     grid_2d = [[cell_lookup.get((r, c), 0.0) for c in cols] for r in rows]
 
     return {

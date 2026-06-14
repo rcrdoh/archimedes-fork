@@ -64,6 +64,8 @@ class WalkForwardResult:
 
 
 def _expand_grid(param_grid: dict[str, list[Any]]) -> list[dict[str, Any]]:
+    # PERF: full Cartesian product, O(prod(len(v) for v in param_grid.values())) —
+    # callers are expected to bound param_grid size before calling this.
     keys = list(param_grid.keys())
     return [dict(zip(keys, values, strict=True)) for values in product(*(param_grid[k] for k in keys))]
 
