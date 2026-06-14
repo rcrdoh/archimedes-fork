@@ -81,7 +81,7 @@ class PBOResponse(BaseModel):
 async def evaluate_rigor_gate():
     """Evaluate the rigor gate for all strategies in the library.
 
-    Runs three statistical primitives (DSR, PBO, walk-forward OOS Sharpe)
+    Runs three statistical primitives (DSR, PBO, chronological OOS Sharpe)
     plus the look-ahead static audit for each strategy.
 
     CPCV (Combinatorial Purged Cross-Validation) is implemented in

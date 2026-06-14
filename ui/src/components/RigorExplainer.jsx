@@ -6,7 +6,7 @@
  * these tests matter and how we use them.
  *
  * Per docs/specs/selection-bias-corrections-spec.md: every Tier-1 strategy
- * must pass DSR, PBO, walk-forward OOS Sharpe, and look-ahead audit.
+ * must pass DSR, PBO, chronological OOS Sharpe, and look-ahead audit.
  */
 export default function RigorExplainer() {
   return (
@@ -128,7 +128,7 @@ export default function RigorExplainer() {
               Both Tier-1 strategies: PBO ≈ 39%
             </div>
             <div className="caption" style={{ color: 'var(--text-3)' }}>
-              They outperform their own OOS median in 61% of walk-forward splits —
+              They outperform their own OOS median in 61% of OOS hold-out splits —
               consistent, not cherry-picked.
             </div>
           </div>

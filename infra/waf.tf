@@ -48,13 +48,9 @@ resource "aws_wafv2_web_acl" "main" {
     priority = 10
 
     override_action {
-      count {} # COUNT mode — observe before blocking
+      none {} # BLOCK mode active (AUDIT I4)
     }
 
-    # COUNT mode for initial rollout (24-48h observation).
-    # Core+SQLi will likely false-positive on LLM endpoints — users
-    # pasting prompts with SQL-like words ("select top strategies by sharpe")
-    # trip these rules. Flip to none {} (BLOCK) after observation period.
     statement {
       managed_rule_group_statement {
         vendor_name = "AWS"
@@ -74,7 +70,7 @@ resource "aws_wafv2_web_acl" "main" {
     priority = 20
 
     override_action {
-      count {} # COUNT mode — observe before blocking
+      none {} # BLOCK mode active (AUDIT I4)
     }
 
     statement {
@@ -118,7 +114,9 @@ resource "aws_wafv2_web_acl" "main" {
     priority = 40
 
     override_action {
-      count {} # COUNT mode — LLM prompts with SQL-like words will false-positive
+      # COUNT mode — SQLi rules false-positive on LLM prompts; flip to BLOCK after
+      # adding URI path exclusions for /api/strategies/generate and /api/chat.
+      count {}
     }
 
     statement {

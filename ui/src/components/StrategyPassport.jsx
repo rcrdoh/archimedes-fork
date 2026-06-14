@@ -309,7 +309,7 @@ export default function StrategyPassport({ strategyId, onNavigate, walletAddr })
           The Deflated Sharpe Ratio corrects the realized Sharpe for multiple-testing
           inflation (Bailey & López de Prado 2014). PBO estimates how much of the
           in-sample Sharpe is overfit (Bailey et al. 2014). OOS Sharpe is the
-          walk-forward out-of-sample number. A strategy passes the rigor gate only
+          chronological out-of-sample number. A strategy passes the rigor gate only
           when all three signals align.
         </p>
       </div>

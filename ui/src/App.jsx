@@ -235,7 +235,7 @@ export default function App() {
               Interactive risk, optimization, and backtest visualizations. These
               panels render with illustrative sample data until wired to a live
               vault or backtest — the math (VaR/CVaR, rolling Sharpe, Kelly,
-              drawdown, walk-forward) is computed client-side from the series shown.
+              drawdown, chronological OOS) is computed client-side from the series shown.
             </p>
           </div>
           <RiskAnalysis />

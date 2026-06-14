@@ -1,4 +1,4 @@
-// BacktestVisualizer — equity+drawdown dual chart, walk-forward IS/OOS bands,
+// BacktestVisualizer — equity+drawdown dual chart, chronological IS/OOS bands,
 // parameter-sweep heatmap, filterable trade log, and rolling-stat confidence
 // band. Renders standalone with mock defaults; accepts real props.
 //
@@ -404,8 +404,8 @@ export default function BacktestVisualizer({ result, strategyId, weights } = {})
           Backtest Visualizer
         </h2>
         <p className="body">
-          The full diagnostic surface behind a strategy passport: equity and drawdown, walk-forward
-          stability, parameter robustness, the rebalance log, and the statistical-significance band on
+          The full diagnostic surface behind a strategy passport: equity and drawdown, chronological
+          OOS stability, parameter robustness, the rebalance log, and the statistical-significance band on
           rolling performance.
         </p>
       </div>

@@ -291,7 +291,7 @@ export default function PortfolioAdvisor({ initialRiskProfile = 'moderate' } = {
               </div>
               <p className="caption" style={{ marginTop: 12, color: 'var(--text-4)', lineHeight: 1.5 }}>
                 Deflated Sharpe (Bailey & López de Prado 2014) discounts multiple-testing inflation;
-                PBO (Bailey et al. 2014) estimates backtest-overfitting probability; walk-forward OOS
+                PBO (Bailey et al. 2014) estimates backtest-overfitting probability; chronological OOS
                 tests out-of-sample stability. Mean DSR p-value: {fmt(data.rigor_summary.avg_dsr_p_value, 3)},
                 mean PBO: {fmt(data.rigor_summary.avg_pbo_score, 3)}.
               </p>
