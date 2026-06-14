@@ -169,7 +169,9 @@ contract SyntheticVault is Ownable, ReentrancyGuard {
         uint256 usdcValue = (synthAmount * assetPrice) / (10 ** SYNTH_DECIMALS);
 
         // Mirror burn()'s pro-rata solvency cap so preview == actual under stress.
-        uint256 available = usdc.balanceOf(address(this)) - protocolFees;
+        // Safe subtraction: clamp to 0 in the contrived case protocolFees > balance.
+        uint256 _previewBal = usdc.balanceOf(address(this));
+        uint256 available = _previewBal > protocolFees ? _previewBal - protocolFees : 0;
         uint256 totalLiability = (synthToken.totalSupply() * assetPrice) / (10 ** SYNTH_DECIMALS);
         if (totalLiability > available) {
             usdcValue = (usdcValue * available) / totalLiability;
@@ -180,7 +182,8 @@ contract SyntheticVault is Ownable, ReentrancyGuard {
     }
 
     function totalCollateral() external view returns (uint256) {
-        return usdc.balanceOf(address(this)) - protocolFees;
+        uint256 _bal = usdc.balanceOf(address(this));
+        return _bal > protocolFees ? _bal - protocolFees : 0;
     }
 
     function vaultCollateralization() external view returns (uint256) {
@@ -188,7 +191,8 @@ contract SyntheticVault is Ownable, ReentrancyGuard {
         if (totalSynth == 0) return type(uint256).max;
         uint256 assetPrice = oracle.getPrice();
         uint256 totalBacking = (totalSynth * assetPrice) / (10 ** SYNTH_DECIMALS);
-        uint256 collateral = usdc.balanceOf(address(this)) - protocolFees;
+        uint256 _colBal = usdc.balanceOf(address(this));
+        uint256 collateral = _colBal > protocolFees ? _colBal - protocolFees : 0;
         return (collateral * BPS) / totalBacking;
     }
 
