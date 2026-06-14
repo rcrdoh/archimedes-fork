@@ -102,22 +102,26 @@ resource "aws_security_group" "archimedes" {
   # infra-setup.md), which needs no inbound port. Port 22 open to 0.0.0.0/0 on a
   # funds-holding host was unused attack surface — removed per audit finding #12.
 
-  # HTTP
+  # HTTP — restricted to ALB VPC CIDR (10.0.0.0/16) only.
+  # EC2 (default VPC 172.31.0.0/16) and ALB (aws_vpc.main 10.0.0.0/16) are in
+  # separate VPCs connected by VPC peering. SG references can't span VPCs, so
+  # we use the ALB VPC CIDR to block direct internet access to the EC2's nginx
+  # and force all traffic through the ALB/WAF. (AUDIT I1)
   ingress {
-    description = "HTTP"
+    description = "HTTP from ALB VPC only"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["10.0.0.0/16"]
   }
 
-  # HTTPS
+  # HTTPS — restricted to ALB VPC CIDR (10.0.0.0/16) only. Same rationale as HTTP above.
   ingress {
-    description = "HTTPS"
+    description = "HTTPS from ALB VPC only"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["10.0.0.0/16"]
   }
 
   # Ports 8000 (FastAPI), 3000 (Next.js dev), 5432 (Postgres), 6379 (Redis)
