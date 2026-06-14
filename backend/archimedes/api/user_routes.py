@@ -91,8 +91,9 @@ async def get_profile(wallet: str, request: Request):
     """Retrieve a wallet's profile. Returns 404 if not set.
 
     PII fields (email, display_name, marketing_opt_in) are only included
-    when the caller's wallet (from X-Wallet-Address header) matches the
-    requested profile wallet.
+    when the caller holds a verified SIWE session for the requested
+    profile wallet. The X-Wallet-Address header is not used for this
+    check — it is forgeable (see Issue #402).
     """
     session: Session = get_session()
     try:
