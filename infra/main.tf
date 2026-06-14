@@ -5,11 +5,11 @@ terraform {
   # Bootstrap: S3 bucket created out-of-band via AWS CLI.
   # See infra/README.md for the bootstrap commands.
   backend "s3" {
-    bucket         = "archimedes-tfstate-159903201072"
-    key            = "infra/terraform.tfstate"
-    region         = "eu-west-2"
-    encrypt        = true
-    use_lockfile   = true  # S3-native locking (Terraform 1.10+), no DynamoDB needed
+    bucket       = "archimedes-tfstate-159903201072"
+    key          = "infra/terraform.tfstate"
+    region       = "eu-west-2"
+    encrypt      = true
+    use_lockfile = true # S3-native locking (Terraform 1.10+), no DynamoDB needed
   }
 
   required_providers {
@@ -153,6 +153,14 @@ resource "aws_instance" "archimedes" {
     volume_size           = 20
     volume_type           = "gp3"
     delete_on_termination = true
+    # Encrypt at rest (audit 2026-06-14): the root volume holds /opt/archimedes/.env
+    # (Postgres password, DATABASE_URL), SSM-pulled secrets in process/tmp, and
+    # Docker layers. Aurora + ElastiCache were already encrypted; this closes the
+    # last unencrypted store on the funds-hosting box.
+    # NOTE: applying this forces EC2 instance REPLACEMENT — coordinate with a
+    # human-credentialed `terraform plan` (or set account-level EBS default
+    # encryption to avoid replacement). Merge alone changes nothing (no CI apply).
+    encrypted = true
   }
 
   user_data = templatefile("${path.module}/user-data.sh", {
