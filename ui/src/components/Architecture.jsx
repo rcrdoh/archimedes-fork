@@ -12,7 +12,7 @@ const AGENTS = [
       { name: 'Paper Retrieval', detail: 'SPECTER2 nearest-neighbour + KG entity walk' },
       { name: 'Market Context', detail: 'Regime classifier + on-chain oracle + price history' },
       { name: 'Strategy Synthesis', detail: 'LLM fusion: brief × papers × market' },
-      { name: 'Rigor Gate', detail: 'DSR + PBO + walk-forward OOS + look-ahead audit' },
+      { name: 'Rigor Gate', detail: 'DSR + PBO + chronological OOS + look-ahead audit' },
     ],
     output: 'Strategy passport with paper anchors + rigor verdict',
     authority: 'None — pure synthesis',

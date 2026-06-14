@@ -748,7 +748,7 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
                       backtest window is needed for DSR / PBO to score them).
                     </p>
                     <p className="caption" style={{ color: 'var(--text-3)' }}>
-                      The Library is a quality filter — only strategies that pass DSR + PBO + walk-forward OOS
+                      The Library is a quality filter — only strategies that pass DSR + PBO + chronological OOS
                       + look-ahead audit are surfaced here. That's the wedge.
                     </p>
                   </div>
@@ -786,7 +786,7 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
                 <div style={{ marginTop: 12 }}>
                   <p className="caption mb-3" style={{ color: 'var(--text-3)', fontSize: '0.82rem' }}>
                     These candidates were generated but failed at least one rigor check (DSR, PBO,
-                    walk-forward OOS, or look-ahead audit). Most rejections at this stage are
+                    chronological OOS, or look-ahead audit). Most rejections at this stage are
                     "return series too short" — the agent generated a strategy but there isn't
                     enough backtest history yet to compute DSR / PBO with statistical confidence.
                     A longer backtest window typically unlocks them.
