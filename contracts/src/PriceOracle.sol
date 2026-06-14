@@ -35,6 +35,12 @@ contract PriceOracle is Ownable {
     /// @notice Basis-point denominator (100% = 10_000 bps)
     uint256 public constant BPS_DENOMINATOR = 10_000;
 
+    /// @notice Hard cap on single forceSetPrice moves (900% = 10× max change per call).
+    ///         Prevents pathological oracle manipulation; legitimate >10× gaps require
+    ///         two sequential calls. Unlike setPrice's maxDeviationBps this constant is
+    ///         not owner-configurable — it exists precisely to bound a compromised key.
+    uint256 public constant FORCE_MAX_DEVIATION_BPS = 90_000;
+
     event PriceUpdated(uint256 oldPrice, uint256 newPrice, uint256 timestamp);
     event PriceForced(uint256 oldPrice, uint256 newPrice, uint256 timestamp);
     event MaxDeviationBpsChanged(uint256 oldBps, uint256 newBps);
@@ -80,12 +86,19 @@ contract PriceOracle is Ownable {
     }
 
     /// @notice Emergency override — owner-only escape hatch for legitimately
-    ///         gapped markets (e.g. a >maxDeviationBps overnight move). Skips
-    ///         the deviation bound but still rejects zero. Emits a distinct
-    ///         event so forced updates are auditable on-chain.
+    ///         gapped markets (e.g. a >maxDeviationBps overnight move). Bounded
+    ///         by FORCE_MAX_DEVIATION_BPS (900% / 10×) when a prior price exists;
+    ///         a legitimate >10× gap requires two sequential calls. Emits a
+    ///         distinct event so forced updates are auditable on-chain.
     function forceSetPrice(uint256 _newPrice) external onlyOwner {
         if (_newPrice == 0) revert ZeroPrice();
         uint256 oldPrice = price;
+        if (oldPrice != 0) {
+            uint256 diff = _newPrice > oldPrice ? _newPrice - oldPrice : oldPrice - _newPrice;
+            if (diff * BPS_DENOMINATOR > oldPrice * FORCE_MAX_DEVIATION_BPS) {
+                revert PriceDeviationTooLarge(oldPrice, _newPrice, FORCE_MAX_DEVIATION_BPS);
+            }
+        }
         price = _newPrice;
         lastUpdated = block.timestamp;
         emit PriceForced(oldPrice, _newPrice, block.timestamp);
