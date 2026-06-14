@@ -137,6 +137,27 @@ contract ReasoningTraceRegistryTest is Test {
         assertEq(hashes.length, 0);
     }
 
+    /// @dev audit 2026-06-14: a `from` past the end used to clamp `from =
+    ///      ids.length` and then underflow `to - from`, reverting with a panic
+    ///      instead of returning an empty array. An out-of-range start must now
+    ///      return empty cleanly so pagination / verifiers don't see a fake revert.
+    function test_getTraces_from_out_of_range_returns_empty() public {
+        vm.prank(agent1);
+        registry.publishTrace(vault1, keccak256("only trace"), "");
+
+        // agent1 has exactly 1 trace (index 0). A start at/after the end is empty.
+        bytes32[] memory past = registry.getTraces(agent1, 5, 10);
+        assertEq(past.length, 0);
+
+        // from == length (1) with to beyond end: previously panicked, now empty.
+        bytes32[] memory atEnd = registry.getTraces(agent1, 1, 3);
+        assertEq(atEnd.length, 0);
+
+        // A valid query still returns the trace (to clamps to the last index).
+        bytes32[] memory valid = registry.getTraces(agent1, 0, 99);
+        assertEq(valid.length, 1);
+    }
+
     // ─── Get Trace by ID ─────────────────────────────────────────────
 
     function test_getTraceById() public {

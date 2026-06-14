@@ -221,8 +221,10 @@ contract ReasoningTraceRegistry is IReasoningTraceRegistry, Ownable {
         uint256[] storage ids = _agentTraces[agent];
         if (ids.length == 0 || from > to) return new bytes32[](0);
 
-        // Clamp range
-        if (from >= ids.length) from = ids.length;
+        // An out-of-range start has no results — return empty. (Previously this
+        // clamped `from = ids.length`, which then made `to - from` underflow and
+        // revert with a panic on any query past the end. audit 2026-06-14)
+        if (from >= ids.length) return new bytes32[](0);
         if (to >= ids.length) to = ids.length - 1;
 
         uint256 count = to - from + 1;

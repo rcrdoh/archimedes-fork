@@ -218,6 +218,33 @@ contract SyntheticVaultTest is Test {
         vault.mint(1000 * 10**6);
     }
 
+    /// @dev audit 2026-06-14: integer division can make synthAmount round to 0
+    ///      (dust deposit at a very high price). The user must not pay USDC +
+    ///      mint fee and receive zero synth — mint now reverts ZeroAmount.
+    ///      Reproduce with an extreme-price oracle so 1 USDC-unit yields 0 synth:
+    ///      synthAmount = netUsdc*1e18*BPS / (assetPrice*collateralRatio) == 0.
+    function test_revert_mint_dust_rounds_to_zero_synth() public {
+        // assetPrice * collateralRatio must exceed netUsdc * 1e18 * 1e4 for a
+        // 1-unit deposit. With collateralRatio 12000, price > ~8.3e17 suffices.
+        uint256 hugePrice = 1e21; // 1e21 * 12000 = 1.2e25 > 1*1e22
+        SyntheticToken dustSynth = new SyntheticToken("Dust", "DUST", owner);
+        PriceOracle dustOracle = new PriceOracle("DUST", hugePrice, owner);
+        SyntheticVault dustVault = new SyntheticVault(
+            address(usdc),
+            address(dustSynth),
+            address(dustOracle),
+            owner
+        );
+        vm.prank(owner);
+        dustSynth.setVault(address(dustVault));
+
+        vm.startPrank(alice);
+        usdc.approve(address(dustVault), 1);
+        vm.expectRevert(SyntheticVault.ZeroAmount.selector);
+        dustVault.mint(1); // 1 unit (1e-6 USDC) → rounds to 0 synth → revert
+        vm.stopPrank();
+    }
+
     // ─── Burn Tests ───────────────────────────────────────────────
 
     function test_burn_basic() public {

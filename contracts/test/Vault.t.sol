@@ -488,6 +488,41 @@ contract VaultTest is Test {
         vault.setMaxSlippageBps(501);
     }
 
+    // ─── setTokenOracles is owner-only (audit 2026-06-14) ────────────
+    /// @dev The agent must not be able to redefine the oracles that feed the
+    ///      rebalance slippage floor (_oracleMinOut); otherwise a compromised
+    ///      agent could point a token at a self-serving oracle and route swaps
+    ///      that leak vault value. This test builds a vault whose agent is
+    ///      DISTINCT from the creator/owner so it actually distinguishes
+    ///      onlyOwner from the old onlyManager (under which the agent could set
+    ///      oracles). In the shared setUp, agent == creator == owner.
+    function test_revert_setTokenOracles_agent_cannot_set() public {
+        address creator = address(0xC0FFEE);
+        address distinctAgent = address(0xA9E27);
+
+        vm.prank(creator);
+        address vaultAddr = factory.createVault("T", "T", 0, 0, true);
+        Vault v = Vault(payable(vaultAddr));
+
+        vm.prank(creator); // creator == Ownable owner
+        v.setAgent(distinctAgent);
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(sTSLA);
+        address[] memory oracles = new address[](1);
+        oracles[0] = address(tslaOracle);
+
+        // Under the old onlyManager this SUCCEEDED (agent is a manager); under
+        // onlyOwner it must revert.
+        vm.prank(distinctAgent);
+        vm.expectRevert();
+        v.setTokenOracles(tokens, oracles);
+
+        // The creator/owner can still set oracles.
+        vm.prank(creator);
+        v.setTokenOracles(tokens, oracles);
+    }
+
     function test_revert_setMaxSlippageBps_unauthorized() public {
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, bob));

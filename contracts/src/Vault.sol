@@ -385,10 +385,17 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
 
     /// @notice Set oracle addresses for held tokens (needed for NAV pricing).
     ///         Must be called before rebalance so totalAssets() is accurate.
+    /// @dev onlyOwner (creator), NOT onlyManager — the agent must not be able to
+    ///      redefine the oracles that feed the rebalance slippage floor
+    ///      (_oracleMinOut). Otherwise a compromised agent could point a token at
+    ///      a self-serving oracle, set minAmountOut ≈ 0, and route swaps that
+    ///      leak vault value — defeating the "agent has rebalance-only authority"
+    ///      invariant. Consistent with setMaxSlippageBps being owner-only.
+    ///      (audit 2026-06-14)
     function setTokenOracles(
         address[] calldata tokens,
         address[] calldata oracles
-    ) external override onlyManager {
+    ) external override onlyOwner {
         if (tokens.length != oracles.length) revert InvalidAllocations();
         for (uint256 i = 0; i < tokens.length; i++) {
             tokenOracle[tokens[i]] = oracles[i];

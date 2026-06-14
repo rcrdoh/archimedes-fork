@@ -74,6 +74,12 @@ contract SyntheticVault is Ownable, ReentrancyGuard {
         uint256 synthAmount = (netUsdc * (10 ** SYNTH_DECIMALS) * BPS) /
                               (assetPrice * collateralRatio);
 
+        // Reject dust deposits that round to zero synth: integer division can
+        // make synthAmount == 0 for a tiny amount at a high price, in which case
+        // the user would pay USDC (including the mint fee) and receive nothing.
+        // (audit 2026-06-14)
+        if (synthAmount == 0) revert ZeroAmount();
+
         usdc.safeTransferFrom(msg.sender, address(this), amountUsdc);
         protocolFees += fee;
         synthToken.mint(msg.sender, synthAmount);
