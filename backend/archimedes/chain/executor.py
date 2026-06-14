@@ -7,7 +7,6 @@ Handles reading portfolio state, executing rebalance trades, and vault creation.
 from __future__ import annotations
 
 import logging
-import os
 
 from web3.contract import AsyncContract
 
@@ -280,30 +279,19 @@ class ChainExecutor:
         management_fee_bps: int,
         performance_fee_bps: int,
         agent_assisted: bool,
-        vault_governance_address: str | None = None,
     ) -> str:
         """Deploy a new vault via VaultFactory.
 
         Uses Circle dev-controlled wallet if configured, falls back to raw private key.
-
-        Args:
-            vault_governance_address: Optional cold governance key that will own the vault
-                (onlyOwner admin: setTokenOracles, setMaxSlippageBps, pause).
-                If None, falls back to VAULT_GOVERNANCE_ADDRESS env var, then to "" which
-                causes the contract to default to msg.sender — preserving the old behaviour.
         """
         factory = self.loader.vault_factory
-
-        # Governance address: separate cold key from the hot agent signer.
-        # If not set, falls back to the agent address (current behaviour — identical to before).
-        governance_addr = vault_governance_address or os.getenv("VAULT_GOVERNANCE_ADDRESS") or ""
 
         # Circle path
         if circle_signer.is_configured:
             tx_hash = await circle_signer.execute_contract(
                 contract_address=chain_client.settings.vault_factory_address,
-                abi_function="createVault(string,string,uint16,uint16,bool,address)",
-                abi_params=[name, symbol, management_fee_bps, performance_fee_bps, agent_assisted, governance_addr],
+                abi_function="createVault(string,string,uint16,uint16,bool)",
+                abi_params=[name, symbol, management_fee_bps, performance_fee_bps, agent_assisted],
             )
             logger.info(f"Vault created via Circle, tx: {tx_hash}")
 
@@ -328,7 +316,7 @@ class ChainExecutor:
         nonce = await chain_client.w3.eth.get_transaction_count(account.address)
 
         tx = await factory.functions.createVault(
-            name, symbol, management_fee_bps, performance_fee_bps, agent_assisted, governance_addr
+            name, symbol, management_fee_bps, performance_fee_bps, agent_assisted
         ).build_transaction(
             {
                 "from": account.address,

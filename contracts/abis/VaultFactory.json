@@ -84,11 +84,6 @@
         "name": "agentAssisted",
         "type": "bool",
         "internalType": "bool"
-      },
-      {
-        "name": "_vaultOwner",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "outputs": [

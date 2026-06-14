@@ -24,17 +24,13 @@ interface IVaultFactory {
     /// @param managementFeeBps Annual management fee in bps (e.g. 150 = 1.50%)
     /// @param performanceFeeBps Performance fee in bps above HWM (e.g. 2000 = 20%)
     /// @param agentAssisted Whether to opt into AI rebalancing
-    /// @param _vaultOwner Explicit owner of the Vault contract (onlyOwner admin functions).
-    ///                    Pass address(0) to default to msg.sender (backwards-compatible).
-    ///                    Pass a cold governance key to separate admin rights from the creator/agent.
     /// @return vault Address of the newly created Vault contract
     function createVault(
         string calldata name,
         string calldata symbol,
         uint16 managementFeeBps,
         uint16 performanceFeeBps,
-        bool agentAssisted,
-        address _vaultOwner
+        bool agentAssisted
     ) external returns (address vault);
 
     // ── Views ────────────────────────────────────────────────

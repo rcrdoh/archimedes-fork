@@ -130,8 +130,7 @@ contract DeployScript is Script {
                 "vMOM",
                 150,   // 1.5% management fee
                 2000,  // 20% performance fee
-                true,
-                address(0) // _vaultOwner: defaults to deployer/agent (set VAULT_GOVERNANCE_ADDRESS in env for prod)
+                true
             );
             console.log("Tier 1 vault:", tier1Vault);
 
