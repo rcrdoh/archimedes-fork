@@ -28,6 +28,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import math
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -292,27 +293,41 @@ def _rigor_verdict_for(
             "dsr": None,
             "pbo": None,
             "oos_sharpe": None,
+            "in_sample_sharpe": None,
             "lookahead_audit_passed": lookahead_passed,
             "passing": False,
             "reason": "return series too short for rigor evaluation",
         }
     from archimedes.services.rigor_evaluator import (
         compute_dsr,
+        compute_in_sample_sharpe,
         compute_oos_sharpe,
     )
 
     dsr, dsr_p = compute_dsr(return_series, num_trials=max(1, num_trials))
     oos = compute_oos_sharpe(return_series)
+    in_sample_sharpe = compute_in_sample_sharpe(return_series)
     # PBO is library-level (needs ≥2 candidate return series); the caller
     # computes it once over all candidates and patches the verdict below.
     # All four admission primitives gate `passing`: DSR (p ≥ 0.95), OOS Sharpe
-    # (> 0), look-ahead audit (clean), and PBO (< 0.5, patched in _patch_pbo).
-    passing = bool(dsr_p is not None and dsr_p >= 0.95 and oos is not None and oos > 0.0 and lookahead_passed)
+    # (> 0, with no IS/OOS cliff), look-ahead audit (clean), and PBO (< 0.5,
+    # patched in _patch_pbo).
+    oos_pass = oos is not None and oos > 0.0
+    if (
+        oos_pass
+        and in_sample_sharpe is not None
+        and math.isfinite(in_sample_sharpe)
+        and in_sample_sharpe > 0
+        and oos / in_sample_sharpe < 0.5
+    ):
+        oos_pass = False
+    passing = bool(dsr_p is not None and dsr_p >= 0.95 and oos_pass and lookahead_passed)
     return {
         "dsr": round(float(dsr), 4) if dsr is not None else None,
         "dsr_p_value": round(float(dsr_p), 4) if dsr_p is not None else None,
         "pbo": None,  # patched later by _patch_pbo
         "oos_sharpe": round(float(oos), 4) if oos is not None else None,
+        "in_sample_sharpe": round(float(in_sample_sharpe), 4) if in_sample_sharpe is not None else None,
         "lookahead_audit_passed": lookahead_passed,
         "passing": passing,
     }
@@ -475,13 +490,15 @@ async def _run_fixture_candidate(
         weights=weights,
         reasoning=f"Fixture path ({regime} regime) — no LLM call. Weights chosen by deterministic stub.",
         rigor_verdict={
-            "dsr": 0.71,
-            "pbo": 0.18,
-            "oos_sharpe": 0.94,
-            "lookahead_audit_passed": True,
-            "passing": True,
+            "dsr": None,
+            "pbo": None,
+            "oos_sharpe": None,
+            "in_sample_sharpe": None,
+            "lookahead_audit_passed": False,
+            "passing": False,
+            "reason": "fixture mode — no LLM call, rigor gate not run",
         },
-        passes_rigor=True,
+        passes_rigor=False,
         regime=regime,
     )
 
@@ -744,14 +761,19 @@ async def run_generation(
         runner: Callable[..., Awaitable[_CandidateResult]] = _run_live_candidate if use_live else _run_fixture_candidate
 
         # Library is the candidate pool the agent reasons over; surface it so
-        # the UI can show "agent is considering N papers".
+        # the UI can show "agent is considering N papers". Its size also feeds
+        # the DSR multiple-testing correction below (selection-bias-corrections-
+        # spec.md § 1.3) — num_trials must be the size of the selection set the
+        # winner was chosen from, not 1.
         try:
             from archimedes.services.strategy_provider import default_provider
 
             lib = default_provider().list_strategies()
             arxiv_ids = [s.paper_arxiv_id for s in lib if getattr(s, "paper_arxiv_id", None)]
+            library_size = max(1, len(lib))
         except Exception:
             arxiv_ids = []
+            library_size = 1
         await emit.emit(
             "candidates_selected",
             candidate_count=len(regimes),
@@ -854,7 +876,9 @@ async def run_generation(
         # regime variants in parallel (yfinance + numpy is I/O-bound), then
         # upsert the BacktestResult row + updated passport metrics so the
         # next /api/strategies/ read surfaces empirical Sharpe/DSR/PBO/OOS.
-        await asyncio.gather(*[_backtest_and_persist(c, strategy_ids[c.candidate_id], emit) for c in candidates])
+        await asyncio.gather(
+            *[_backtest_and_persist(c, strategy_ids[c.candidate_id], emit, library_size) for c in candidates]
+        )
 
         # ── Persist all candidates to episodic memory (T-PE.8) ──
         try:
@@ -987,7 +1011,7 @@ async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief) -> tuple
     return strategy_id, trace_hash
 
 
-async def _backtest_and_persist(c: _CandidateResult, strategy_id: str, emit: _Emitter) -> None:
+async def _backtest_and_persist(c: _CandidateResult, strategy_id: str, emit: _Emitter, num_trials: int = 1) -> None:
     """Backtest the generated strategy on real multi-year data and persist results.
 
     Closes the "Pending Backtest" gap on the Library page. The agent only
@@ -1008,6 +1032,8 @@ async def _backtest_and_persist(c: _CandidateResult, strategy_id: str, emit: _Em
         c: The candidate that was just persisted.
         strategy_id: The DB id returned by :func:`_persist_candidate`.
         emit: The SSE emitter to surface backtest progress to the UI.
+        num_trials: Curated-library size, fed to ``backtest_portfolio`` as
+            ``num_trials_for_dsr`` for the DSR multiple-testing correction.
     """
     # Fixture mode (offline tests, no-LLM environments) — skip the network
     # round-trip. The test suite covers this function's behavior via direct
@@ -1050,10 +1076,14 @@ async def _backtest_and_persist(c: _CandidateResult, strategy_id: str, emit: _Em
         from archimedes.services.portfolio_backtester import backtest_portfolio
 
         # Run the actual backtest. Raises on insufficient data / fetch failure.
+        # num_trials_for_dsr = curated-library size (selection-bias-corrections-
+        # spec.md § 1.3) — the DSR multiple-testing correction for the selection
+        # set this candidate was chosen from, not the default of 1.
         result, artifact = backtest_portfolio(
             strategy_id=strategy_id,
             weights=c.weights,
             paper_title=c.strategy_name,
+            num_trials_for_dsr=max(1, num_trials),
         )
         artifact_json = _json.dumps(artifact, default=str)
         content_hash = hashlib.sha256(artifact_json.encode("utf-8")).hexdigest()

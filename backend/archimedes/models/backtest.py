@@ -16,6 +16,7 @@ References:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -171,7 +172,31 @@ class BacktestResult:
             return False
         if self.out_of_sample_sharpe is None:
             return False
-        if self.sharpe_ratio > 0 and (self.out_of_sample_sharpe / self.sharpe_ratio < 0.5):
+        in_sample_sharpe = self._in_sample_sharpe()
+        if (
+            in_sample_sharpe is not None
+            and math.isfinite(in_sample_sharpe)
+            and in_sample_sharpe > 0
+            and self.out_of_sample_sharpe / in_sample_sharpe < 0.5
+        ):
             return False
         vs_paper = self.sharpe_vs_paper
         return not (vs_paper is not None and vs_paper < 0.5)
+
+    def _in_sample_sharpe(self) -> float | None:
+        """Annualized Sharpe on the in-sample (training) slice of equity_curve.
+
+        Mirrors RigorGateResult.passes_all's cliff check: the OOS/IS ratio must
+        compare like with like (both slices of the SAME series), not OOS against
+        the full-sample Sharpe (which already blends in the OOS tail and makes
+        the cliff trivially easy to pass). Returns None when equity_curve is too
+        short to split meaningfully (compute_in_sample_sharpe's own threshold).
+        """
+        from archimedes.services._rigor_helpers import compute_in_sample_sharpe
+
+        daily_returns = [
+            (self.equity_curve[i] - self.equity_curve[i - 1]) / self.equity_curve[i - 1]
+            for i in range(1, len(self.equity_curve))
+            if self.equity_curve[i - 1] > 0
+        ]
+        return compute_in_sample_sharpe(daily_returns, train_fraction=self.walk_forward_train_fraction)
