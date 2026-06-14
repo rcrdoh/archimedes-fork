@@ -158,8 +158,10 @@ contract AMMRouter is IAMMRouter, Ownable, ReentrancyGuard {
         // Approve pool to pull tokenIn
         IERC20(tokenIn).safeIncreaseAllowance(pool, amountIn);
 
-        // Execute swap — tokenOut comes to this contract
-        amountOut = AMMPool(pool).swap(tokenIn, amountIn, address(this));
+        // Execute swap — tokenOut comes to this contract.
+        // Pass 0 as minAmountOut: the router already enforces slippage above via
+        // the SlippageExceeded check on the returned amountOut.
+        amountOut = AMMPool(pool).swap(tokenIn, amountIn, address(this), 0);
 
         if (amountOut < minAmountOut) revert SlippageExceeded();
 
