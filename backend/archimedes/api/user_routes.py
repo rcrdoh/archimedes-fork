@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 
+from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
@@ -55,10 +56,19 @@ def _profile_to_response(p: UserProfile, *, owner: bool = False) -> UserProfileR
             marketing_opt_in=False,  # default-safe
         )
 
+    try:
+        email = decrypt_email(p.email)
+    except InvalidToken:
+        # Ciphertext can't be decrypted with the current EMAIL_ENCRYPTION_KEY
+        # (e.g. a key rotation left old tokens unreadable). Degrade to a null
+        # email rather than 500ing the whole profile for this wallet.
+        logger.warning("decrypt_email failed for wallet=%s: InvalidToken", p.wallet_address)
+        email = None
+
     return UserProfileResponse(
         wallet_address=p.wallet_address,
         display_name=p.display_name,
-        email=decrypt_email(p.email),
+        email=email,
         interests=interests,
         attribution=p.attribution,
         marketing_opt_in=p.marketing_opt_in,

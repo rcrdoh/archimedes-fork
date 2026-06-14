@@ -10,6 +10,7 @@ Auth model (Issue #181 + Issue #402):
 
 from __future__ import annotations
 
+import logging
 import time
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ import pytest
 from archimedes.api.auth_siwe import _COOKIE_NAME, _sign_session
 from archimedes.db import get_session
 from archimedes.models.user_profile import UserProfile
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 # Unique wallets per test to avoid slowapi rate-limit collisions.
@@ -26,6 +28,7 @@ _W_CHARLIE = "0x3333333333333333333333333333333333333333"
 _W_UPDATE = "0x4444444444444444444444444444444444444444"
 _W_MINIMAL = "0x0000000000000000000000000000000000000002"
 _W_CASE = "0x5555555555555555555555555555555555555555"
+_W_ROTATED_KEY = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
 
 def _siwe_cookies(wallet: str) -> dict[str, str]:
@@ -263,6 +266,59 @@ class TestUserProfileRoutes:
         )
         assert res.status_code == 200
         assert res.json()["email"] == "owner@example.com"
+
+    def test_owner_get_survives_undecryptable_email(self, client, caplog):
+        """GET /api/user/profile must not 500 when stored ciphertext can't be
+        decrypted with the current EMAIL_ENCRYPTION_KEY (e.g. after a key
+        rotation leaves old tokens unreadable).
+
+        Asserts: HTTP 200, email field is null, and a warning is logged
+        (without leaking the ciphertext or any decrypted value).
+        """
+        client.post(
+            "/api/user/profile",
+            json={
+                "wallet_address": _W_ROTATED_KEY,
+                "display_name": "RotatedKeyUser",
+                "email": "rotated@example.com",
+            },
+            cookies=_siwe_cookies(_W_ROTATED_KEY),
+        )
+
+        # Simulate a key rotation: overwrite the stored ciphertext with a
+        # token encrypted under a DIFFERENT Fernet key. This is
+        # well-formed Fernet ciphertext (so it parses) but raises
+        # InvalidToken when decrypted with the app's actual key.
+        other_key_token = Fernet(Fernet.generate_key()).encrypt(b"rotated@example.com").decode("utf-8")
+        session = get_session()
+        try:
+            profile = session.query(UserProfile).filter(UserProfile.wallet_address == _W_ROTATED_KEY.lower()).first()
+            assert profile is not None
+            profile.email = other_key_token
+            session.commit()
+        finally:
+            session.close()
+
+        with caplog.at_level(logging.WARNING, logger="archimedes.api.user_routes"):
+            res = client.get(
+                f"/api/user/profile/{_W_ROTATED_KEY}",
+                cookies=_siwe_cookies(_W_ROTATED_KEY),
+            )
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["email"] is None, "Undecryptable email must degrade to null, not 500"
+        assert data["display_name"] == "RotatedKeyUser", "Non-PII-encrypted fields must still be returned"
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("decrypt_email failed" in r.getMessage() for r in warnings), (
+            "Expected a warning log for the failed decrypt"
+        )
+        for r in warnings:
+            msg = r.getMessage()
+            assert other_key_token not in msg, "Warning must not leak ciphertext"
+            assert "rotated@example.com" not in msg, "Warning must not leak decrypted value"
+            assert _W_ROTATED_KEY.lower() in msg, "Warning should identify the affected wallet"
 
     def test_header_spoof_does_not_reveal_pii(self, client):
         """X-Wallet-Address header alone must NOT reveal PII — SIWE session required."""
