@@ -151,3 +151,57 @@ class TestReadEndpointsRegression:
         count = client.get(f"/api/vaults/{_VAULT_READ}/chat/count")
         assert count.status_code == 200
         assert count.json()["message_count"] == before + 2
+
+
+_VAULT_AI = "0x00000000000000000000000000000000000005ae"
+
+
+class TestArchimedesMentionBudgetGate:
+    """Audit 2026-06-14: an @archimedes mention triggers a paid Claude
+    completion. That AI-triggering branch is gated behind the same
+    REQUIRE_SIWE_FOR_GENERATION flag as the generation endpoints — default OFF
+    keeps chat open; ON requires a verified session to spend tokens.
+
+    The AI generator is stubbed so the "allowed" paths stay hermetic (no real
+    Anthropic call); the 401 path fires before post_message is even reached.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _stub_ai(self, monkeypatch):
+        from archimedes.services.chat_service import chat_service
+
+        monkeypatch.setattr(chat_service, "_generate_ai_response", lambda *a, **k: None)
+
+    def test_mention_blocked_without_session_when_flag_on(self, client, monkeypatch):
+        monkeypatch.setenv("REQUIRE_SIWE_FOR_GENERATION", "true")
+        res = client.post(
+            f"/api/vaults/{_VAULT_AI}/chat",
+            json={"wallet_address": _W_BODY, "message": "hey @archimedes rebalance me"},
+        )
+        assert res.status_code == 401, res.text
+        assert "sign in" in res.json()["detail"].lower()
+
+    def test_mention_allowed_with_session_when_flag_on(self, client, monkeypatch):
+        monkeypatch.setenv("REQUIRE_SIWE_FOR_GENERATION", "true")
+        res = client.post(
+            f"/api/vaults/{_VAULT_AI}/chat",
+            json={"message": "@archimedes status please"},
+            cookies=_siwe_cookies(_W_SESSION),
+        )
+        assert res.status_code == 200, res.text
+
+    def test_mention_open_when_flag_off(self, client, monkeypatch):
+        monkeypatch.delenv("REQUIRE_SIWE_FOR_GENERATION", raising=False)
+        res = client.post(
+            f"/api/vaults/{_VAULT_AI}/chat",
+            json={"wallet_address": _W_BODY, "message": "@archimedes hello (open mode)"},
+        )
+        assert res.status_code == 200, res.text
+
+    def test_non_mention_never_gated_even_when_flag_on(self, client, monkeypatch):
+        monkeypatch.setenv("REQUIRE_SIWE_FOR_GENERATION", "true")
+        res = client.post(
+            f"/api/vaults/{_VAULT_AI}/chat",
+            json={"wallet_address": _W_BODY, "message": "just chatting, no mention"},
+        )
+        assert res.status_code == 200, res.text

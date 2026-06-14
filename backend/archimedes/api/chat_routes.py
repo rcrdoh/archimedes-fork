@@ -22,7 +22,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from archimedes.api.auth_guard import require_internal_agent_key
-from archimedes.api.auth_siwe import get_verified_wallet
+from archimedes.api.auth_siwe import _generation_auth_required, get_verified_wallet
 from archimedes.api.limiter import limiter
 from archimedes.api.schemas import (
     ChatMessageListResponse,
@@ -90,6 +90,21 @@ async def post_chat_message(
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     if len(body.message) > 2000:
         raise HTTPException(status_code=400, detail="Message too long (max 2000 chars)")
+
+    # Budget-drain guard (audit 2026-06-14): an @archimedes mention triggers a
+    # paid Claude completion inside chat_service.post_message. This is the same
+    # class of unauthenticated paid-LLM vector that the generation endpoints
+    # close via gate_generation, but on a separate code path. Gate the
+    # AI-triggering branch behind the same REQUIRE_SIWE_FOR_GENERATION flag:
+    # default OFF preserves today's open chat (no flag-day risk); when ON, an
+    # anonymous caller can still chat but cannot spend tokens without a session.
+    # The mention test mirrors chat_service.post_message ("@archimedes" in lower).
+    triggers_ai = "@archimedes" in body.message.lower()
+    if triggers_ai and _generation_auth_required() and session_wallet is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Sign in with your wallet to mention @archimedes (AI responses require a verified session).",
+        )
 
     if session_wallet is not None:
         # SIWE-verified caller — session is the identity, not the body.
