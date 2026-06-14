@@ -129,6 +129,7 @@ jobs:
           EOF
 
       - name: Post or update PR comment
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v9
         with:
           script: |
