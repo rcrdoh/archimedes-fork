@@ -14,7 +14,7 @@ import {
   CIRCLE_PROVIDER_ID,
   USDC_DECIMALS,
 } from '../config'
-import { parseUnits } from 'viem'
+import { isAddress, parseUnits } from 'viem'
 import { executeUserOp, encodeCall } from '../circle-tx-executor'
 
 const ARCSCAN_TX = 'https://testnet.arcscan.app/tx'
@@ -122,6 +122,11 @@ function EoaDepositFlow({ vaultAddress, depositAmount = '100', strategy, onClose
     updateStep(0, 'status', WAITING)
     updateStep(0, 'error', null)
     try {
+      // Defense-in-depth (audit 2026-06-14): never route a USDC approve to an
+      // unvalidated spender. Mirrors the VaultDetail.jsx guard — DepositFlow is
+      // the primary funding modal and must not grant allowance to a malformed
+      // address if a future caller passes one.
+      if (!isAddress(vaultAddress)) throw new Error('Invalid vault address — refusing to send funds.')
       const walletClient = await getWalletClient()
       const parsedAmount = parseUnits(amount, USDC_DECIMALS)
       if (parsedAmount <= 0n) throw new Error('Amount must be greater than 0')
@@ -150,6 +155,7 @@ function EoaDepositFlow({ vaultAddress, depositAmount = '100', strategy, onClose
     updateStep(1, 'status', WAITING)
     updateStep(1, 'error', null)
     try {
+      if (!isAddress(vaultAddress)) throw new Error('Invalid vault address — refusing to send funds.')
       const walletClient = await getWalletClient()
       const userAddr = getAddress()
       if (!userAddr) throw new Error('Wallet address not available')
@@ -179,6 +185,7 @@ function EoaDepositFlow({ vaultAddress, depositAmount = '100', strategy, onClose
     updateStep(2, 'status', WAITING)
     updateStep(2, 'error', null)
     try {
+      if (!isAddress(vaultAddress)) throw new Error('Invalid vault address — refusing to send funds.')
       const walletClient = await getWalletClient()
       const { tokens, weights } = defaultAllocations()
 
@@ -407,6 +414,7 @@ function PasskeyDepositFlow({ vaultAddress, depositAmount = '100', strategy, onC
     setResult(null)
     setState('SIGNING')
     try {
+      if (!isAddress(vaultAddress)) throw new Error('Invalid vault address — refusing to send funds.')
       const smartAccount = getSmartAccount()
       const client = getSmartAccountClient()
       const userAddr = getAddress()

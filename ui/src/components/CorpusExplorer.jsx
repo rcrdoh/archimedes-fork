@@ -274,7 +274,12 @@ function PaperDetail({ paper, onBack }) {
   // Always derive an arxiv URL from the id — backend doesn't always populate
   // pdf_url, but arxiv.org/abs/{id} is canonical and always works.
   const arxivAbsUrl = paper.arxiv_id ? `https://arxiv.org/abs/${paper.arxiv_id}` : null
-  const arxivPdfUrl = paper.pdf_url || (paper.arxiv_id ? `https://arxiv.org/pdf/${paper.arxiv_id}` : null)
+  // Only trust a server-supplied pdf_url if it's an https:// URL — a polluted
+  // corpus record could otherwise inject a javascript:/phishing href into this
+  // button. Fall back to the canonical arxiv template. (audit 2026-06-14)
+  const safePdfUrl =
+    typeof paper.pdf_url === 'string' && /^https:\/\//i.test(paper.pdf_url) ? paper.pdf_url : null
+  const arxivPdfUrl = safePdfUrl || (paper.arxiv_id ? `https://arxiv.org/pdf/${paper.arxiv_id}` : null)
 
   return (
     <div className="corpus-explorer">
