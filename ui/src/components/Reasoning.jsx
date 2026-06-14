@@ -345,13 +345,16 @@ function OnChainTraces({ onNavigate, highlightTraceId }) {
                 </div>
                 )}
 
-                {/* Temporal binding verification */}
+                {/* Block-order check (off-chain) — NOT an on-chain commit-reveal
+                    guarantee. temporal_binding_valid is a Python/Redis-computed
+                    boolean (commit_block < trade_block); the time-locked
+                    commit()/reveal() contract calls are not yet wired into the
+                    live path. See docs/specs/commit-reveal-trace-spec.md (v1.5). */}
                 {!isSkip && t.temporal_binding_valid != null && (
                   <div className="mt-2 rounded-md px-3 py-2" style={{ background: t.temporal_binding_valid ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)' }}>
                     <div className="flex items-center gap-1.5 mb-1">
                       <span className={`w-4 h-4 flex-shrink-0 ${t.temporal_binding_valid ? 'i-lucide-check-circle text-[var(--positive)]' : 'i-lucide-x-circle text-[var(--negative)]'}`} />
-                      <strong className="text-[0.85rem]">Temporal Binding</strong>
-                      {t.temporal_binding_valid && <span className="tag tag-positive text-[0.7rem]">VERIFIED</span>}
+                      <strong className="text-[0.85rem]">Block Order Check (off-chain)</strong>
                     </div>
                     <div className="text-xs text-[var(--text-3)] leading-relaxed">
                       {t.commit_block_number != null && <div>Commit block: <strong>#{t.commit_block_number}</strong></div>}
@@ -359,7 +362,7 @@ function OnChainTraces({ onNavigate, highlightTraceId }) {
                       {t.reveal_block_number != null && <div>Reveal block: <strong>#{t.reveal_block_number}</strong></div>}
                       {t.temporal_binding_valid && (
                         <div style={{ marginTop: 4, fontStyle: 'italic' }}>
-                          Trace committed before trade executed (commit &lt; trade &lt; reveal)
+                          Off-chain record: commit was logged before the trade block (not yet enforced on-chain — commit-reveal wiring is on the roadmap).
                         </div>
                       )}
                     </div>
