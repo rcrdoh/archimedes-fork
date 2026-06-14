@@ -138,6 +138,42 @@ contract SyntheticVaultTest is Test {
         oracle.forceSetPrice(0);
     }
 
+    /// @dev audit 2026-06-14 B5: forceSetPrice is now bounded by FORCE_MAX_DEVIATION_BPS
+    ///      (900% = 10×). A >10× single-call move reverts PriceDeviationTooLarge even
+    ///      for the owner — a compromised key cannot zero-out or overflow the oracle.
+    function test_revert_forceSetPrice_exceeds_hard_cap() public {
+        // +11× is beyond the 900% (10×) hard cap
+        uint256 elevenX = INITIAL_PRICE * 11;
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PriceOracle.PriceDeviationTooLarge.selector,
+                INITIAL_PRICE,
+                elevenX,
+                oracle.FORCE_MAX_DEVIATION_BPS()
+            )
+        );
+        oracle.forceSetPrice(elevenX);
+    }
+
+    /// @dev Exactly 10× is within the 900% cap (diff == 9×old, 9*10000 <= 90000).
+    function test_forceSetPrice_at_hard_cap_boundary() public {
+        uint256 tenX = INITIAL_PRICE * 10;
+        vm.prank(owner);
+        oracle.forceSetPrice(tenX);
+        assertEq(oracle.price(), tenX);
+    }
+
+    /// @dev forceSetPrice with no prior price (price == 0) skips the bound check
+    ///      so the oracle can always be bootstrapped.
+    function test_forceSetPrice_no_prior_price_skips_bound() public {
+        PriceOracle freshOracle = new PriceOracle("FRESH", 0, owner);
+        uint256 anyPrice = 1e30; // extreme — fine when oldPrice == 0
+        vm.prank(owner);
+        freshOracle.forceSetPrice(anyPrice);
+        assertEq(freshOracle.price(), anyPrice);
+    }
+
     function test_revert_forceSetPrice_non_owner() public {
         vm.prank(alice);
         vm.expectRevert();
@@ -432,6 +468,30 @@ contract SyntheticVaultTest is Test {
         vm.stopPrank();
 
         assertEq(preview, actual);
+    }
+
+    /// @dev audit 2026-06-14 B7: previewMint now mirrors mint()'s zero-input guard.
+    function test_revert_preview_mint_zero() public {
+        vm.expectRevert(SyntheticVault.ZeroAmount.selector);
+        vault.previewMint(0);
+    }
+
+    /// @dev audit 2026-06-14 B7: previewMint now mirrors mint()'s dust-rounds-to-zero guard.
+    function test_revert_preview_mint_dust_rounds_to_zero() public {
+        uint256 hugePrice = 1e21;
+        SyntheticToken dustSynth = new SyntheticToken("Dust", "DUST", owner);
+        PriceOracle dustOracle = new PriceOracle("DUST", hugePrice, owner);
+        SyntheticVault dustVault = new SyntheticVault(
+            address(usdc),
+            address(dustSynth),
+            address(dustOracle),
+            owner
+        );
+        vm.prank(owner);
+        dustSynth.setVault(address(dustVault));
+
+        vm.expectRevert(SyntheticVault.ZeroAmount.selector);
+        dustVault.previewMint(1); // 1 unit at extreme price rounds to 0 synth
     }
 
     function test_preview_burn() public {
