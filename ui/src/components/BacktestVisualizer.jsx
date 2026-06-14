@@ -150,57 +150,6 @@ function WalkForwardBands({ folds }) {
   )
 }
 
-// ─── Parameter sweep heatmap ────────────────────────────────
-function ParameterSweepHeatmap({ sweep }) {
-  const { rows, cols, grid, max, min, param1Name, param2Name, metric } = sweep
-  const range = max - min || 1
-
-  function cellColor(v) {
-    const t = (v - min) / range // 0..1
-    // low Sharpe -> dark; high -> accent purple
-    return `rgba(192,132,252,${(0.08 + 0.82 * t).toFixed(3)})`
-  }
-
-  const headerLabel = `${param1Name ?? 'param1'} ↓ / ${param2Name ?? 'param2'} →`
-  const metricLabel = metric ?? 'metric'
-
-  return (
-    <div className="card-flat" style={{ padding: 20, marginBottom: 20 }}>
-      <div className="label mb-3">Parameter Sweep ({metricLabel} by parameter pair)</div>
-      <div className="bv-sweep" style={{ gridTemplateColumns: `auto repeat(${cols.length}, 1fr)` }}>
-        <div className="bv-sweep-corner caption">{headerLabel}</div>
-        {cols.map((c) => (
-          <div key={`c${c}`} className="bv-sweep-head mono">{c}</div>
-        ))}
-        {rows.map((r, i) => (
-          <div key={`r${r}`} style={{ display: 'contents' }}>
-            <div className="bv-sweep-head mono" style={{ textAlign: 'right', paddingRight: 8 }}>{r}</div>
-            {cols.map((c, j) => {
-              const v = grid[i][j]
-              return (
-                <div
-                  key={`${r}-${c}`}
-                  className="bv-sweep-cell mono"
-                  style={{ background: cellColor(v) }}
-                  title={`${param1Name ?? 'param1'}=${r}, ${param2Name ?? 'param2'}=${c} → ${metricLabel} ${v.toFixed(2)}`}
-                >
-                  {v.toFixed(2)}
-                </div>
-              )
-            })}
-          </div>
-        ))}
-      </div>
-      <p className="caption" style={{ marginTop: 10, color: 'var(--text-4)', lineHeight: 1.5 }}>
-        {metricLabel} across a 2D parameter grid. A single bright island surrounded by dark cells is a fragile
-        peak (likely overfit); a broad bright plateau means the edge is robust to parameter choice. We
-        report the full grid rather than only the best cell — that&apos;s what the deflated-Sharpe
-        multiple-testing correction accounts for.
-      </p>
-    </div>
-  )
-}
-
 // ─── Trade / rebalance log with date filter ─────────────────
 function TradeLog({ trades }) {
   const [from, setFrom] = useState('')
