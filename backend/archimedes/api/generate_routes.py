@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from archimedes.agents.generation_pipeline import run_generation
-from archimedes.api.auth_siwe import gate_generation
+from archimedes.api.auth_siwe import gate_generation, get_verified_wallet
 from archimedes.api.generate_schemas import (
     CandidatesListResponse,
     CandidateSummary,
@@ -65,9 +65,18 @@ async def start_generation(
 ) -> GenerateStartResponse:
     """Create a generation job and start the pipeline in the background."""
     store = get_job_store()
+    # Tag the job with its creator (audit 2026-06-14) so cancel can be scoped to
+    # the owner. When no SIWE session exists (flag off / anonymous), owner_wallet
+    # is None and the job stays cancellable by anyone — preserving today's open
+    # behavior with no flag-day risk. owner_wallet is inert to the pipeline
+    # (run_generation reads brief/n_candidates from the task args, not payload).
     job_id = await store.enqueue(
         job_type="generate",
-        payload={"brief": req.brief.model_dump(), "n_candidates": req.n_candidates},
+        payload={
+            "brief": req.brief.model_dump(),
+            "n_candidates": req.n_candidates,
+            "owner_wallet": _wallet,
+        },
     )
 
     # Fire-and-forget the pipeline. The route doesn't await it; the SSE stream
@@ -154,7 +163,10 @@ def _format_sse(ev: dict) -> str:
 
 
 @generate_router.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str) -> dict[str, str]:
+async def cancel_job(
+    job_id: str,
+    caller_wallet: str | None = Depends(get_verified_wallet),
+) -> dict[str, str]:
     """Cancel a running job. Idempotent.
 
     Hard cancellation: looks up the asyncio.Task driving the job and calls
@@ -171,6 +183,16 @@ async def cancel_job(job_id: str) -> dict[str, str]:
     job = await store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"job {job_id} not found or expired")
+
+    # Owner scoping (audit 2026-06-14): if the job was created by a verified
+    # wallet, only that wallet may cancel it. Jobs created anonymously
+    # (owner_wallet is None) stay cancellable by anyone — preserving the open
+    # behavior when SIWE-for-generation is off. Prevents a third party who
+    # learns a job_id from killing another user's in-flight generation.
+    owner_wallet = (job.get("payload") or {}).get("owner_wallet")
+    if owner_wallet and owner_wallet.lower() != (caller_wallet or "").lower():
+        raise HTTPException(status_code=403, detail="This job belongs to a different wallet.")
+
     if job["status"] in ("done", "error", "cancelled"):
         return {"job_id": job_id, "status": job["status"]}
 

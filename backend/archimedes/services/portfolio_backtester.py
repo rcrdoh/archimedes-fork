@@ -673,6 +673,17 @@ def sensitivity_sweep(
     if not combinations:
         raise ValueError("param_grid produced zero combinations")
 
+    # Defense-in-depth compute cap (audit 2026-06-14). The HTTP schema bounds
+    # each range to 25, but this service is callable directly — refuse a grid
+    # whose Cartesian product would schedule an unreasonable number of
+    # backtests rather than pinning the worker pool.
+    _MAX_COMBINATIONS = 625
+    if len(combinations) > _MAX_COMBINATIONS:
+        raise ValueError(
+            f"param_grid yields {len(combinations)} combinations, exceeding the "
+            f"{_MAX_COMBINATIONS}-cell sweep limit; reduce the parameter ranges."
+        )
+
     def _run_one(combo: tuple) -> dict[str, Any]:
         kw: dict[str, Any] = dict(zip(param_names, combo))
         base = {

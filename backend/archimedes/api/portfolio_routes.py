@@ -100,9 +100,15 @@ class ParameterSweepRequest(BaseModel):
     strategy_id: str
     weights: dict[str, float]
     param1_name: str
-    param1_range: list[float]
+    # Compute-amplification guard (audit 2026-06-14): the sweep runs one full
+    # backtest per cell of the param1 × param2 Cartesian product. Without a
+    # bound, a single unauthenticated request with two large ranges schedules
+    # millions of backtests and pins the worker (DoS). 25 × 25 = 625 cells is a
+    # generous heatmap ceiling; the request is rejected at validation, before
+    # any compute. min_length=1 keeps an empty range from yielding zero cells.
+    param1_range: list[float] = Field(..., min_length=1, max_length=25)
     param2_name: str
-    param2_range: list[float]
+    param2_range: list[float] = Field(..., min_length=1, max_length=25)
     metric: str = "sharpe_ratio"
     start_date: str | None = None
     end_date: str | None = None

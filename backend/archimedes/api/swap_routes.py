@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from archimedes.api.limiter import limiter
 from archimedes.api.schemas import PoolListResponse, PoolResponse, SwapQuoteResponse
+
+logger = logging.getLogger(__name__)
 
 swap_router = APIRouter(prefix="/api/swap", tags=["swap"])
 
@@ -86,9 +89,12 @@ async def get_swap_quote(
             min_amount_out=amount_out * 0.995,
         )
     except Exception as e:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=f"Quote failed: {e!s}") from e
+        # Don't echo the raw chain/web3 exception to the client — it leaks RPC
+        # internals, contract addresses, and revert reasons (audit 2026-06-14;
+        # same leak class fixed in vaults/portfolio routes #605). Log full
+        # detail server-side; return a generic message.
+        logger.exception("swap quote failed for %s -> %s", token_in, token_out)
+        raise HTTPException(status_code=400, detail="Quote failed — check the token pair and amount.") from e
 
 
 @swap_router.get("/pools", response_model=PoolListResponse)

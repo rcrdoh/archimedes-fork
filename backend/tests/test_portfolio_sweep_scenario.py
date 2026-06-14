@@ -69,6 +69,44 @@ async def test_parameter_sweep_returns_422_on_invalid_param():
 
 
 @pytest.mark.asyncio
+async def test_parameter_sweep_rejects_oversized_range():
+    """Audit 2026-06-14: an unbounded range schedules one backtest per Cartesian
+    cell → compute-amplification DoS. Each range is capped at 25 at the schema
+    layer, so an oversized range is rejected (422) before any backtest runs."""
+    from archimedes.main import app
+
+    payload = _sweep_payload(param1_range=[float(i) for i in range(200)])  # 200 > 25
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/portfolio/parameter-sweep", json=payload)
+
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_parameter_sweep_rejects_empty_range():
+    """min_length=1 keeps an empty range from yielding zero cells / odd grids."""
+    from archimedes.main import app
+
+    # Build the payload directly — _sweep_payload coalesces a falsy [] to its
+    # default, which would defeat the empty-range check.
+    payload = {
+        "strategy_id": "tsmom",
+        "weights": {"SPY": 0.5, "QQQ": 0.5},
+        "param1_name": "rebalance_days",
+        "param1_range": [10, 20, 30],
+        "param2_name": "tx_cost_bps",
+        "param2_range": [],  # empty → must be rejected by min_length=1
+        "metric": "sharpe_ratio",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/portfolio/parameter-sweep", json=payload)
+
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
 async def test_parameter_sweep_grid_shape():
     """Grid dimensions must match len(param1_range) × len(param2_range)."""
     from archimedes.main import app
