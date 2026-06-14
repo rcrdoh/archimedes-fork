@@ -17,6 +17,7 @@ from archimedes.chain.executor import (
     ChainExecutor,
     InsufficientLiquidityError,
     TradeRevertedError,
+    VaultCreationRevertedError,
 )
 from archimedes.models.portfolio import TradeDirection, TradeOrder
 from hexbytes import HexBytes
@@ -517,6 +518,58 @@ class TestExecuteTradesDepth:
             mock_signer.is_configured = False
             with pytest.raises(ConnectionError, match="RPC down"):
                 asyncio.run(executor.execute_trades("0xvault", [trade]))
+
+
+# ── create_vault ─────────────────────────────────────────────
+
+
+class TestCreateVault:
+    """Coverage for create_vault's Circle-signer path (#651).
+
+    Hermetic: _parse_vault_created and factory.functions.getVaults().call()
+    are mocked per-scenario; no network, no Arc RPC, no Circle.
+    """
+
+    def test_circle_path_happy_returns_parsed_vault_address(self, executor, mock_loader):
+        """status=1 + VaultCreated event found → returns the parsed address
+        without ever calling getVaults()."""
+        with (
+            patch.object(executor, "_parse_vault_created", return_value="0xNewVault"),
+            patch("archimedes.chain.executor.circle_signer") as mock_signer,
+        ):
+            mock_signer.is_configured = True
+            mock_signer.execute_contract = AsyncMock(return_value="0xtxhash")
+            result = asyncio.run(executor.create_vault("Momentum Alpha", "vMOM", 150, 2000, True))
+            assert result == "0xNewVault"
+            mock_loader.vault_factory.functions.getVaults.assert_not_called()
+
+    def test_circle_path_revert_raises(self, executor, mock_loader):
+        """status=0 → raises VaultCreationRevertedError and never falls back
+        to all_vaults[-1] (the bug #651 guards against)."""
+        executor._mock_cc.w3.eth.wait_for_transaction_receipt = AsyncMock(return_value={"status": 0})
+        with patch("archimedes.chain.executor.circle_signer") as mock_signer:
+            mock_signer.is_configured = True
+            mock_signer.execute_contract = AsyncMock(return_value="0xtxhash")
+            with pytest.raises(VaultCreationRevertedError, match="reverted on-chain"):
+                asyncio.run(executor.create_vault("Momentum Alpha", "vMOM", 150, 2000, True))
+        mock_loader.vault_factory.functions.getVaults.assert_not_called()
+
+    def test_circle_path_no_event_falls_back_with_warning(self, executor, mock_loader, caplog):
+        """status=1 but no VaultCreated event found → falls back to
+        all_vaults[-1] and logs a warning flagging the indexing gap."""
+        mock_loader.vault_factory.functions.getVaults.return_value.call = AsyncMock(
+            return_value=["0xOldVault1", "0xOldVault2"]
+        )
+        with (
+            patch.object(executor, "_parse_vault_created", return_value=None),
+            patch("archimedes.chain.executor.circle_signer") as mock_signer,
+            caplog.at_level("WARNING", logger="archimedes.chain.executor"),
+        ):
+            mock_signer.is_configured = True
+            mock_signer.execute_contract = AsyncMock(return_value="0xtxhash")
+            result = asyncio.run(executor.create_vault("Momentum Alpha", "vMOM", 150, 2000, True))
+        assert result == "0xOldVault2"
+        assert any("no VaultCreated event found" in r.message for r in caplog.records)
 
 
 # ── _usdc_value_to_token_raw ─────────────────────────────────
