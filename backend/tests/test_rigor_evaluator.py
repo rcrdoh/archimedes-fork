@@ -25,10 +25,8 @@ import math
 
 import numpy as np
 import pytest
-from archimedes.services.rigor_evaluator import (
-    RigorGateResult,
+from archimedes.services._rigor_helpers import (
     _dsr_from_stats,
-    _get_func_name,
     _sharpe_per_col,
     compute_average_pairwise_correlation,
     compute_cpcv_oos_sharpe,
@@ -37,6 +35,10 @@ from archimedes.services.rigor_evaluator import (
     compute_oos_sharpe,
     compute_pbo,
     compute_sharpe_ci,
+)
+from archimedes.services.rigor_evaluator import (
+    RigorGateResult,
+    _get_func_name,
     look_ahead_audit,
     run_rigor_gate,
 )
