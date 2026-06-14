@@ -36,7 +36,7 @@ dependencies:
       # --- Market data ---
       - yfinance>=1.4.1              # Historical + live equity/ETF/crypto data; for backtesting
       - requests>=2.32
-      - aiohttp>=3.13.5               # Floor aligned with backend/requirements.txt via dependabot PR #250.
+      - aiohttp>=3.14.0                # Bumped from 3.13.5 to close CVE-2026-34993 / CVE-2026-47265 (HTTP parser DoS/smuggling). Floor aligned with backend/requirements.txt.
       - httpx>=0.27                   # Directly imported by services/corpus_service.py (arXiv intake) and services/llm_backend.py (OpenAI-compatible + Ollama). Pinned so we don't rely on transitive resolution.
 
       # --- Backtesting (per backtrader-vs-vectorbt decision memo) ---
@@ -73,3 +73,4 @@ dependencies:
       # --- Dev convenience ---
       - ipython>=8.27
       - jupyter>=1.1                  # For exploratory strategy work
+      - tornado>=6.5.6                # Pinned directly to close CVE-2026-49854 (WebSocket frame-length overflow) in jupyter's transitive tornado dep. environment.yml-only: tornado is a dev/notebook dependency, not imported by backend runtime code (not in backend/requirements.txt).
