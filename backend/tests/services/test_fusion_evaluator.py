@@ -14,6 +14,7 @@ separate piece of work).
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
 from archimedes.services.fusion_evaluator import (
@@ -26,6 +27,41 @@ from archimedes.services.fusion_evaluator import (
 from archimedes.services.strategy_dsl import FABER_2007_SPEC, validate_strategy_spec
 
 _SPY_FIXTURE = Path(__file__).parent.parent / "fixtures" / "spy_ohlcv_2004_2026.csv"
+
+
+def _noisy_variant_curve(curve: list[float], seed: int = 42, noise_sigma: float = 0.002) -> list[float]:
+    """Build a second equity curve from the same per-bar drift as ``curve`` plus
+    independent Gaussian noise, for use as a non-identical CSCV variant.
+
+    Audit 06-14 (Q4) made ``apply_rigor_gate`` fail-closed when ``pbo_score is
+    None`` (no variants supplied). Tests that need a genuinely *passing*
+    verdict for a single high-Sharpe curve now must also supply >= 2 variant
+    backtests so a real CSCV PBO is computed. A perfectly-correlated duplicate
+    of ``curve`` yields PBO == 1.0 (the IS-best is always the OOS-worst on an
+    identical series) — i.e. an automatic fail. Adding independent per-bar
+    noise to the second variant breaks that perfect correlation so PBO lands
+    at 0.0 (the original curve's steady drift dominates every split), letting
+    the test's intended "this is a passing strategy" setup hold honestly.
+    """
+    rng = random.Random(seed)
+    drifts = [curve[i] / curve[i - 1] - 1.0 for i in range(1, len(curve))]
+    noisy = [curve[0]]
+    for drift in drifts:
+        noisy.append(noisy[-1] * (1.0 + drift + rng.gauss(0, noise_sigma)))
+    return noisy
+
+
+def _two_variant_set(curve: list[float], data_source: str = "csv:test.csv") -> dict[str, BacktestMetrics]:
+    """Minimal >= 2-entry ``variants_metrics`` dict so ``apply_rigor_gate``
+    computes a real (non-``None``) CSCV PBO — see ``_noisy_variant_curve``.
+
+    Reuses ``_metrics_from_curve`` (defined below; module-level functions
+    resolve at call time, so the forward reference is safe).
+    """
+    return {
+        "v0": _metrics_from_curve(curve, data_source=data_source),
+        "v1": _metrics_from_curve(_noisy_variant_curve(curve), data_source=data_source),
+    }
 
 
 def _make_high_sharpe_metrics(data_source: str = "csv:test.csv") -> BacktestMetrics:
@@ -355,8 +391,12 @@ class TestDataProvenanceGate:
         # Use a high-Sharpe synthetic equity curve with real data provenance.
         # Faber's 6.7% CAGR barely exceeds the 5% rf, so its DSR p-value falls
         # short of 0.95 — this test is about the provenance gate, not Faber's stats.
+        # A 2-entry variant set is supplied so CSCV PBO is computed (audit
+        # 06-14, Q4: pbo_score=None now fails closed) — see _two_variant_set.
+        curve = _make_high_sharpe_metrics(data_source="csv:spy_ohlcv_2004_2026.csv").equity_curve
         metrics = _make_high_sharpe_metrics(data_source="csv:spy_ohlcv_2004_2026.csv")
-        verdict = apply_rigor_gate(metrics)
+        verdict = apply_rigor_gate(metrics, variants_metrics=_two_variant_set(curve, data_source="csv:spy.csv"))
+        assert verdict.pbo_score is not None and verdict.pbo_score < 0.5
         assert verdict.passing is True
         assert verdict.admissible is True
         assert verdict.data_source.startswith("csv:")
@@ -364,8 +404,11 @@ class TestDataProvenanceGate:
     def test_provenance_override_revokes_admissibility(self):
         # Take a passing real-data run and re-judge it as if the data were
         # synthetic — admissibility must flip off even though passing stays on.
+        # 2-entry variant set per test_real_data_passing_strategy_is_admissible.
+        curve = _make_high_sharpe_metrics(data_source="csv:spy_ohlcv_2004_2026.csv").equity_curve
         metrics = _make_high_sharpe_metrics(data_source="csv:spy_ohlcv_2004_2026.csv")
-        as_synthetic = apply_rigor_gate(metrics, data_source="synthetic")
+        variants = _two_variant_set(curve, data_source="csv:spy.csv")
+        as_synthetic = apply_rigor_gate(metrics, variants_metrics=variants, data_source="synthetic")
         assert as_synthetic.passing is True
         assert as_synthetic.admissible is False
 
@@ -433,10 +476,13 @@ class TestFusionGateEnforcesOosSharpe:
 
     def test_positive_oos_can_pass(self):
         # Steady uptrend across the whole window → OOS Sharpe > 0 and DSR passes.
+        # 2-entry variant set so CSCV PBO is computed (audit 06-14, Q4:
+        # pbo_score=None now fails closed) — see _two_variant_set.
         curve = [100_000.0]
         for i in range(800):
             curve.append(curve[-1] * (1.003 if i % 2 == 0 else 1.001))
-        verdict = apply_rigor_gate(_metrics_from_curve(curve))
+        verdict = apply_rigor_gate(_metrics_from_curve(curve), variants_metrics=_two_variant_set(curve))
+        assert verdict.pbo_score is not None and verdict.pbo_score < 0.5
         assert verdict.oos_sharpe is not None and verdict.oos_sharpe > 0.0
         assert verdict.passing is True
 

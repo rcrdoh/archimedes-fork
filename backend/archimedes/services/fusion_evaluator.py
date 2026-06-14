@@ -67,6 +67,14 @@ class RigorVerdict:
     dsr_p_value: float | None
     pbo_score: float | None
     oos_sharpe: float | None
+    # True for every spec that reaches this evaluator: validate_strategy_spec
+    # rejects look_ahead_safe=False before a backtest ever runs, so this is
+    # always True in practice. It is NOT the result of an independent
+    # AST-based audit (cf. rigor_evaluator.look_ahead_audit, which runs only
+    # against cited curated source) — it is the LLM's own self-declared
+    # look_ahead_safe flag, enforced as a closed-DSL admission gate. Kept as
+    # a bool because it participates in the `passing` computation; see
+    # `look_ahead_label` for the honest user-facing string (audit 06-14, Q6).
     look_ahead_clean: bool
     num_trials: int
     # In-sample (training-slice) Sharpe, surfaced so the OOS/IS cliff that the
@@ -77,6 +85,16 @@ class RigorVerdict:
     # the statistics AND those statistics were computed on real market data.
     data_source: str = "synthetic"
     admissible: bool = False
+    # Honest user-facing label for the look-ahead check (audit 06-14, Q6).
+    # Distinct from `look_ahead_clean` (the gating bool, always True here):
+    # this string makes clear that "clean" means "the closed DSL's
+    # self-attested look_ahead_safe flag was True", NOT "an independent
+    # AST audit of the generated code ran and found no look-ahead bias" —
+    # the latter is what `rigor_evaluator.look_ahead_audit` does for cited
+    # curated source, and it is NOT run against fusion/DSL output. Mirrors
+    # the "MISSING"-style honest labels in
+    # `selection_bias_routes.RigorGateDetail.look_ahead`.
+    look_ahead_label: str = "N/A (closed-DSL, self-attested, not source-audited)"
 
 
 @dataclass(frozen=True)
@@ -382,9 +400,25 @@ def _run_variant_backtest(
 # ── Rigor gate ────────────────────────────────────────────────────────
 
 
+def _default_num_trials() -> int:
+    """Fallback selection-set size: the curated strategy library's count.
+
+    Mirrors the pattern in ``generation_pipeline.run_generation`` — a lazy
+    import (avoids a module-load-time dependency on the DB-backed provider)
+    inside a try/except, with a safe ``1`` fallback if the provider is
+    unavailable (e.g. in a hermetic unit test with no DB).
+    """
+    try:
+        from archimedes.services.strategy_provider import default_provider
+
+        return max(1, len(default_provider().list_strategies()))
+    except Exception:
+        return 1
+
+
 def apply_rigor_gate(
     metrics: BacktestMetrics,
-    num_trials: int = 10,
+    num_trials: int | None = None,
     variants_metrics: dict[str, BacktestMetrics] | None = None,
     data_source: str | None = None,
 ) -> RigorVerdict:
@@ -398,7 +432,14 @@ def apply_rigor_gate(
 
     When ``variants_metrics`` is provided with >= 2 entries, real CSCV PBO
     is computed from the variant returns matrix and attached to the verdict.
+
+    ``num_trials``, when ``None`` (the default), falls back to the curated
+    strategy library's size via ``_default_num_trials()`` — the real
+    multiple-testing selection set a fusion-generated strategy is being
+    compared against, rather than an arbitrary placeholder (audit 06-14, Q4).
     """
+    if num_trials is None:
+        num_trials = _default_num_trials()
     daily_returns = [
         (metrics.equity_curve[i] - metrics.equity_curve[i - 1]) / metrics.equity_curve[i - 1]
         for i in range(1, len(metrics.equity_curve))
@@ -416,10 +457,12 @@ def apply_rigor_gate(
                 (curve[i] - curve[i - 1]) / curve[i - 1] for i in range(1, len(curve)) if curve[i - 1] > 0
             ]
 
-    # num_trials = actual size of the multiple-testing selection set. A fixed
-    # default (10) under-deflates a large variant grid (e.g. a 50-variant sweep
-    # gets only a 10-trial penalty) and over-deflates a small one. When the
-    # variant matrix is known, use its real cardinality as the trial count.
+    # num_trials = actual size of the multiple-testing selection set. The
+    # caller-supplied/default value (curated library size — see
+    # _default_num_trials) under-deflates a large variant grid (e.g. a
+    # 50-variant sweep gets only a library-sized penalty) and over-deflates a
+    # small one. When the variant matrix is known, it is a MORE precise
+    # selection-set size, so it takes priority over the library-size fallback.
     effective_trials = num_trials
     if variants_metrics is not None and len(variants_metrics) >= 2:
         effective_trials = len(variants_metrics)
@@ -440,10 +483,15 @@ def apply_rigor_gate(
         first_key = next(iter(pbo_map))
         pbo_score = pbo_map[first_key]
 
-    # Look-ahead is guaranteed by the DSL design (static check in
-    # validate_strategy_spec — DSL specs with look_ahead_safe=false are
-    # rejected at validation time, long before reaching this evaluator).
+    # Look-ahead admission: validate_strategy_spec rejects any DSL spec with a
+    # self-declared look_ahead_safe=False before this evaluator ever runs, so
+    # `look_ahead_clean` is always True for specs reaching this point. This is
+    # the LLM's OWN self-attestation enforced as a closed-DSL gate — NOT the
+    # independent AST audit (rigor_evaluator.look_ahead_audit) that runs
+    # against cited curated source. `look_ahead_label` carries the honest
+    # framing of that distinction for the passport/UI (audit 06-14, Q6).
     look_ahead_clean = True
+    look_ahead_label = "N/A (closed-DSL, self-attested, not source-audited)"
 
     # DSR gate: require p-value >= 0.95 (same threshold enforced by the curated
     # path in run_rigor_gate). Using dsr > 0.0 was too permissive — a z-score of
@@ -471,7 +519,12 @@ def apply_rigor_gate(
     ):
         oos_pass = False
 
-    pbo_pass = pbo_score is None or (math.isfinite(pbo_score) and pbo_score < 0.5)
+    # Fail-closed when PBO wasn't computed (audit 06-14, Q4): a missing PBO
+    # means CSCV never ran (fewer than 2 variant backtests), NOT that the
+    # strategy passed the overfitting check. Mirrors RigorGateResult.passes_all
+    # (rigor_evaluator.py), where pbo_score is None fails the overall gate
+    # rather than vacuously passing it.
+    pbo_pass = pbo_score is not None and math.isfinite(pbo_score) and pbo_score < 0.5
     passing = dsr_pass and oos_pass and look_ahead_clean and pbo_pass
 
     # Provenance gate: a strategy is only admissible for Tier-1 if it passes
@@ -494,6 +547,7 @@ def apply_rigor_gate(
         oos_sharpe=oos_sharpe,
         in_sample_sharpe=in_sample_sharpe,
         look_ahead_clean=look_ahead_clean,
+        look_ahead_label=look_ahead_label,
         num_trials=effective_trials,
         data_source=source,
         admissible=admissible,
@@ -507,9 +561,13 @@ def evaluate_fusion_spec(
     spec_dict: dict[str, Any],
     *,
     data_feed: Any = None,
-    num_trials: int = 10,
+    num_trials: int | None = None,
 ) -> FusionEvalResult:
-    """Full pipeline: validate → interpret → backtest → rigor gate."""
+    """Full pipeline: validate → interpret → backtest → rigor gate.
+
+    ``num_trials=None`` (the default) defers to ``apply_rigor_gate``'s own
+    fallback (the curated library size) — see ``_default_num_trials``.
+    """
     try:
         spec = validate_strategy_spec(spec_dict)
     except DSLError as e:
