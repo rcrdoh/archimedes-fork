@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -21,7 +22,23 @@ from archimedes.models.user_profile import UserProfile  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./archimedes_chat.db")
+# backend/ — the directory containing the top-level `archimedes` package.
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def _default_database_url() -> str:
+    """Return the default SQLite URL, anchored to `backend/` regardless of CWD.
+
+    `sqlite:///./archimedes_chat.db` (the old default) resolves `./` against
+    the process's current working directory, so launching from the repo root
+    vs. `backend/` produced two disjoint `archimedes_chat.db` files with split
+    session/chat history. Anchoring to this file's parent directory makes the
+    default deterministic across launch contexts.
+    """
+    return f"sqlite:///{_BACKEND_DIR / 'archimedes_chat.db'}"
+
+
+DATABASE_URL = os.getenv("DATABASE_URL", _default_database_url())
 
 
 def _get_engine_kwargs() -> dict:
