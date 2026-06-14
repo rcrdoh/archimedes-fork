@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from archimedes.api.auth_siwe import (
@@ -417,3 +417,196 @@ async def test_verify_rejects_message_missing_chain_id():
         resp = await client.post("/api/auth/verify", json={"message": message, "signature": "0xfake"})
     assert resp.status_code == 400
     assert "Chain ID" in resp.json()["detail"]
+
+
+# ── Redis-backed nonce store (multi-worker support) ─────────────
+
+
+class _FakeRedisNonceStore:
+    """In-memory stand-in for the Redis keyspace AgentStateStore.save_nonce /
+    pop_nonce write to. A single instance shared across two separately
+    constructed AgentStateStore patches simulates "two workers, one Redis" --
+    the scenario the real fix is for."""
+
+    def __init__(self):
+        self._nonces: set[str] = set()
+
+    async def save_nonce(self, nonce: str, ttl_seconds: int) -> None:
+        self._nonces.add(nonce)
+
+    async def pop_nonce(self, nonce: str) -> bool:
+        if nonce in self._nonces:
+            self._nonces.discard(nonce)
+            return True
+        return False
+
+
+@pytest.mark.asyncio
+async def test_nonce_survives_across_separate_store_instances():
+    """A nonce issued through one AgentStateStore instance is verifiable
+    through a *different* instance against the same backing store --
+    the multi-worker scenario. Asserts the in-process `_pending_nonces`
+    fallback dict is untouched, proving the Redis-backed path was used.
+    """
+    from archimedes.main import app
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    fake_store = _FakeRedisNonceStore()
+    acct = Account.create()
+
+    with (
+        patch("archimedes.services.redis_state.AgentStateStore.save_nonce", fake_store.save_nonce),
+        patch("archimedes.services.redis_state.AgentStateStore.pop_nonce", fake_store.pop_nonce),
+        patch("archimedes.services.redis_state.AgentStateStore.close", AsyncMock(return_value=None)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            nonce_resp = await client.get("/api/auth/nonce")
+            assert nonce_resp.status_code == 200
+            nonce_data = nonce_resp.json()
+
+            # The nonce landed in the shared fake-Redis store, not the
+            # in-process fallback dict.
+            assert nonce_data["nonce"] in fake_store._nonces
+            assert nonce_data["nonce"] not in _pending_nonces
+
+            message = (
+                f"{nonce_data['domain']} wants you to sign in with your Ethereum account:\n"
+                f"{acct.address.lower()}\n\n"
+                f"Chain ID: 5042002\n"
+                f"Nonce: {nonce_data['nonce']}\n"
+                f"Issued At: {_now_iso()}"
+            )
+            signable = encode_defunct(text=message)
+            signed = acct.sign_message(signable)
+
+            verify_resp = await client.post(
+                "/api/auth/verify",
+                json={"message": message, "signature": signed.signature.hex()},
+            )
+
+    assert verify_resp.status_code == 200
+    data = verify_resp.json()
+    assert data["status"] == "authenticated"
+    assert data["wallet"] == acct.address.lower()
+    # Single-use: the nonce was popped from the shared store.
+    assert nonce_data["nonce"] not in fake_store._nonces
+
+
+@pytest.mark.asyncio
+async def test_nonce_reuse_rejected_via_redis_backed_store():
+    """A nonce already popped from the (fake) Redis store cannot be reused,
+    even across separately-constructed AgentStateStore instances."""
+    from archimedes.main import app
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    fake_store = _FakeRedisNonceStore()
+    acct = Account.create()
+
+    with (
+        patch("archimedes.services.redis_state.AgentStateStore.save_nonce", fake_store.save_nonce),
+        patch("archimedes.services.redis_state.AgentStateStore.pop_nonce", fake_store.pop_nonce),
+        patch("archimedes.services.redis_state.AgentStateStore.close", AsyncMock(return_value=None)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            nonce_resp = await client.get("/api/auth/nonce")
+            nonce_data = nonce_resp.json()
+
+            message = (
+                f"{nonce_data['domain']} wants you to sign in with your Ethereum account:\n"
+                f"{acct.address.lower()}\n\n"
+                f"Chain ID: 5042002\n"
+                f"Nonce: {nonce_data['nonce']}\n"
+                f"Issued At: {_now_iso()}"
+            )
+            signable = encode_defunct(text=message)
+            signed = acct.sign_message(signable)
+            payload = {"message": message, "signature": signed.signature.hex()}
+
+            resp1 = await client.post("/api/auth/verify", json=payload)
+            assert resp1.status_code == 200
+
+            resp2 = await client.post("/api/auth/verify", json=payload)
+
+    assert resp2.status_code == 401
+    assert "Nonce" in resp2.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_nonce_redis_down_falls_back_to_in_process_dict():
+    """When the Redis-backed store raises (Redis unreachable), /nonce and
+    /verify fall back to the in-process `_pending_nonces` dict -- single-worker
+    local dev keeps working exactly as before this change.
+    """
+    from archimedes.main import app
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    acct = Account.create()
+
+    with (
+        patch(
+            "archimedes.services.redis_state.AgentStateStore.save_nonce",
+            AsyncMock(side_effect=ConnectionError("redis down")),
+        ),
+        patch(
+            "archimedes.services.redis_state.AgentStateStore.pop_nonce",
+            AsyncMock(side_effect=ConnectionError("redis down")),
+        ),
+        patch("archimedes.services.redis_state.AgentStateStore.close", AsyncMock(return_value=None)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            nonce_resp = await client.get("/api/auth/nonce")
+            assert nonce_resp.status_code == 200
+            nonce_data = nonce_resp.json()
+
+            # Fell back to the in-process dict.
+            assert nonce_data["nonce"] in _pending_nonces
+
+            message = (
+                f"{nonce_data['domain']} wants you to sign in with your Ethereum account:\n"
+                f"{acct.address.lower()}\n\n"
+                f"Chain ID: 5042002\n"
+                f"Nonce: {nonce_data['nonce']}\n"
+                f"Issued At: {_now_iso()}"
+            )
+            signable = encode_defunct(text=message)
+            signed = acct.sign_message(signable)
+
+            verify_resp = await client.post(
+                "/api/auth/verify",
+                json={"message": message, "signature": signed.signature.hex()},
+            )
+
+    assert verify_resp.status_code == 200
+    data = verify_resp.json()
+    assert data["status"] == "authenticated"
+    assert data["wallet"] == acct.address.lower()
+    # Single-use: popped from the in-process fallback dict.
+    assert nonce_data["nonce"] not in _pending_nonces
+
+
+@pytest.mark.asyncio
+async def test_verify_redis_down_unknown_nonce_rejected():
+    """With Redis down and no matching nonce in the in-process fallback dict,
+    /verify still returns 401 (not a 500 from the unhandled ConnectionError)."""
+    from archimedes.main import app
+
+    with (
+        patch(
+            "archimedes.services.redis_state.AgentStateStore.pop_nonce",
+            AsyncMock(side_effect=ConnectionError("redis down")),
+        ),
+        patch("archimedes.services.redis_state.AgentStateStore.close", AsyncMock(return_value=None)),
+    ):
+        message = (
+            "archimedes-arc.app wants you to sign in\n"
+            "0xabcdef1234567890abcdef1234567890abcdef12\n"
+            f"Chain ID: 5042002\nNonce: nonexistentnonce_redisdown\nIssued At: {_now_iso()}"
+        )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/api/auth/verify", json={"message": message, "signature": "0xfake"})
+
+    assert resp.status_code == 401
+    assert "Nonce" in resp.json()["detail"]

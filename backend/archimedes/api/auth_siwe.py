@@ -38,6 +38,10 @@ auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 # Session signing key — derived from EMAIL_ENCRYPTION_KEY or a random per-boot key.
 # In production, EMAIL_ENCRYPTION_KEY is required (fail-closed in main.py), so
 # sessions persist across restarts. In dev, a random key means sessions reset on restart.
+# Multi-worker note: main.py:~127 raises RuntimeError at boot if PUBLIC_DOMAIN is set
+# (production) and EMAIL_ENCRYPTION_KEY is unset, so the secrets.token_hex(32) fallback
+# is only reachable in single-worker local dev -- per-worker secret divergence (which
+# would break cross-worker session-cookie verification) can't occur there.
 _SESSION_SECRET = os.getenv("EMAIL_ENCRYPTION_KEY", secrets.token_hex(32))
 _SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 _NONCE_TTL_SECONDS = 300  # 5 minutes
@@ -49,8 +53,10 @@ _CLOCK_SKEW_SECONDS = 120  # tolerate small client/server clock drift on Issued 
 _EXPECTED_DOMAIN = os.getenv("PUBLIC_DOMAIN", "https://archimedes-arc.app")
 _EXPECTED_CHAIN_ID = int(os.getenv("ARC_CHAIN_ID", "5042002"))
 
-# In-memory nonce store. Production would use Redis, but for the hackathon
-# this is sufficient — nonces are short-lived (5 min TTL) and single-use.
+# Pending-nonce store: Redis-backed (via AgentStateStore) so /nonce and /verify
+# agree across Uvicorn workers, with this in-memory dict as a same-process
+# fallback when Redis is unreachable (single-worker local dev keeps working
+# exactly as before). nonce → expiry timestamp.
 _pending_nonces: dict[str, float] = {}  # nonce → expiry timestamp
 
 _COOKIE_NAME = "archimedes_session"
@@ -134,15 +140,30 @@ def gate_generation(request: Request) -> str | None:
 
 @auth_router.get("/nonce")
 async def get_nonce():
-    """Issue a challenge nonce for SIWE signing."""
-    # Clean expired nonces
-    now = time.time()
-    expired = [n for n, exp in _pending_nonces.items() if exp < now]
-    for n in expired:
-        del _pending_nonces[n]
+    """Issue a challenge nonce for SIWE signing.
 
+    Stored in Redis (via AgentStateStore) with a TTL so /verify on a
+    different worker can find it -- Redis handles expiry via SETEX, so no
+    manual sweep is needed on that path. Falls back to the in-process
+    `_pending_nonces` dict if Redis is unreachable (single-worker local dev).
+    """
+    now = time.time()
     nonce = secrets.token_hex(16)
-    _pending_nonces[nonce] = now + _NONCE_TTL_SECONDS
+
+    from archimedes.services.redis_state import AgentStateStore
+
+    state = AgentStateStore()
+    try:
+        await state.save_nonce(nonce, _NONCE_TTL_SECONDS)
+    except Exception as exc:
+        logger.debug("SIWE nonce store unavailable, using in-process fallback: %s", exc)
+        # Clean expired nonces from the in-memory fallback before adding a new one.
+        expired = [n for n, exp in _pending_nonces.items() if exp < now]
+        for n in expired:
+            del _pending_nonces[n]
+        _pending_nonces[nonce] = now + _NONCE_TTL_SECONDS
+    finally:
+        await state.close()
 
     return {
         "nonce": nonce,
@@ -224,12 +245,33 @@ async def verify_signature(request: Request, response: Response):
     if age > timedelta(seconds=_NONCE_TTL_SECONDS) or age < timedelta(seconds=-_CLOCK_SKEW_SECONDS):
         raise HTTPException(status_code=401, detail="SIWE message issued-at outside the valid window")
 
-    # Verify nonce is pending and not expired
-    expiry = _pending_nonces.pop(nonce, None)
-    if expiry is None:
+    # Verify nonce is pending and not expired. Redis (GETDEL) makes this
+    # read-and-delete atomic and shared across workers; Redis-managed TTL means
+    # a "found" result is by construction unexpired, so no separate expiry
+    # check is needed on that path. Falls back to the in-process dict (with
+    # its own expiry timestamp) if Redis is unreachable.
+    from archimedes.services.redis_state import AgentStateStore
+
+    state = AgentStateStore()
+    try:
+        found = await state.pop_nonce(nonce)
+    except Exception as exc:
+        logger.debug("SIWE nonce store unavailable, using in-process fallback: %s", exc)
+        found = False
+        redis_unreachable = True
+    else:
+        redis_unreachable = False
+    finally:
+        await state.close()
+
+    if not found and redis_unreachable:
+        expiry = _pending_nonces.pop(nonce, None)
+        if expiry is None:
+            raise HTTPException(status_code=401, detail="Nonce not found or already used")
+        if time.time() > expiry:
+            raise HTTPException(status_code=401, detail="Nonce expired")
+    elif not found:
         raise HTTPException(status_code=401, detail="Nonce not found or already used")
-    if time.time() > expiry:
-        raise HTTPException(status_code=401, detail="Nonce expired")
 
     # Recover the signer address from the signature
     try:

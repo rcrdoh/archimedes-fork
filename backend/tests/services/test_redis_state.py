@@ -22,6 +22,7 @@ from archimedes.services.redis_state import (
     KEY_HEARTBEAT,
     KEY_LAST_REBALANCE_PREFIX,
     KEY_REGIME,
+    KEY_SIWE_NONCE_PREFIX,
     KEY_TRACE_INDEX,
     AgentStateStore,
 )
@@ -32,6 +33,8 @@ def _fake_redis() -> MagicMock:
     r = MagicMock()
     r.get = AsyncMock(return_value=None)
     r.set = AsyncMock()
+    r.setex = AsyncMock()
+    r.getdel = AsyncMock(return_value=None)
     r.lpush = AsyncMock()
     r.ltrim = AsyncMock()
     r.lrange = AsyncMock(return_value=[])
@@ -151,6 +154,36 @@ class TestLastRebalance:
     async def test_get_returns_none_when_missing(self) -> None:
         store, _ = await _store_with_fake_redis()
         assert await store.get_last_rebalance("0xV") is None
+
+
+class TestSiweNonces:
+    @pytest.mark.asyncio
+    async def test_save_nonce_setex_with_ttl(self) -> None:
+        store, fake = await _store_with_fake_redis()
+        await store.save_nonce("abc123", 300)
+        fake.setex.assert_awaited_once_with(f"{KEY_SIWE_NONCE_PREFIX}abc123", 300, "1")
+
+    @pytest.mark.asyncio
+    async def test_pop_nonce_present_returns_true(self) -> None:
+        store, fake = await _store_with_fake_redis()
+        fake.getdel.return_value = "1"
+        assert await store.pop_nonce("abc123") is True
+        fake.getdel.assert_awaited_once_with(f"{KEY_SIWE_NONCE_PREFIX}abc123")
+
+    @pytest.mark.asyncio
+    async def test_pop_nonce_missing_returns_false(self) -> None:
+        store, fake = await _store_with_fake_redis()
+        fake.getdel.return_value = None
+        assert await store.pop_nonce("abc123") is False
+
+    @pytest.mark.asyncio
+    async def test_pop_nonce_is_single_use(self) -> None:
+        """GETDEL semantics: a second pop for the same key returns False
+        once Redis has deleted it (simulated here via side_effect)."""
+        store, fake = await _store_with_fake_redis()
+        fake.getdel = AsyncMock(side_effect=["1", None])
+        assert await store.pop_nonce("abc123") is True
+        assert await store.pop_nonce("abc123") is False
 
 
 class TestEvents:

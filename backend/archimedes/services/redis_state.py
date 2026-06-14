@@ -25,6 +25,7 @@ KEY_HEARTBEAT = "archimedes:agent:heartbeat"
 KEY_LAST_REBALANCE_PREFIX = "archimedes:agent:last_rebalance:"
 KEY_TRACE_PREFIX = "archimedes:trace:"
 KEY_TRACE_INDEX = "archimedes:trace:index"
+KEY_SIWE_NONCE_PREFIX = "archimedes:auth:nonce:"
 
 
 class AgentStateStore:
@@ -272,6 +273,27 @@ class AgentStateStore:
         """Total number of stored off-chain traces."""
         r = await self._get_redis()
         return await r.zcard(KEY_TRACE_INDEX)
+
+    # ─── SIWE Nonces ────────────────────────────────────────────────
+
+    async def save_nonce(self, nonce: str, ttl_seconds: int) -> None:
+        """Store a SIWE challenge nonce with a Redis-managed expiry.
+
+        Using SETEX means Redis itself evicts expired nonces -- no manual
+        sweep needed. Shared across workers so /nonce on one worker and
+        /verify on another see the same pending-nonce set.
+        """
+        r = await self._get_redis()
+        await r.setex(f"{KEY_SIWE_NONCE_PREFIX}{nonce}", ttl_seconds, "1")
+
+    async def pop_nonce(self, nonce: str) -> bool:
+        """Atomically read-and-delete a pending nonce. Returns True if it existed.
+
+        GETDEL makes the nonce single-use: a second pop for the same value
+        returns False, matching the "Nonce not found or already used" check.
+        """
+        r = await self._get_redis()
+        return await r.getdel(f"{KEY_SIWE_NONCE_PREFIX}{nonce}") is not None
 
     # ─── Lifecycle ────────────────────────────────────────────────
 
