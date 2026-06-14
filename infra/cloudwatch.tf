@@ -242,6 +242,23 @@ resource "aws_cloudwatch_dashboard" "ops" {
   })
 }
 
+# ── Log group retention (AUDIT I8) ──────────────────────────────────────────
+# Without explicit log group resources, CloudWatch retains logs indefinitely
+# (never expires) — unbounded cost and unnecessary data retention. 90 days is
+# sufficient for post-incident forensics and covers any regulatory baseline.
+
+resource "aws_cloudwatch_log_group" "app" {
+  name              = "/archimedes/app"
+  retention_in_days = 90
+  tags              = { Project = var.project_name }
+}
+
+resource "aws_cloudwatch_log_group" "nginx" {
+  name              = "/archimedes/nginx"
+  retention_in_days = 90
+  tags              = { Project = var.project_name }
+}
+
 # ── Outputs ──────────────────────────────────────────────────────────────────
 
 output "alerts_topic_arn" {
