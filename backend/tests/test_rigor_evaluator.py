@@ -1213,7 +1213,6 @@ class TestBenjaminiHochbergFDR:
         pvalues = list(rng.uniform(0, 1, 20))
         result = benjamini_hochberg_fdr(pvalues, fdr_level=0.05)
         adj = result["adjusted_pvalues"]
-        sorted_adj = sorted(adj)
         # All adjusted p-values must be in [0,1]
         assert all(0.0 <= p <= 1.0 for p in adj)
 

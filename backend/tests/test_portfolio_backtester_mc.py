@@ -16,7 +16,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-
 # ─── monte_carlo_portfolio ───────────────────────────────────────────
 
 

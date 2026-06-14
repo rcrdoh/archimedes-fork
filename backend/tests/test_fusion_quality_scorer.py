@@ -24,7 +24,6 @@ from archimedes.services.fusion_evaluator import (
     score_turnover_interaction,
 )
 
-
 # ─── Diversification benefit ─────────────────────────────────────────
 
 

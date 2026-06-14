@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+
 from tests import quant_factories as qf
 
 
@@ -86,7 +87,7 @@ class TestFixturesRegistered:
         assert len(rets) == 200
 
     def test_price_panel_fixture(self, price_panel):
-        close, vol = price_panel(["X", "Y"], n=120, seed=2)
+        close, _vol = price_panel(["X", "Y"], n=120, seed=2)
         assert close.shape == (120, 2)
 
     def test_returns_matrix_fixture(self, returns_matrix):

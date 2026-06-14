@@ -100,7 +100,6 @@ def make_price_panel(
     if symbols is None:
         symbols = ["SPY", "AGG", "GLD", "QQQ"]
     rng = np.random.default_rng(seed)
-    k = len(symbols)
     common = rng.standard_normal(n)
     closes: dict[str, list[float]] = {}
     volumes: dict[str, list[float]] = {}

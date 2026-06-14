@@ -9,10 +9,9 @@ minting a session cookie with the same in-process HMAC key the verifier uses.
 
 import time
 
+from archimedes.api.auth_siwe import _COOKIE_NAME, _sign_session, gate_generation
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-
-from archimedes.api.auth_siwe import _COOKIE_NAME, _sign_session, gate_generation
 
 
 def _make_client() -> TestClient:

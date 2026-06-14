@@ -8,7 +8,6 @@ No .env / Redis / DB / network dependence.
 from __future__ import annotations
 
 import numpy as np
-
 from archimedes.services.rigor_evaluator import (
     classify_regimes,
     regime_conditional_dsr,
@@ -99,7 +98,6 @@ def test_classify_regimes_too_short_all_unclassified():
 
 def test_regime_conditional_sharpe_higher_in_strong_regime():
     rng = np.random.default_rng(SEED)
-    n = 200
     labels = np.array([0] * 100 + [1] * 100, dtype=int)
     strat = np.concatenate(
         [

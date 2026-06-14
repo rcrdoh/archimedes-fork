@@ -8,7 +8,6 @@ and non-flaky.
 from __future__ import annotations
 
 import numpy as np
-
 from archimedes.services.return_diagnostics import (
     diagnose,
     ljung_box_test,

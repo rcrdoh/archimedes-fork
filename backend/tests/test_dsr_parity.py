@@ -89,8 +89,8 @@ def test_convention_is_excess_not_raw() -> None:
     parametrised parity above) fail loudly.
     """
     returns = _series(0.0015, 0.008, 1500, 7)  # high mean → rf subtraction is visible
-    f_dsr, f_p = fixture_compute_dsr(returns, 1)
-    b_dsr, b_p = backend_compute_dsr(returns, 1, average_correlation=0.0)
+    _f_dsr, f_p = fixture_compute_dsr(returns, 1)
+    _b_dsr, b_p = backend_compute_dsr(returns, 1, average_correlation=0.0)
 
     # Fixture path tracks the backend's excess convention.
     assert abs(f_p - b_p) <= _TOL

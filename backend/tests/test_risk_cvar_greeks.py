@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-
 # ── Helpers ──────────────────────────────────────────────────
 
 
@@ -181,8 +180,8 @@ async def test_greeks_delta_in_valid_range():
 @pytest.mark.asyncio
 async def test_greeks_portfolio_aggregate_matches_weighted_sum():
     """Two equal-weight strategies with identical params → portfolio_delta equals the single-strategy delta."""
-    from archimedes.main import app
     from archimedes.api.risk_routes import _strategy_delta
+    from archimedes.main import app
 
     sharpe, cagr = 1.2, 0.15
     expected = _strategy_delta(sharpe, cagr)

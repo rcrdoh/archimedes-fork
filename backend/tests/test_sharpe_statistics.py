@@ -11,7 +11,6 @@ from __future__ import annotations
 import math
 
 import numpy as np
-
 from archimedes.services.sharpe_statistics import (
     autocorr_adjusted_annualized_sharpe,
     iid_sharpe_stderr,
