@@ -55,8 +55,8 @@
         "dynamodb:DescribeTable"
       ],
       "Resource": [
-        "arn:aws:dynamodb:*:*:table/archimedes-papers-index",
-        "arn:aws:dynamodb:*:*:table/archimedes-papers-index/index/*"
+        "arn:aws:dynamodb:eu-west-2:159903201072:table/archimedes-papers-index",
+        "arn:aws:dynamodb:eu-west-2:159903201072:table/archimedes-papers-index/index/*"
       ]
     },
     {
