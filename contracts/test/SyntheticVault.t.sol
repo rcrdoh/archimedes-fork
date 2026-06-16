@@ -144,15 +144,20 @@ contract SyntheticVaultTest is Test {
     function test_revert_forceSetPrice_exceeds_hard_cap() public {
         // +11× is beyond the 900% (10×) hard cap
         uint256 elevenX = INITIAL_PRICE * 11;
-        vm.prank(owner);
+        // Read the constant BEFORE the prank so vm.prank applies to the
+        // forceSetPrice call itself, not the FORCE_MAX_DEVIATION_BPS() read
+        // (a stray view call would consume the single-shot prank and the
+        // forceSetPrice would then run as this test contract → OwnableUnauthorizedAccount).
+        uint256 hardCap = oracle.FORCE_MAX_DEVIATION_BPS();
         vm.expectRevert(
             abi.encodeWithSelector(
                 PriceOracle.PriceDeviationTooLarge.selector,
                 INITIAL_PRICE,
                 elevenX,
-                oracle.FORCE_MAX_DEVIATION_BPS()
+                hardCap
             )
         );
+        vm.prank(owner);
         oracle.forceSetPrice(elevenX);
     }
 
