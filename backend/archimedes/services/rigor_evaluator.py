@@ -36,7 +36,7 @@ from archimedes.services._rigor_helpers import (
     compute_dsr,
     compute_in_sample_sharpe,  # noqa: F401 - re-exported for fusion_evaluator
     compute_oos_sharpe,
-    compute_pbo,  # noqa: F401 - re-exported for fusion_evaluator/generation_pipeline/test_pbo_parity
+    compute_pbo,  # used by compute_library_pbo below + re-exported (fusion/generation/test_pbo_parity)
     compute_sharpe_ci,  # noqa: F401 - re-exported for strategy_provider
     monte_carlo_dsr_pvalue,  # noqa: F401 - re-exported for test_rigor_evaluator
     regime_conditional_dsr,  # noqa: F401 - re-exported for test_rigor_regime
@@ -143,6 +143,113 @@ def _get_func_name(node: ast.expr) -> str | None:
     return None
 
 
+# ─── Library-level PBO (criterion-4 input, #546) ──────────────────────
+
+
+def align_returns_store(
+    returns_store: dict[str, dict[str, list]],
+) -> dict[str, list[float]]:
+    """Inner-join dated return series on ISO dates → an aligned PBO matrix.
+
+    Mirrors ``analytics-engine/scripts/compute_library_pbo.py::build_aligned_matrix``
+    so the backend gate and the offline diagnostic compute the library PBO from
+    the *same* alignment. The library's strategies trade different calendars
+    (^N225 vs SPY vs joined pair windows); CSCV requires that row *i* of the
+    returns matrix means the same trading day for every strategy, so we keep
+    only the dates present in *every* series before handing off to
+    ``compute_pbo`` (which itself only truncates to the shortest length).
+
+    Args:
+        returns_store: ``{strategy_stem: {"dates": [...], "daily_returns": [...]}}``
+            — one entry per library strategy, each carrying a 1:1 dated series
+            (the shape of ``analytics-engine/strategies/daily_returns/<stem>.json``).
+            The caller loads it; this module stays I/O-free.
+
+    Returns:
+        ``{strategy_stem: returns_on_joint_dates}`` — date-aligned, ready for
+        ``compute_pbo``. Returns ``{}`` when fewer than two usable series are
+        supplied or the dated intersection is empty (the caller fail-closes on
+        the empty matrix — see ``compute_library_pbo``).
+    """
+    series = {stem: rec for stem, rec in returns_store.items() if rec.get("dates") and rec.get("daily_returns")}
+    if len(series) < 2:
+        return {}
+
+    date_sets = [set(rec["dates"]) for rec in series.values()]
+    joint = sorted(set.intersection(*date_sets))
+    if not joint:
+        return {}
+
+    matrix: dict[str, list[float]] = {}
+    for stem, rec in series.items():
+        # strict=True (matching the offline build_aligned_matrix) fails loud on a
+        # malformed record whose dates/daily_returns lengths disagree, rather than
+        # silently truncating and risking a misaligned row / KeyError on join.
+        by_date = dict(zip(rec["dates"], rec["daily_returns"], strict=True))
+        matrix[stem] = [float(by_date[d]) for d in joint]
+    return matrix
+
+
+def compute_library_pbo(
+    returns_store: dict[str, dict[str, list]],
+    s_partitions: int = 16,
+) -> float | None:
+    """Single library-level CSCV PBO over the whole selection set (#546).
+
+    This is the criterion-4 input for ``run_rigor_gate``: PBO is a property of
+    the *selection set*, not of an individual strategy (Bailey et al. 2014), so
+    the principled gate input is one library-wide value, not a per-cohort score.
+    Date-aligns the store via ``align_returns_store`` then runs the same
+    parity-tested ``compute_pbo`` the cohort path uses.
+
+    **Refresh policy (gate-affecting — documented in docs/specs/library-pbo.md).**
+    CSCV PBO is a property of the selection set: adding, removing, or re-running
+    any library strategy changes it. The caller MUST recompute (call this
+    function afresh) whenever the selection set changes — i.e. on every library
+    add, removal, or daily-returns-store regeneration — and MUST NOT freeze the
+    value into a per-strategy fixture. The store is add-only + idempotent
+    (``gen_daily_returns_store.py``), so "selection set changed" reduces to "a
+    new ``daily_returns/<stem>.json`` exists"; recomputing on store growth is
+    the cadence.
+
+    Args:
+        returns_store: ``{strategy_stem: {"dates": [...], "daily_returns": [...]}}``.
+        s_partitions: Number of equal time-partitions S (even ≥ 2; default 16,
+            the paper's recommended value).
+
+    Returns:
+        The single library PBO ∈ [0, 1], or ``None`` when it cannot be computed
+        (fewer than two aligned series, empty date intersection, a joint window
+        shorter than ``s_partitions``, or a degenerate ``compute_pbo`` result).
+        ``None`` is the fail-closed signal: the gate treats a missing/non-finite
+        library PBO as criterion-4 FAIL rather than silently passing. A
+        non-finite value (should never arise from the rounded ``compute_pbo``
+        output, but guarded for safety) also returns ``None``.
+    """
+    matrix = align_returns_store(returns_store)
+    if len(matrix) < 2:
+        return None
+
+    # Fail closed on a too-short joint window. compute_pbo returns an all-0.0
+    # sentinel (a spurious criterion-4 PASS, PBO < 0.5) when rows_per_block =
+    # T // s_partitions < 1 — i.e. fewer joint dates than partitions. That 0.0
+    # is non-finite-clean but meaningless, so guard it here: an under-length
+    # window is non-computable, which must FAIL criterion 4, not pass it.
+    shortest = min(len(r) for r in matrix.values())
+    if shortest // s_partitions < 1:
+        return None
+
+    scores = compute_pbo(matrix, s_partitions=s_partitions)
+    if not scores:
+        return None
+
+    # compute_pbo attaches the same library-level value to every member; take any.
+    pbo = next(iter(scores.values()))
+    if pbo is None or not math.isfinite(pbo):
+        return None
+    return float(pbo)
+
+
 # ─── 6. Rigor Gate — composite check ─────────────────────────────────
 
 
@@ -162,12 +269,18 @@ class RigorGateResult:
         paper_claimed_sharpe: float | None = None,
         cpcv_mean_oos_sharpe: float | None = None,
         cpcv_positive_fraction: float | None = None,
+        pbo_source: str = "cohort",
     ) -> None:
         self.strategy_id = strategy_id
         self.deflated_sharpe = deflated_sharpe
         self.dsr_p_value = dsr_p_value
         self.num_trials = num_trials
         self.pbo_score = pbo_score
+        # Which selection set produced the criterion-4 PBO: "library" when the
+        # full-library CSCV PBO was supplied (the principled Bailey et al. input,
+        # #546), "cohort" when it fell back to the per-cohort dict score. Surfaced
+        # in gate_details so the verdict is honest about its provenance.
+        self.pbo_source = pbo_source
         self.oos_sharpe = oos_sharpe
         self.look_ahead_passed = look_ahead_passed
         self.in_sample_sharpe = in_sample_sharpe
@@ -183,8 +296,9 @@ class RigorGateResult:
         # NaN-hardening: every IEEE-754 comparison against NaN is False, so a NaN
         # metric (not None — None is guarded) would silently skip its fail branch
         # and let an under-credentialed strategy pass. Treat any non-finite metric
-        # as an automatic fail. pbo_score is sourced from an external dict; oos/IS
-        # Sharpe can carry NaN if upstream returns contain NaN.
+        # as an automatic fail. pbo_score is sourced either from the full-library
+        # CSCV PBO (#546, the principled input) or — fallback — an external cohort
+        # dict; oos/IS Sharpe can carry NaN if upstream returns contain NaN.
         if self.dsr_p_value is None or not math.isfinite(self.dsr_p_value):
             return False
         if self.dsr_p_value < 0.95:
@@ -227,12 +341,15 @@ class RigorGateResult:
         # per-entry "dsr_convention" ("raw" for frozen legacy, "excess" for new).
         details["dsr_convention"] = "excess"
 
-        if self.pbo_score is not None and self.pbo_score < 0.5:
-            details["pbo"] = f"PASS (PBO={self.pbo_score:.4f})"
-        elif self.pbo_score is not None:
-            details["pbo"] = f"FAIL (PBO={self.pbo_score:.4f}, need < 0.5)"
+        # Criterion 4 input provenance (#546): "library" = full-library CSCV PBO
+        # (the principled Bailey et al. selection-set input), "cohort" = the
+        # per-cohort dict score. Disclosed so the verdict states which set fed it.
+        if self.pbo_score is not None and math.isfinite(self.pbo_score) and self.pbo_score < 0.5:
+            details["pbo"] = f"PASS (PBO={self.pbo_score:.4f}, source={self.pbo_source})"
+        elif self.pbo_score is not None and math.isfinite(self.pbo_score):
+            details["pbo"] = f"FAIL (PBO={self.pbo_score:.4f}, need < 0.5, source={self.pbo_source})"
         else:
-            details["pbo"] = "MISSING"
+            details["pbo"] = f"MISSING (source={self.pbo_source})"
 
         if self.oos_sharpe is not None and self.in_sample_sharpe and self.in_sample_sharpe > 0:
             ratio = self.oos_sharpe / self.in_sample_sharpe
@@ -272,12 +389,24 @@ def run_rigor_gate(
     look_ahead_audit_passed: bool | None = None,
     average_correlation: float = 0.0,
     cv_returns_matrix: np.ndarray | list[list[float]] | None = None,
+    library_pbo: float | None = None,
 ) -> RigorGateResult:
     """Run all four selection-bias checks on a strategy.
 
     Main entry point called by the orchestrator and API routes.
 
     Args:
+        library_pbo: The single full-library CSCV PBO (Bailey et al. 2014) for
+            the *current selection set* — the principled criterion-4 input
+            (#546). PBO is a property of the whole library, not of one strategy,
+            so when this is supplied it is used for criterion 4 in preference to
+            the per-cohort ``pbo_scores`` lookup. Compute it from the
+            daily-returns store via ``compute_library_pbo`` and recompute on
+            every selection-set change (see that function's refresh-policy note).
+            Fail-closed: ``None`` (or a non-finite value) makes criterion 4 FAIL
+            rather than silently pass — exactly as a missing cohort score does.
+            When ``None``, the gate falls back to ``pbo_scores.get(strategy_id)``
+            and the verdict is labelled ``source=cohort``.
         average_correlation: Mean pairwise correlation among the ``num_trials``
             trials in the selection set, used by the DSR effective-N correction.
             The caller holds the library/variant returns and computes it via
@@ -301,8 +430,18 @@ def run_rigor_gate(
     #    the trials are correlated (fewer independent bets than the nominal N).
     deflated_sharpe, dsr_p_value = compute_dsr(daily_returns, num_trials, average_correlation)
 
-    # 2. PBO — use pre-computed library-level score
-    pbo_score = pbo_scores.get(strategy_id) if pbo_scores else None
+    # 2. PBO (criterion 4 in the gate ordering) — prefer the full-library CSCV
+    #    PBO when supplied (#546). PBO is a property of the selection set, not of
+    #    one strategy (Bailey et al. 2014), so the library-wide value is the
+    #    principled input; the per-cohort dict is the fallback when no library
+    #    PBO is passed. Fail-closed semantics live in RigorGateResult.passes_all:
+    #    a None/NaN pbo_score fails criterion 4 regardless of source.
+    if library_pbo is not None:
+        pbo_score = library_pbo
+        pbo_source = "library"
+    else:
+        pbo_score = pbo_scores.get(strategy_id) if pbo_scores else None
+        pbo_source = "cohort"
 
     # 3. Walk-forward OOS Sharpe (single holdout) + Combinatorial Purged CV.
     #    CPCV runs only when a real 2-D combinatorial OOS matrix is supplied.
@@ -344,14 +483,16 @@ def run_rigor_gate(
         paper_claimed_sharpe=paper_claimed_sharpe,
         cpcv_mean_oos_sharpe=cpcv["mean_oos_sharpe"] if cpcv else None,
         cpcv_positive_fraction=cpcv["positive_fraction"] if cpcv else None,
+        pbo_source=pbo_source,
     )
 
     logger.info(
-        "Rigor gate [%s]: %s (DSR p=%s, PBO=%s, OOS=%s, CPCV+=%s, LA=%s)",
+        "Rigor gate [%s]: %s (DSR p=%s, PBO=%s [%s], OOS=%s, CPCV+=%s, LA=%s)",
         strategy_id,
         "PASS" if result.passes_all else "FAIL",
         dsr_p_value,
         pbo_score,
+        pbo_source,
         oos_sharpe,
         cpcv["positive_fraction"] if cpcv else None,
         la_passed,

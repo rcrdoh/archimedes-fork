@@ -39,6 +39,8 @@ from archimedes.services._rigor_helpers import (
 from archimedes.services.rigor_evaluator import (
     RigorGateResult,
     _get_func_name,
+    align_returns_store,
+    compute_library_pbo,
     look_ahead_audit,
     run_rigor_gate,
 )
@@ -450,7 +452,7 @@ class TestRigorGate:
         )
 
         assert not result.passes_all
-        assert result.gate_details["pbo"] == "MISSING"
+        assert result.gate_details["pbo"] == "MISSING (source=cohort)"
 
     def test_fails_with_high_pbo(self) -> None:
         result = RigorGateResult(
@@ -772,19 +774,24 @@ class TestGateDetailsBranches:
         assert r.gate_details["dsr"] == "MISSING"
 
     def test_pbo_pass_branch(self):
-        """pbo_score < 0.5 renders 'PASS (PBO=...)'."""
+        """pbo_score < 0.5 renders 'PASS (PBO=..., source=...)' (#546)."""
         r = RigorGateResult("s", pbo_score=0.3000)
-        assert r.gate_details["pbo"] == "PASS (PBO=0.3000)"
+        assert r.gate_details["pbo"] == "PASS (PBO=0.3000, source=cohort)"
 
     def test_pbo_fail_branch(self):
-        """pbo_score >= 0.5 but not None renders 'FAIL (PBO=..., need < 0.5)'."""
+        """pbo_score >= 0.5 but not None renders 'FAIL (..., source=...)' (#546)."""
         r = RigorGateResult("s", pbo_score=0.6000)
-        assert r.gate_details["pbo"] == "FAIL (PBO=0.6000, need < 0.5)"
+        assert r.gate_details["pbo"] == "FAIL (PBO=0.6000, need < 0.5, source=cohort)"
 
     def test_pbo_missing_branch(self):
-        """pbo_score is None renders 'MISSING'."""
+        """pbo_score is None renders 'MISSING (source=...)' (#546)."""
         r = RigorGateResult("s", pbo_score=None)
-        assert r.gate_details["pbo"] == "MISSING"
+        assert r.gate_details["pbo"] == "MISSING (source=cohort)"
+
+    def test_pbo_source_library_label(self):
+        """A library-level PBO labels the detail source=library (#546)."""
+        r = RigorGateResult("s", pbo_score=0.3000, pbo_source="library")
+        assert r.gate_details["pbo"] == "PASS (PBO=0.3000, source=library)"
 
     def test_oos_sharpe_pass_ratio(self):
         """oos_sharpe set, in_sample_sharpe > 0, ratio >= 0.5 renders 'PASS (OOS/IS=...)'."""
@@ -1268,3 +1275,146 @@ class TestBonferroniCorrection:
         bonf_result = bonferroni_correction(pvalues, alpha=0.05)
         # Bonferroni is always at least as conservative as BH
         assert bonf_result["n_rejected"] <= bh_result["n_rejected"]
+
+
+# ─── Library-level PBO (criterion-4 input, #546) ─────────────────────
+
+
+class TestAlignReturnsStore:
+    """Date-aligned inner-join of the daily-returns store (parity with the
+    offline analytics-engine/scripts/compute_library_pbo.py::build_aligned_matrix)."""
+
+    def test_aligns_on_joint_dates_in_order(self) -> None:
+        store = {
+            "a": {"dates": ["2020-01-01", "2020-01-02", "2020-01-03"], "daily_returns": [0.1, 0.2, 0.3]},
+            "b": {"dates": ["2020-01-02", "2020-01-03", "2020-01-04"], "daily_returns": [0.5, 0.6, 0.7]},
+        }
+        matrix = align_returns_store(store)
+        # Joint dates are {01-02, 01-03}, sorted; each row maps to the right value.
+        assert matrix == {"a": [0.2, 0.3], "b": [0.5, 0.6]}
+
+    def test_fewer_than_two_series_returns_empty(self) -> None:
+        store = {"a": {"dates": ["2020-01-01"], "daily_returns": [0.1]}}
+        assert align_returns_store(store) == {}
+
+    def test_empty_date_intersection_returns_empty(self) -> None:
+        store = {
+            "a": {"dates": ["2020-01-01", "2020-01-02"], "daily_returns": [0.1, 0.2]},
+            "b": {"dates": ["2021-06-01", "2021-06-02"], "daily_returns": [0.5, 0.6]},
+        }
+        assert align_returns_store(store) == {}
+
+    def test_drops_series_missing_dates_or_returns(self) -> None:
+        store = {
+            "a": {"dates": ["2020-01-01", "2020-01-02"], "daily_returns": [0.1, 0.2]},
+            "b": {"dates": [], "daily_returns": []},  # unusable → dropped
+            "c": {"dates": ["2020-01-02", "2020-01-03"], "daily_returns": [0.5, 0.6]},
+        }
+        matrix = align_returns_store(store)
+        assert set(matrix.keys()) == {"a", "c"}
+        assert matrix == {"a": [0.2], "c": [0.5]}
+
+    def test_malformed_record_length_mismatch_raises(self) -> None:
+        # strict=True (parity with the offline build_aligned_matrix): a record
+        # whose dates and daily_returns lengths disagree fails loud rather than
+        # silently producing a misaligned row.
+        store = {
+            "a": {"dates": ["2020-01-01", "2020-01-02"], "daily_returns": [0.1, 0.2]},
+            "b": {"dates": ["2020-01-01", "2020-01-02", "2020-01-03"], "daily_returns": [0.5, 0.6]},
+        }
+        with pytest.raises(ValueError):
+            align_returns_store(store)
+
+
+class TestComputeLibraryPbo:
+    """Single library-wide CSCV PBO over the whole selection set (#546)."""
+
+    @staticmethod
+    def _series(seed: int, n: int = 256) -> dict[str, list]:
+        rng = np.random.default_rng(seed)
+        dates = [f"2020-{1 + i // 28:02d}-{1 + i % 28:02d}" for i in range(n)]
+        return {"dates": dates, "daily_returns": rng.normal(0.0005, 0.01, n).tolist()}
+
+    def test_returns_float_in_unit_interval(self) -> None:
+        store = {f"s{i}": self._series(i) for i in range(4)}
+        pbo = compute_library_pbo(store, s_partitions=8)
+        assert pbo is not None
+        assert 0.0 <= pbo <= 1.0
+
+    def test_fewer_than_two_series_returns_none(self) -> None:
+        store = {"a": self._series(1)}
+        assert compute_library_pbo(store) is None
+
+    def test_empty_store_returns_none(self) -> None:
+        assert compute_library_pbo({}) is None
+
+    def test_short_joint_window_fails_closed(self) -> None:
+        # A joint window shorter than s_partitions is non-computable: must fail
+        # closed to None, NOT return compute_pbo's all-0.0 PASS sentinel (#546).
+        dates = [f"2020-01-{d:02d}" for d in range(1, 6)]  # 5 dates < default S=16
+        store = {
+            "a": {"dates": dates, "daily_returns": [0.01] * 5},
+            "b": {"dates": dates, "daily_returns": [0.02] * 5},
+        }
+        assert compute_library_pbo(store) is None
+
+    def test_empty_pbo_scores_fail_closed(self, monkeypatch) -> None:
+        # If compute_pbo yields no scores, fail closed to None (not silent pass).
+        store = {f"s{i}": self._series(i) for i in range(2)}
+        monkeypatch.setattr("archimedes.services.rigor_evaluator.compute_pbo", lambda *a, **k: {})
+        assert compute_library_pbo(store) is None
+
+    def test_non_finite_pbo_fails_closed(self, monkeypatch) -> None:
+        # A NaN/inf library PBO must not pass criterion 4 — fail closed to None.
+        store = {f"s{i}": self._series(i) for i in range(2)}
+        monkeypatch.setattr(
+            "archimedes.services.rigor_evaluator.compute_pbo",
+            lambda *a, **k: dict.fromkeys(store, float("nan")),
+        )
+        assert compute_library_pbo(store) is None
+
+
+class TestRigorGateLibraryPbo:
+    """run_rigor_gate prefers the library PBO and labels its provenance (#546)."""
+
+    @staticmethod
+    def _returns() -> list[float]:
+        rng = np.random.default_rng(42)
+        return rng.normal(0.001, 0.008, size=500).tolist()
+
+    def test_library_pbo_takes_precedence_and_labels_source(self) -> None:
+        result = run_rigor_gate(
+            strategy_id="s",
+            daily_returns=self._returns(),
+            num_trials=5,
+            pbo_scores={"s": 0.9},  # cohort score would FAIL...
+            library_pbo=0.2,  # ...but the library PBO (0.2) is the real input
+            strategy_code="class S: def next(self): self.buy()",
+        )
+        assert result.pbo_source == "library"
+        assert result.pbo_score == 0.2
+        assert "source=library" in result.gate_details["pbo"]
+
+    def test_falls_back_to_cohort_when_no_library_pbo(self) -> None:
+        result = run_rigor_gate(
+            strategy_id="s",
+            daily_returns=self._returns(),
+            num_trials=5,
+            pbo_scores={"s": 0.2},
+            strategy_code="class S: def next(self): self.buy()",
+        )
+        assert result.pbo_source == "cohort"
+        assert result.pbo_score == 0.2
+        assert "source=cohort" in result.gate_details["pbo"]
+
+    def test_none_library_pbo_with_no_cohort_fails_closed(self) -> None:
+        result = run_rigor_gate(
+            strategy_id="s",
+            daily_returns=self._returns(),
+            num_trials=5,
+            pbo_scores=None,
+            library_pbo=None,
+            strategy_code="class S: def next(self): self.buy()",
+        )
+        assert not result.passes_all
+        assert result.gate_details["pbo"] == "MISSING (source=cohort)"
