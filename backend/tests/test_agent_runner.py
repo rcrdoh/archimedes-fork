@@ -7,7 +7,7 @@ Hermetic: no network, no testnet.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from archimedes.models.portfolio import (
@@ -230,3 +230,70 @@ class TestPerVaultScopingLegacyFallback:
 
             result = runner._get_vault_strategy_ids("0xVaultWithStrategies")
             assert result == ["faber_001", "tsmom_001"]
+
+
+class TestClassifyMarketRegime:
+    """The exogenous-regime helper wired in #660 — degrades to ('unknown')."""
+
+    @pytest.fixture()
+    def runner(self):
+        with (
+            patch("archimedes.chain.agent_runner.chain_client") as mock_client,
+            patch("archimedes.chain.agent_runner.chain_executor"),
+            patch("archimedes.chain.agent_runner.trace_publisher"),
+            patch("archimedes.chain.agent_runner.default_provider"),
+            patch("archimedes.chain.agent_runner.AgentStateStore"),
+        ):
+            mock_client.settings = MagicMock(synth_addresses={}, usdc_address="0xusdc")
+            from archimedes.chain.agent_runner import StrategyRunner
+
+            return StrategyRunner()
+
+    @staticmethod
+    def _snapshot_with_signals():
+        from datetime import UTC, datetime
+
+        from archimedes.models.asset import MarketSnapshot
+
+        # vix + sp500_ma50 present → has_regime_signals is True.
+        return MarketSnapshot(
+            timestamp=datetime.now(UTC),
+            prices={"sSPY": 5000.0},
+            vix=12.0,
+            sp500_ma50=4900.0,
+            sp500_ma200=4800.0,
+        )
+
+    async def test_happy_path_returns_classification_and_regime(self, runner):
+        from archimedes.models.regime import Regime
+
+        runner.oracle.fetch_market_snapshot = AsyncMock(return_value=self._snapshot_with_signals())
+        classification, regime = await runner._classify_market_regime("tick-1")
+        assert classification is not None
+        assert regime == Regime.RISK_ON.value
+        assert classification.regime is Regime.RISK_ON
+
+    async def test_snapshot_fetch_failure_degrades_to_unknown(self, runner):
+        runner.oracle.fetch_market_snapshot = AsyncMock(side_effect=RuntimeError("oracle down"))
+        classification, regime = await runner._classify_market_regime("tick-2")
+        assert classification is None
+        assert regime == "unknown"
+
+    async def test_snapshot_without_regime_signals_degrades_to_unknown(self, runner):
+        from datetime import UTC, datetime
+
+        from archimedes.models.asset import MarketSnapshot
+
+        # No VIX → has_regime_signals is False.
+        bare = MarketSnapshot(timestamp=datetime.now(UTC), prices={"sSPY": 5000.0})
+        runner.oracle.fetch_market_snapshot = AsyncMock(return_value=bare)
+        classification, regime = await runner._classify_market_regime("tick-3")
+        assert classification is None
+        assert regime == "unknown"
+
+    async def test_classifier_exception_degrades_to_unknown(self, runner):
+        runner.oracle.fetch_market_snapshot = AsyncMock(return_value=self._snapshot_with_signals())
+        runner.regime_detector.classify = MagicMock(side_effect=ValueError("bad signals"))
+        classification, regime = await runner._classify_market_regime("tick-4")
+        assert classification is None
+        assert regime == "unknown"

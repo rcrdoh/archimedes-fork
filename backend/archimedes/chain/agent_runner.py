@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 
 from archimedes.chain.client import chain_client
 from archimedes.chain.executor import InsufficientLiquidityError, chain_executor
+from archimedes.chain.oracle_updater import OracleUpdater
 from archimedes.chain.trace_publisher import trace_publisher
 from archimedes.chain.v_check import VCheck
 from archimedes.models.portfolio import (
@@ -35,7 +36,7 @@ from archimedes.models.portfolio import (
     TradeDirection,
     TradeOrder,
 )
-from archimedes.models.regime import EnsembleConsensus
+from archimedes.models.regime import EnsembleConsensus, RegimeClassification
 from archimedes.models.trace import DecisionType, ReasoningTrace
 from archimedes.services.redis_state import AgentStateStore
 from archimedes.services.source_tracker import build_consulted_hashes
@@ -44,6 +45,7 @@ from archimedes.services.strategy_signal_evaluator import (
     StrategySignals,
     strategy_evaluator,
 )
+from archimedes.services.vix_regime_detector import VixRegimeDetector
 
 logging.basicConfig(
     level=logging.INFO,
@@ -139,6 +141,12 @@ class StrategyRunner:
     def __init__(self) -> None:
         self.provider = default_provider()
         self.state = AgentStateStore()
+        # Oracle for market snapshots (VIX + S&P MAs) feeding regime detection.
+        self.oracle = OracleUpdater()
+        # Exogenous market-regime classifier (issue #660). Rule-based VIX/MA —
+        # hermetic, no fitted artifact. Kept SEPARATE from the endogenous
+        # EnsembleConsensus signal (issue #659): the two are complementary.
+        self.regime_detector: VixRegimeDetector = VixRegimeDetector()
         self._synth_addrs = chain_client.settings.synth_addresses
         self._usdc_addr = chain_client.settings.usdc_address
         self._known_vaults: set[str] = set()  # Vaults we've already seen
@@ -208,9 +216,20 @@ class StrategyRunner:
             total_count = sum(len(ss.signals) for ss in all_signals)
             consensus = EnsembleConsensus.from_signal_counts(flat_count, total_count)
 
-            # Market regime is exogenous and not detected here — stays "unknown"
-            # until an IRegimeDetector is wired (separate issue).
-            market_regime = _MARKET_REGIME_UNKNOWN
+            # Exogenous market regime (issue #660). Fetch a market snapshot
+            # (VIX + S&P MAs) and classify it with the rule-based detector.
+            # This is INDEPENDENT of the endogenous EnsembleConsensus above —
+            # the regime says what the *market* is doing, the consensus says
+            # how decisive *our strategies* are. Traces carry both.
+            regime_classification, market_regime = await self._classify_market_regime(tick_id)
+
+            # Persist the exogenous market regime under KEY_REGIME so the
+            # /api/regime/current surface returns the *real* detector output
+            # (it falls back to ensemble consensus only while this is absent —
+            # see regime_routes.get_current_regime). Guarded: the classifier
+            # returns None on snapshot-fetch failure or missing regime signals.
+            if regime_classification is not None:
+                await self.state.save_regime(regime_classification)
 
             # Persist the ensemble consensus under its OWN Redis key so it does
             # not shadow the market regime.
@@ -315,6 +334,53 @@ class StrategyRunner:
 
         except Exception:
             logger.exception("[tick %s] Strategy tick failed — will retry", tick_id)
+
+    # ─── Exogenous market-regime classification (Issue #660) ─────────
+
+    async def _classify_market_regime(self, tick_id: str) -> tuple[RegimeClassification | None, str]:
+        """Fetch a market snapshot and classify the exogenous market regime.
+
+        Returns ``(classification, regime_value)``. On any failure — snapshot
+        fetch error, or a snapshot without enough regime signals (VIX / S&P
+        MAs unavailable) — degrades gracefully to ``(None, "unknown")`` and
+        logs a warning rather than crashing the tick.
+        """
+        try:
+            snapshot = await self.oracle.fetch_market_snapshot()
+        except Exception as e:
+            logger.warning(
+                "[tick %s] Market snapshot fetch failed (%s) — regime=unknown",
+                tick_id,
+                e,
+            )
+            return None, _MARKET_REGIME_UNKNOWN
+
+        if not snapshot.has_regime_signals:
+            logger.warning(
+                "[tick %s] Snapshot missing regime signals (VIX/MA unavailable) — regime=unknown",
+                tick_id,
+            )
+            return None, _MARKET_REGIME_UNKNOWN
+
+        try:
+            classification = self.regime_detector.classify(snapshot)
+        except Exception as e:
+            logger.warning(
+                "[tick %s] Regime classification failed (%s) — regime=unknown",
+                tick_id,
+                e,
+            )
+            return None, _MARKET_REGIME_UNKNOWN
+
+        logger.info(
+            "[tick %s] Market regime: %s (confidence=%.2f, VIX=%.1f, changed=%s)",
+            tick_id,
+            classification.regime.value,
+            classification.confidence,
+            classification.signals.vix_level,
+            classification.regime_changed,
+        )
+        return classification, classification.regime.value
 
     # ─── Per-vault strategy scoping (Issue #307) ─────────────────────
 
