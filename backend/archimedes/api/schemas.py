@@ -493,7 +493,12 @@ class StrategySignalResponse(BaseModel):
 
 class StrategySignalsResponse(BaseModel):
     strategy_count: int
+    # `regime` is retained for backward compatibility with existing frontend
+    # reads. It is the flat_pct-derived ENSEMBLE CONSENSUS bucket, not a market
+    # regime (#659) — `ensemble_consensus` carries the same value under the
+    # correct name. A true market regime would come from a detector.
     regime: str
+    ensemble_consensus: str | None = None
     confidence: float
     target_weights: dict[str, float]
     strategies: list[StrategySignalResponse]

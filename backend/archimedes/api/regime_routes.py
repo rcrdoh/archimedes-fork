@@ -18,6 +18,14 @@ async def get_current_regime():
     state = AgentStateStore()
     try:
         data = await state.load_regime()
+        if not data:
+            # No exogenous market regime yet (no detector wired). Fall back to
+            # the endogenous ensemble consensus so the surface still shows the
+            # agent's directional state — labelled `source=strategy_consensus`
+            # so callers know it is consensus, not a market regime (#659).
+            consensus = await state.load_ensemble_consensus()
+            if consensus:
+                data = {**consensus, "regime": consensus.get("label", "unknown")}
     except Exception:
         data = None
     finally:

@@ -2,6 +2,14 @@
 
 Stores the latest regime classification and agent heartbeat in Redis
 so the API layer and frontend can read live agent state.
+
+Two distinct signals live here, under two distinct keys (issue #659):
+  - ``KEY_REGIME`` — the *exogenous* market regime from a regime detector
+    (VIX / momentum / spreads). May be absent until a detector is wired.
+  - ``KEY_ENSEMBLE_CONSENSUS`` — the *endogenous* strategy-ensemble consensus
+    derived from ``flat_pct``. Always available once the agent ticks. This is
+    "how decisive is the ensemble", NOT a market regime, and must not shadow
+    the market-regime key.
 """
 
 from __future__ import annotations
@@ -13,7 +21,7 @@ from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 
-from archimedes.models.regime import RegimeClassification
+from archimedes.models.regime import EnsembleConsensus, RegimeClassification
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +29,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # Keys
 KEY_REGIME = "archimedes:regime:current"
+KEY_ENSEMBLE_CONSENSUS = "archimedes:ensemble_consensus"
 KEY_HEARTBEAT = "archimedes:agent:heartbeat"
 KEY_LAST_REBALANCE_PREFIX = "archimedes:agent:last_rebalance:"
 KEY_TRACE_PREFIX = "archimedes:trace:"
@@ -56,13 +65,17 @@ class AgentStateStore:
         await r.set(KEY_REGIME, json.dumps(data))
         logger.debug("Saved regime to Redis: %s", classification.regime.value)
 
-    async def save_regime_from_values(
+    async def save_ensemble_consensus(
         self,
-        regime: str,
-        flat_pct: float,
+        consensus: EnsembleConsensus,
         all_signals: list,
     ) -> None:
-        """Save regime derived from strategy signal consensus."""
+        """Persist the strategy-ensemble consensus under its own Redis key.
+
+        This is the endogenous "how decisive is the ensemble" signal — derived
+        from ``flat_pct`` — and is stored under ``KEY_ENSEMBLE_CONSENSUS`` so it
+        does NOT shadow the exogenous market regime at ``KEY_REGIME`` (#659).
+        """
         r = await self._get_redis()
         signal_summary = {}
         for ss in all_signals:
@@ -75,6 +88,8 @@ class AgentStateStore:
                 }
         # Dynamic confidence from signal weights + dispersion (matches
         # _compute_confidence in agent_runner — same formula, different caller).
+        # This is the ensemble's *decisiveness*, not a market-regime confidence.
+        flat_pct = consensus.flat_pct
         if all_signals:
             directional = [s for ss in all_signals for s in ss.signals if s.signal.value != "flat"]
             vote_ratio = 1.0 - flat_pct
@@ -91,20 +106,29 @@ class AgentStateStore:
         else:
             dyn_confidence = 0.5
         data = {
-            "regime": regime,
+            "label": consensus.label.value,
             "confidence": round(dyn_confidence, 4),
             "flat_pct": round(flat_pct, 2),
-            "strategy_count": len(all_signals),
+            "strategy_count": consensus.signal_count or len(all_signals),
             "signals": signal_summary,
             "timestamp": datetime.now(UTC).isoformat(),
             "source": "strategy_consensus",
         }
-        await r.set(KEY_REGIME, json.dumps(data))
-        logger.debug("Saved strategy-derived regime to Redis: %s", regime)
+        await r.set(KEY_ENSEMBLE_CONSENSUS, json.dumps(data))
+        logger.debug("Saved ensemble consensus to Redis: %s", consensus.label.value)
 
     async def load_regime(self) -> dict | None:
+        """Load the exogenous market regime (may be None until a detector writes it)."""
         r = await self._get_redis()
         raw = await r.get(KEY_REGIME)
+        if raw:
+            return json.loads(raw)
+        return None
+
+    async def load_ensemble_consensus(self) -> dict | None:
+        """Load the endogenous strategy-ensemble consensus (#659)."""
+        r = await self._get_redis()
+        raw = await r.get(KEY_ENSEMBLE_CONSENSUS)
         if raw:
             return json.loads(raw)
         return None

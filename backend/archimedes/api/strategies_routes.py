@@ -183,16 +183,16 @@ async def get_strategy_signals():
 
     target_weights = strategy_evaluator.aggregate_signals(all_signals, usdc_floor=0.20)
 
+    # flat_pct → ensemble-consensus bucket (#659). This is the agent's
+    # directional consensus, NOT a market regime; the model owns the thresholds.
+    from archimedes.models.regime import EnsembleConsensus
+
     flat_count = sum(1 for ss in all_signals for s in ss.signals if s.signal.value == "flat")
     total_count = sum(len(ss.signals) for ss in all_signals)
-    flat_pct = flat_count / total_count if total_count > 0 else 0
-
-    if flat_pct > 0.6:
-        regime = "risk_off"
-    elif flat_pct > 0.3:
-        regime = "transition"
-    else:
-        regime = "risk_on"
+    consensus = EnsembleConsensus.from_signal_counts(flat_count, total_count)
+    flat_pct = consensus.flat_pct
+    # `regime` kept for backward-compat; it carries the consensus bucket value.
+    regime = consensus.label.value
 
     strat_responses = []
     for ss in all_signals:
@@ -216,6 +216,7 @@ async def get_strategy_signals():
     return StrategySignalsResponse(
         strategy_count=len(all_signals),
         regime=regime,
+        ensemble_consensus=consensus.label.value,
         confidence=round(1.0 - flat_pct, 2),
         target_weights=target_weights,
         strategies=strat_responses,
@@ -244,6 +245,14 @@ async def get_portfolio_advisor(
     state = AgentStateStore()
     try:
         regime_data = await state.load_regime()
+        if not regime_data:
+            # No market detector wired — fall back to the ensemble-consensus
+            # bucket so the advisor still has a directional prior (#659). The
+            # bucket names line up with Regime values, so the deleverage map
+            # below still resolves; it is consensus-driven, not market-driven.
+            consensus = await state.load_ensemble_consensus()
+            if consensus:
+                regime_data = {"regime": consensus.get("label"), "confidence": consensus.get("confidence")}
     except Exception:
         regime_data = None
     finally:
@@ -1236,13 +1245,17 @@ async def generate_strategy(
         state = AgentStateStore()
         try:
             regime_data = await state.load_regime()
-            if regime_data:
+            consensus_data = await state.load_ensemble_consensus()
+            # Surface market regime (exogenous, may be absent) and ensemble
+            # consensus (endogenous, from flat_pct) as DISTINCT context (#659).
+            if regime_data or consensus_data:
                 market_context = {
-                    "regime": regime_data.get("regime", "unknown"),
-                    "confidence": regime_data.get("confidence", 0.0),
-                    "source": regime_data.get("source", ""),
-                    "strategy_count": regime_data.get("strategy_count", 0),
-                    "signals": regime_data.get("signals", {}),
+                    "regime": (regime_data or {}).get("regime", "unknown"),
+                    "ensemble_consensus": (consensus_data or {}).get("label", "unknown"),
+                    "confidence": (consensus_data or regime_data or {}).get("confidence", 0.0),
+                    "source": (consensus_data or regime_data or {}).get("source", ""),
+                    "strategy_count": (consensus_data or regime_data or {}).get("strategy_count", 0),
+                    "signals": (consensus_data or regime_data or {}).get("signals", {}),
                 }
         finally:
             await state.close()
@@ -1547,7 +1560,7 @@ async def construct_strategy(
     request: Request,
     response: Response,
     _wallet: str | None = Depends(gate_generation),
-):  # noqa: ARG001 — slowapi @limiter.limit inspects param name
+):
     """Interactive strategy architect -- the 'design me a portfolio' path."""
     from fastapi import HTTPException
 

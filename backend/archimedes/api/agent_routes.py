@@ -27,10 +27,12 @@ async def get_agent_status():
     try:
         heartbeat = await state.get_heartbeat()
         regime_data = await state.load_regime()
+        consensus_data = await state.load_ensemble_consensus()
         events = await state.get_events(count=10)
     except Exception:
         heartbeat = None
         regime_data = None
+        consensus_data = None
         events = []
     finally:
         await state.close()
@@ -44,10 +46,24 @@ async def get_agent_status():
         except Exception:
             pass
 
-    regime = regime_data.get("regime") if regime_data else None
-    confidence = regime_data.get("confidence") if regime_data else None
-    source = regime_data.get("source") if regime_data else None
-    strat_count = regime_data.get("strategy_count", 0) if regime_data else 0
+    # Market regime is exogenous (None/"unknown" until a detector is wired).
+    # The "regime"-shaped value the agent actually produces is the endogenous
+    # ensemble consensus (#659) — surface that, labelled as such via `source`.
+    if regime_data:
+        regime = regime_data.get("regime")
+        confidence = regime_data.get("confidence")
+        source = regime_data.get("source")
+        strat_count = regime_data.get("strategy_count", 0)
+    elif consensus_data:
+        regime = consensus_data.get("label")
+        confidence = consensus_data.get("confidence")
+        source = consensus_data.get("source")  # "strategy_consensus"
+        strat_count = consensus_data.get("strategy_count", 0)
+    else:
+        regime = None
+        confidence = None
+        source = None
+        strat_count = 0
 
     vault_count = 0
     try:

@@ -14,11 +14,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from archimedes.models.regime import (
+    ConsensusLabel,
+    EnsembleConsensus,
     Regime,
     RegimeClassification,
     RegimeSignals,
 )
 from archimedes.services.redis_state import (
+    KEY_ENSEMBLE_CONSENSUS,
     KEY_HEARTBEAT,
     KEY_LAST_REBALANCE_PREFIX,
     KEY_REGIME,
@@ -80,27 +83,29 @@ class TestRegime:
         assert payload["confidence"] == 0.8
 
     @pytest.mark.asyncio
-    async def test_save_regime_from_values(self) -> None:
+    async def test_save_ensemble_consensus_writes_to_distinct_key(self) -> None:
+        """Ensemble consensus is persisted under its OWN key, not KEY_REGIME (#659)."""
         store, fake = await _store_with_fake_redis()
         signal_summary = MagicMock()
         signal_summary.signals = []
         signal_summary.paper_title = "Faber 2007"
-        await store.save_regime_from_values("transition", 0.4, [signal_summary])
+        consensus = EnsembleConsensus.from_signal_counts(flat_count=2, total_count=5)
+        await store.save_ensemble_consensus(consensus, [signal_summary])
         fake.set.assert_awaited_once()
-        payload = json.loads(fake.set.await_args.args[1])
-        assert payload["regime"] == "transition"
-        # Dynamic confidence formula (introduced in commit fabc57f, "Bug sweep:
-        # dynamic regime confidence + cleanup junk constants"): replaces the
-        # earlier `1 - flat_pct` simple form with a dispersion-aware
-        # consensus signal. With flat_pct=0.4 and the empty-signals fixture:
-        #   vote_ratio = 1.0 - 0.4 = 0.6
-        #   directional = []          (signals list empty)
-        #   avg_strength = 0.0        (no directional signals)
-        #   dispersion_penalty = 0.0  (< 2 weights)
+        key, value = fake.set.await_args.args
+        # Critical: must NOT shadow the market-regime key.
+        assert key == KEY_ENSEMBLE_CONSENSUS
+        assert key != KEY_REGIME
+        payload = json.loads(value)
+        # The persisted payload carries a "label" (consensus bucket), not a
+        # "regime" — the consensus is not a market regime.
+        assert payload["label"] == ConsensusLabel.TRANSITION.value
+        assert "regime" not in payload
+        assert payload["flat_pct"] == 0.4
+        assert payload["strategy_count"] == 5
+        # Dynamic confidence: with flat_pct=0.4 and the empty-signals fixture:
+        #   vote_ratio = 1.0 - 0.4 = 0.6 ; avg_strength = 0.0 ; dispersion = 0.0
         #   dyn = clamp(0.6 * (0.5 + 0.5 * 0.0) - 0.0, 0.05, 0.99) = 0.3
-        # Keeping this expectation explicit + commented so a future change to
-        # the formula is caught here (rather than silently producing a wrong
-        # confidence on every agent tick).
         assert payload["confidence"] == 0.3
         assert payload["source"] == "strategy_consensus"
 
@@ -115,6 +120,19 @@ class TestRegime:
         fake.get.return_value = json.dumps({"regime": "risk_on", "confidence": 0.9})
         loaded = await store.load_regime()
         assert loaded["regime"] == "risk_on"
+
+    @pytest.mark.asyncio
+    async def test_load_ensemble_consensus_returns_none_when_missing(self) -> None:
+        store, _ = await _store_with_fake_redis()
+        assert await store.load_ensemble_consensus() is None
+
+    @pytest.mark.asyncio
+    async def test_load_ensemble_consensus_parses_json(self) -> None:
+        store, fake = await _store_with_fake_redis()
+        fake.get.return_value = json.dumps({"label": "risk_off", "confidence": 0.2, "flat_pct": 0.8})
+        loaded = await store.load_ensemble_consensus()
+        assert loaded["label"] == "risk_off"
+        assert loaded["flat_pct"] == 0.8
 
 
 class TestHeartbeat:

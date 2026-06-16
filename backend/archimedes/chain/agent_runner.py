@@ -35,6 +35,7 @@ from archimedes.models.portfolio import (
     TradeDirection,
     TradeOrder,
 )
+from archimedes.models.regime import EnsembleConsensus
 from archimedes.models.trace import DecisionType, ReasoningTrace
 from archimedes.services.redis_state import AgentStateStore
 from archimedes.services.source_tracker import build_consulted_hashes
@@ -58,6 +59,12 @@ USDC_FLOOR = float(os.getenv("AGENT_USDC_FLOOR", "0.20"))
 
 # Drift threshold for rebalance trigger
 _DRIFT_THRESHOLD = 0.15
+
+# Exogenous market regime is not detected here — an IRegimeDetector (separate
+# issue) would write KEY_REGIME. Until then the market regime is honestly
+# "unknown", and the only regime-shaped signal we have is the *endogenous*
+# ensemble consensus (issue #659). Traces carry both, clearly distinguished.
+_MARKET_REGIME_UNKNOWN = "unknown"
 
 
 def _compute_confidence(all_signals: list[StrategySignals]) -> float:
@@ -192,20 +199,22 @@ class StrategyRunner:
                 " | ".join(f"{k}={v:.0%}" for k, v in target_weights.items()),
             )
 
-            # Derive regime from strategy consensus (how many say flat)
+            # Compute the ensemble consensus (how decisive the ensemble is).
+            # NOTE: flat_pct is an *endogenous* ensemble-uncertainty signal — it
+            # is NOT a market regime. We keep the flat_pct computation (it is a
+            # useful consensus signal) but label it honestly as agent consensus
+            # rather than overloading it onto the exogenous market regime (#659).
             flat_count = sum(1 for ss in all_signals for s in ss.signals if s.signal.value == "flat")
             total_count = sum(len(ss.signals) for ss in all_signals)
-            flat_pct = flat_count / total_count if total_count > 0 else 0
+            consensus = EnsembleConsensus.from_signal_counts(flat_count, total_count)
 
-            if flat_pct > 0.6:
-                regime = "risk_off"
-            elif flat_pct > 0.3:
-                regime = "transition"
-            else:
-                regime = "risk_on"
+            # Market regime is exogenous and not detected here — stays "unknown"
+            # until an IRegimeDetector is wired (separate issue).
+            market_regime = _MARKET_REGIME_UNKNOWN
 
-            # Save regime to Redis
-            await self.state.save_regime_from_values(regime, flat_pct, all_signals)
+            # Persist the ensemble consensus under its OWN Redis key so it does
+            # not shadow the market regime.
+            await self.state.save_ensemble_consensus(consensus, all_signals)
 
             # 4. Build target allocations
             targets = self._weights_to_targets(target_weights, all_signals)
@@ -252,7 +261,8 @@ class StrategyRunner:
                             vault_addr,
                             targets,
                             all_signals,
-                            regime,
+                            market_regime,
+                            consensus,
                             tick_id,
                         )
                         continue
@@ -289,7 +299,8 @@ class StrategyRunner:
                         vault_addr,
                         vault_targets,
                         scoped_signals,
-                        regime,
+                        market_regime,
+                        consensus,
                         tick_id,
                     )
                 except Exception:
@@ -333,10 +344,15 @@ class StrategyRunner:
         vault_address: str,
         targets: list[TargetAllocation],
         all_signals: list[StrategySignals],
-        regime: str,
+        market_regime: str,
+        consensus: EnsembleConsensus,
         tick_id: str,
     ) -> None:
-        """Process a single vault: read portfolio → diff → maybe trade → publish trace."""
+        """Process a single vault: read portfolio → diff → maybe trade → publish trace.
+
+        ``market_regime`` is the exogenous regime (``"unknown"`` until a detector
+        is wired); ``consensus`` is the endogenous ensemble consensus (#659).
+        """
         logger.info("[tick %s] Processing vault %s", tick_id, vault_address[:10])
 
         # Read current portfolio
@@ -372,7 +388,8 @@ class StrategyRunner:
                     portfolio,
                     [],
                     all_signals,
-                    regime,
+                    market_regime,
+                    consensus,
                     tick_id,
                     "Vault is empty — awaiting initial deposit.",
                 )
@@ -462,7 +479,8 @@ class StrategyRunner:
                 portfolio,
                 [],
                 all_signals,
-                regime,
+                market_regime,
+                consensus,
                 tick_id,
                 "Portfolio aligned with strategy signals. No rebalance needed.",
             )
@@ -470,11 +488,12 @@ class StrategyRunner:
 
         # Log the trade plan
         logger.info(
-            "[tick %s] REBALANCE vault %s: %d trades (regime=%s)",
+            "[tick %s] REBALANCE vault %s: %d trades (market_regime=%s, consensus=%s)",
             tick_id,
             vault_address[:10],
             len(trades),
-            regime,
+            market_regime,
+            consensus.label.value,
         )
         for t in trades:
             logger.info(
@@ -516,7 +535,8 @@ class StrategyRunner:
                 portfolio,
                 [],
                 all_signals,
-                regime,
+                market_regime,
+                consensus,
                 tick_id,
                 f"V_check rejected: {'; '.join(v_result.failures)}",
             )
@@ -524,7 +544,7 @@ class StrategyRunner:
 
         # ── Commit-Reveal Flow ────────────────────────────────────
         # Phase 1: COMMIT — compute hash and anchor on-chain BEFORE trade
-        reasoning = self._build_reasoning(all_signals, regime, trades, portfolio)
+        reasoning = self._build_reasoning(all_signals, market_regime, consensus, trades, portfolio)
 
         # Deduplicate: skip identical decisions to avoid trace spam.
         # When the same strategy signals produce the same reasoning, anchoring
@@ -552,7 +572,8 @@ class StrategyRunner:
                 vault_address,
                 trades,
                 all_signals,
-                regime,
+                market_regime,
+                consensus,
                 tick_id,
                 reasoning,
                 portfolio,
@@ -597,7 +618,8 @@ class StrategyRunner:
                     portfolio,
                     [],
                     all_signals,
-                    regime,
+                    market_regime,
+                    consensus,
                     tick_id,
                     f"Swap skipped — thin pool: {e}",
                     commit_tx=commit_tx,
@@ -618,7 +640,8 @@ class StrategyRunner:
                     portfolio,
                     [],
                     all_signals,
-                    regime,
+                    market_regime,
+                    consensus,
                     tick_id,
                     f"Execution failed: {e}",
                     commit_tx=commit_tx,
@@ -635,7 +658,8 @@ class StrategyRunner:
             portfolio,
             trades,
             all_signals,
-            regime,
+            market_regime,
+            consensus,
             tick_id,
             reasoning,
             tx_hashes,
@@ -717,7 +741,8 @@ class StrategyRunner:
         vault_address: str,
         trades: list[TradeOrder],
         all_signals: list[StrategySignals],
-        regime: str,
+        market_regime: str,
+        consensus: EnsembleConsensus,
         tick_id: str,
         reasoning: str,
         portfolio: Portfolio,
@@ -733,7 +758,9 @@ class StrategyRunner:
             trigger="commit_phase",
             timestamp=datetime.now(UTC),
             market_context={
-                "regime": regime,
+                "regime": market_regime,
+                "ensemble_consensus": consensus.label.value,
+                "ensemble_flat_pct": round(consensus.flat_pct, 4),
                 "strategy_count": len(all_signals),
                 "phase": "commit",
             },
@@ -789,7 +816,8 @@ class StrategyRunner:
         portfolio: Portfolio,
         trades: list[TradeOrder],
         all_signals: list[StrategySignals],
-        regime: str,
+        market_regime: str,
+        consensus: EnsembleConsensus,
         tick_id: str,
         reasoning: str,
         tx_hashes: list[str] | None = None,
@@ -808,7 +836,9 @@ class StrategyRunner:
             trigger=trigger,
             timestamp=datetime.now(UTC),
             market_context={
-                "regime": regime,
+                "regime": market_regime,
+                "ensemble_consensus": consensus.label.value,
+                "ensemble_flat_pct": round(consensus.flat_pct, 4),
                 "strategy_count": len(all_signals),
                 "signal_summary": {
                     ss.paper_title[:30]: {s.asset: f"{s.signal.value}({s.weight:.0%})" for s in ss.signals[:5]}
@@ -905,7 +935,8 @@ class StrategyRunner:
         portfolio: Portfolio,
         trades: list[TradeOrder],
         all_signals: list[StrategySignals],
-        regime: str,
+        market_regime: str,
+        consensus: EnsembleConsensus,
         tick_id: str,
         reasoning: str,
         tx_hashes: list[str] | None = None,
@@ -921,7 +952,9 @@ class StrategyRunner:
             trigger=trigger,
             timestamp=datetime.now(UTC),
             market_context={
-                "regime": regime,
+                "regime": market_regime,
+                "ensemble_consensus": consensus.label.value,
+                "ensemble_flat_pct": round(consensus.flat_pct, 4),
                 "strategy_count": len(all_signals),
                 "signal_summary": {
                     ss.paper_title[:30]: {s.asset: f"{s.signal.value}({s.weight:.0%})" for s in ss.signals[:5]}
@@ -988,7 +1021,8 @@ class StrategyRunner:
     def _build_reasoning(
         self,
         all_signals: list[StrategySignals],
-        regime: str,
+        market_regime: str,
+        consensus: EnsembleConsensus,
         trades: list[TradeOrder],
         portfolio: Portfolio | None = None,
     ) -> str:
@@ -997,8 +1031,16 @@ class StrategyRunner:
         Includes portfolio context + trade specifics so each tick's reasoning
         is distinguishable even when the underlying strategy consensus is
         identical (addresses issue #334).
+
+        Market regime (exogenous) and ensemble consensus (endogenous) are
+        surfaced as distinct lines — the consensus is derived from strategy
+        signals; the market regime is not (issue #659).
         """
-        parts = [f"Regime: {regime} (derived from strategy consensus)"]
+        parts = [
+            f"Market regime: {market_regime}",
+            f"Ensemble consensus: {consensus.label.value} "
+            f"(flat_pct={consensus.flat_pct:.0%}, derived from strategy signals)",
+        ]
         for ss in all_signals:
             signal_strs = [f"{s.asset}={s.signal.value}" for s in ss.signals[:4]]
             parts.append(f"{ss.paper_title[:35]}: {', '.join(signal_strs)}")

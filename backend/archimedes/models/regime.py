@@ -54,3 +54,67 @@ class RegimeClassification:
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"Confidence must be 0-1, got {self.confidence}")
+
+
+class ConsensusLabel(str, Enum):
+    """Three-bucket label for the strategy ensemble's directional consensus.
+
+    Deliberately NOT a `Regime`. This describes how directional the *strategy
+    ensemble* is right now (endogenous: derived from the very strategies that
+    would be conditioned on the regime), not what the *market* is doing
+    (exogenous: VIX / momentum / spreads, measured by a regime detector).
+    The bucket names rhyme with the regime names by convention, but the
+    semantics are distinct — see issue #659.
+    """
+
+    RISK_ON = "risk_on"  # Mostly directional signals — ensemble is confident
+    TRANSITION = "transition"  # Mixed — a meaningful fraction of signals are flat
+    RISK_OFF = "risk_off"  # Mostly flat signals — ensemble is uncertain/defensive
+
+
+@dataclass(frozen=True)
+class EnsembleConsensus:
+    """How decisive the strategy ensemble is — agent consensus, not market regime.
+
+    Built from `flat_pct` (the fraction of strategy signals that are flat). This
+    is an *ensemble-uncertainty* signal: a high flat fraction means most
+    strategies abstain, so the agent is collectively uncertain. It is endogenous
+    — derived from the strategies themselves — and must never be persisted or
+    surfaced as a market `Regime` (issue #659).
+
+    Produced by: the strategy runner (agent_runner) once per tick.
+    Consumed by: reasoning traces, rebalance logs, and the API as an explicitly
+                 labelled "ensemble consensus" signal — kept distinct from the
+                 exogenous market regime (which stays `None`/"unknown" until an
+                 `IRegimeDetector` is wired, a separate issue).
+    """
+
+    flat_pct: float  # Fraction of signals that are flat, 0.0–1.0
+    signal_count: int  # Total number of strategy signals considered
+    label: ConsensusLabel  # Three-bucket directional consensus
+
+    # Bucket thresholds — kept here so the one true mapping lives in the model,
+    # not duplicated across agent_runner / strategies_routes.
+    _FLAT_RISK_OFF = 0.6  # > 60% flat → defensive consensus
+    _FLAT_TRANSITION = 0.3  # > 30% flat → mixed consensus
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.flat_pct <= 1.0:
+            raise ValueError(f"flat_pct must be 0-1, got {self.flat_pct}")
+        if self.signal_count < 0:
+            raise ValueError(f"signal_count must be >= 0, got {self.signal_count}")
+
+    @classmethod
+    def label_for(cls, flat_pct: float) -> ConsensusLabel:
+        """Map a flat fraction to its three-bucket consensus label."""
+        if flat_pct > cls._FLAT_RISK_OFF:
+            return ConsensusLabel.RISK_OFF
+        if flat_pct > cls._FLAT_TRANSITION:
+            return ConsensusLabel.TRANSITION
+        return ConsensusLabel.RISK_ON
+
+    @classmethod
+    def from_signal_counts(cls, flat_count: int, total_count: int) -> EnsembleConsensus:
+        """Build from raw flat/total signal counts (the agent_runner call site)."""
+        flat_pct = flat_count / total_count if total_count > 0 else 0.0
+        return cls(flat_pct=flat_pct, signal_count=total_count, label=cls.label_for(flat_pct))
