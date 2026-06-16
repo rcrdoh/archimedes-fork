@@ -114,15 +114,64 @@ resource "aws_wafv2_web_acl" "main" {
     priority = 40
 
     override_action {
-      # COUNT mode — SQLi rules false-positive on LLM prompts; flip to BLOCK after
-      # adding URI path exclusions for /api/strategies/generate and /api/chat.
-      count {}
+      # BLOCK mode active (AUDIT #23). The SQLi managed rule group used to
+      # false-positive on LLM prompt bodies; it now enforces, but a scope-down
+      # statement below excludes the two LLM endpoints (/api/strategies/generate
+      # and /api/chat) so legitimate prompt traffic on those paths is never
+      # evaluated by — and therefore never blocked by — the SQLi rules.
+      none {}
     }
 
     statement {
       managed_rule_group_statement {
         vendor_name = "AWS"
         name        = "AWSManagedRulesSQLiRuleSet"
+
+        # Scope-down: only evaluate requests whose URI path is NOT one of the
+        # LLM endpoints. LLM prompts routinely contain SQL-like tokens (SELECT,
+        # quotes, UNION, --) that trip the SQLi signatures; excluding these two
+        # paths lets the group block SQLi everywhere else while leaving the
+        # prompt endpoints untouched. Exact-match on the path; the backend
+        # routes are mounted at these literal paths.
+        scope_down_statement {
+          not_statement {
+            statement {
+              or_statement {
+                statement {
+                  byte_match_statement {
+                    search_string         = "/api/strategies/generate"
+                    positional_constraint = "EXACTLY"
+
+                    field_to_match {
+                      uri_path {}
+                    }
+
+                    text_transformation {
+                      priority = 0
+                      type     = "NONE"
+                    }
+                  }
+                }
+
+                statement {
+                  byte_match_statement {
+                    search_string         = "/api/chat"
+                    positional_constraint = "EXACTLY"
+
+                    field_to_match {
+                      uri_path {}
+                    }
+
+                    text_transformation {
+                      priority = 0
+                      type     = "NONE"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
 
