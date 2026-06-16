@@ -85,8 +85,8 @@ class EnsembleConsensus:
     Produced by: the strategy runner (agent_runner) once per tick.
     Consumed by: reasoning traces, rebalance logs, and the API as an explicitly
                  labelled "ensemble consensus" signal — kept distinct from the
-                 exogenous market regime (which stays `None`/"unknown" until an
-                 `IRegimeDetector` is wired, a separate issue).
+                 exogenous market regime, which is detected each tick by the
+                 wired `IRegimeDetector` (VixRegimeDetector, issue #660).
     """
 
     flat_pct: float  # Fraction of signals that are flat, 0.0–1.0

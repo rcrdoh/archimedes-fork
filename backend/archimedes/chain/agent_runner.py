@@ -62,10 +62,11 @@ USDC_FLOOR = float(os.getenv("AGENT_USDC_FLOOR", "0.20"))
 # Drift threshold for rebalance trigger
 _DRIFT_THRESHOLD = 0.15
 
-# Exogenous market regime is not detected here — an IRegimeDetector (separate
-# issue) would write KEY_REGIME. Until then the market regime is honestly
-# "unknown", and the only regime-shaped signal we have is the *endogenous*
-# ensemble consensus (issue #659). Traces carry both, clearly distinguished.
+# The exogenous market regime is detected each tick by VixRegimeDetector
+# (issue #660) and written to KEY_REGIME. This is the value used only when that
+# classification cannot be produced (snapshot fetch fails or lacks VIX/MA
+# signals) — the regime then degrades honestly to "unknown". Distinct from the
+# *endogenous* ensemble consensus (issue #659); traces carry both.
 _MARKET_REGIME_UNKNOWN = "unknown"
 
 

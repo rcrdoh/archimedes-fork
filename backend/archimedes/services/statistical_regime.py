@@ -453,15 +453,20 @@ class StatisticalRegimeDetector:
 
 def create_regime_detector(
     previous_regime: Regime | None = None,
-    statistical: bool = True,  # noqa: ARG001 — accepted for the v1/v2-toggle plan in chuan-architecture-survey gap #2; both detectors currently coexist
+    statistical: bool = True,  # noqa: ARG001 — kept for call-site compatibility; see note below
 ) -> StatisticalRegimeDetector:
-    """Factory for creating the regime detector.
+    """Factory for the statistical (GMM) regime detector.
+
+    Not wired into the agent runner — that uses the rule-based VixRegimeDetector
+    (issue #660), which is the canonical exogenous-regime detector after the
+    #621 consolidation that removed the old v1 ``RegimeDetector`` heuristic. This
+    GMM detector is retained as the statistical alternative tracked by issue #661
+    (a statistically-principled drop-in for VixRegimeDetector).
 
     Args:
         previous_regime: Starting regime state.
-        statistical: If True, use the statistical classifier.
-            If False, falls back to v1 heuristic (not implemented here;
-            the old RegimeDetector class remains in regime_detector.py).
+        statistical: Accepted for call-site compatibility; only the statistical
+            classifier exists here (the v1 heuristic was removed in #621).
 
     Returns:
         StatisticalRegimeDetector instance.
