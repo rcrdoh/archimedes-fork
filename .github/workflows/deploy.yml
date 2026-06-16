@@ -12,6 +12,12 @@
 # Required GitHub Variables (or hardcoded below):
 #   AWS_ROLE_ARN — arn:aws:iam::159903201072:role/archimedes-github-deploy
 #   EC2_INSTANCE_ID — i-0987f70a131ed3ab1
+#   DEPLOY_ENABLED — gate flag; the deploy job runs ONLY when this repo variable
+#     equals 'true'. Unset/false → the job is skipped (neutral, not failed). The
+#     deploy target was torn down post-hackathon for cost (#436, EC2-only) and the
+#     box is offline, so unguarded runs would fail on every push to main. Set
+#     DEPLOY_ENABLED=true (Settings → Secrets and variables → Actions → Variables)
+#     to re-enable once a deploy target exists again.
 #
 # ─── KNOWN SECURITY DEBT ───
 #
@@ -61,6 +67,13 @@ env:
 jobs:
   deploy:
     name: Deploy
+    # Gated behind an explicit opt-in repo variable. The deploy target (managed
+    # tier + EC2) was torn down post-hackathon for cost (#436, EC2-only) and the
+    # instance is offline / DNS released, so an unguarded run would fail on the
+    # SSM SendCommand to a dead instance on every push to main. With DEPLOY_ENABLED
+    # unset, this job is SKIPPED (neutral, keeps the Actions history green); set the
+    # repo variable DEPLOY_ENABLED=true to re-enable once a deploy target exists.
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35  # SSM 30min + AWS API overhead + buffer
 
