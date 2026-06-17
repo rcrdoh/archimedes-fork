@@ -479,7 +479,7 @@ async def _run_fixture_candidate(
             if title or arxiv_id:
                 fixture_source_papers.append({"arxiv_id": arxiv_id, "title": title})
     except Exception:
-        pass
+        logger.debug("failed to collect fixture source papers", exc_info=True)
 
     return _CandidateResult(
         candidate_id=candidate_id,

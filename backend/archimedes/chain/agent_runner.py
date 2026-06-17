@@ -663,7 +663,7 @@ class StrategyRunner:
                         )
                         trade_block = receipt.blockNumber
                     except Exception:
-                        pass
+                        logger.debug("trade receipt block lookup failed", exc_info=True)
                 logger.info(
                     "[tick %s] Executed %d trades: %s",
                     tick_id,
@@ -949,7 +949,7 @@ class StrategyRunner:
                         )
                         reveal_block = receipt.blockNumber
                     except Exception:
-                        pass
+                        logger.debug("reveal receipt block lookup failed", exc_info=True)
                     logger.info(
                         "[tick %s] REVEAL anchored: tx=%s block=%s",
                         tick_id,

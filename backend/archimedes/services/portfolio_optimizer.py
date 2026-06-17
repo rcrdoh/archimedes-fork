@@ -1155,7 +1155,7 @@ def _display_for(synth: str) -> str:
         if entry is not None:
             return entry[1]
     except Exception:
-        pass
+        logger.debug("optimizer symbol-cache lookup failed", exc_info=True)
     return synth
 
 

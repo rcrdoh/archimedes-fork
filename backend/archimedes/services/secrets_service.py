@@ -144,10 +144,14 @@ def list_ssm_parameters(prefix: str | None = None, region: str | None = None) ->
     try:
         import boto3
         from botocore.exceptions import BotoCoreError, ClientError
+    except ImportError:
+        logger.warning("secrets_service: boto3 not installed — cannot list SSM parameters")
+        return []
 
+    try:
         client = boto3.client("ssm", region_name=region)
         params = _fetch_all_parameters(client, prefix)
         return [p["Name"] for p in params]
-    except (ImportError, BotoCoreError, ClientError) as exc:
+    except (BotoCoreError, ClientError) as exc:
         logger.warning("secrets_service: list failed: %s", exc)
         return []

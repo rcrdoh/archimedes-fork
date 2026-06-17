@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -16,6 +17,8 @@ from archimedes.api.schemas import (
     TraceVerifyResponse,
 )
 from archimedes.models.trace import DecisionType, ReasoningTrace
+
+logger = logging.getLogger(__name__)
 
 traces_router = APIRouter(prefix="/api/traces", tags=["traces"])
 
@@ -102,7 +105,7 @@ async def list_traces(
                     )
                 )
         except Exception:
-            pass
+            logger.debug("on-chain trace listing failed", exc_info=True)
 
         return TraceListResponse(traces=traces, total=len(traces))
     finally:

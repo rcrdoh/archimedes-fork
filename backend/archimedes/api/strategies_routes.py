@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import math
 from datetime import UTC
 
@@ -37,6 +38,8 @@ from archimedes.api.schemas import (
 from archimedes.models.strategy import Strategy, StrategyStatus
 from archimedes.services.construction_trace import build_construction_trace
 from archimedes.services.strategy_guardrail import apply_guardrail
+
+logger = logging.getLogger(__name__)
 
 strategies_router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
@@ -1263,7 +1266,7 @@ async def generate_strategy(
         finally:
             await state.close()
     except Exception:
-        pass
+        logger.debug("market regime context read failed", exc_info=True)
 
     store = JobStore()
     try:
@@ -1417,7 +1420,7 @@ async def _run_fusion_job(job_id: str) -> None:
                 session.commit()
                 strategy_id = record.id
         except Exception:
-            pass
+            logger.debug("fusion strategy persist failed", exc_info=True)
 
         try:
             import hashlib

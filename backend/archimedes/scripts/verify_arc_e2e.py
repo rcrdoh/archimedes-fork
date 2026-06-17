@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 from datetime import UTC, datetime
@@ -40,6 +41,8 @@ from dotenv import load_dotenv
 
 load_dotenv("../.env", override=True)
 load_dotenv(".env", override=False)
+
+logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────
 
@@ -538,7 +541,7 @@ async def execute_smoke_test(wallet_key: str | None = None) -> None:
             if trace_id:
                 break
         except Exception:
-            pass
+            logger.debug("trace poll request failed", exc_info=True)
         print(f"  ⏳ Poll {poll + 1}/{MAX_POLLS} — no trace yet...")
         await asyncio.sleep(POLL_INTERVAL)
 

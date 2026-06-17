@@ -10,12 +10,15 @@ Contains pure functions for:
 
 from __future__ import annotations
 
+import logging
 import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import numpy as _np
+
+logger = logging.getLogger(__name__)
 
 # ── Equity curve and return extraction ─────────────────────────────────
 
@@ -66,7 +69,7 @@ def _extract_equity_curve(strat: Any, initial_cash: float) -> list[float]:
             # Approximate by replaying — in practice cerebro.run() doesn't keep history
             pass
     except Exception:
-        pass
+        logger.debug("fusion equity replay failed", exc_info=True)
     # Cerebro doesn't easily expose per-bar equity after run()
     # Return a simplified curve based on initial → final
     final = float(strat.broker.getvalue())

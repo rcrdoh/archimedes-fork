@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 
@@ -31,6 +32,8 @@ from archimedes.chain.circle_signer import circle_signer
 from archimedes.chain.client import chain_client
 from archimedes.chain.contracts import get_contract_loader
 from archimedes.chain.executor import VaultCreationRevertedError
+
+logger = logging.getLogger(__name__)
 
 # ─── Configuration ──────────────────────────────────────────────
 
@@ -192,7 +195,7 @@ async def mint_synthetic_tokens() -> dict[str, float]:
                 minted[symbol] = existing_float
                 continue
         except Exception:
-            pass
+            logger.debug("existing synth balance check failed", exc_info=True)
 
         try:
             # Approve USDC for the synth vault

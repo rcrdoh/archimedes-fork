@@ -6,6 +6,7 @@ on-chain vault holdings into portfolio-level risk summaries.
 
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
@@ -23,6 +24,8 @@ from archimedes.api.risk_schemas import (
     StrategyRiskSummary,
 )
 from archimedes.services.strategy_provider import default_provider
+
+logger = logging.getLogger(__name__)
 
 risk_router = APIRouter(prefix="/api/risk", tags=["risk"])
 
@@ -221,7 +224,7 @@ async def get_portfolio_risk():
                 weights = [a / total_aum for a in vault_aums]
                 hhi = sum(w * w for w in weights)
     except Exception:
-        pass
+        logger.debug("portfolio concentration calc failed", exc_info=True)
 
     # Fallback: equal weight across strategies
     if hhi == 0.0 and strategies:

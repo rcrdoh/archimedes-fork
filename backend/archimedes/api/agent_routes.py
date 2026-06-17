@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from datetime import UTC
 
 from fastapi import APIRouter, Depends, Request
@@ -12,6 +13,8 @@ from archimedes.api.auth_guard import require_internal_agent_key
 from archimedes.api.limiter import limiter
 from archimedes.api.schemas import AgentStatusResponse, AMMHealthResponse
 from archimedes.chain.executor import chain_executor
+
+logger = logging.getLogger(__name__)
 
 agent_router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -44,7 +47,7 @@ async def get_agent_status():
             age = (datetime.now(UTC) - hb_time).total_seconds()
             alive = age < 600
         except Exception:
-            pass
+            logger.debug("agent heartbeat parse failed", exc_info=True)
 
     # Market regime is exogenous (None/"unknown" until a detector is wired).
     # The "regime"-shaped value the agent actually produces is the endogenous
@@ -70,7 +73,7 @@ async def get_agent_status():
         vaults = await chain_executor.get_all_vaults()
         vault_count = len(vaults) if vaults else 0
     except Exception:
-        pass
+        logger.debug("vault count lookup failed", exc_info=True)
 
     return AgentStatusResponse(
         alive=alive,
@@ -163,7 +166,7 @@ async def get_amm_health(request: Request):  # noqa: ARG001 — slowapi @limiter
                     price_raw = await oracle.functions.price().call()
                     oracle_price = price_raw / 1e6
                 except Exception:
-                    pass
+                    logger.debug("oracle price read failed", exc_info=True)
 
             # Total liquidity in USDC terms
             # reserve_usdc + (reserve_token * oracle_price)

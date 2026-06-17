@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import UTC, datetime
 from typing import ClassVar
 
@@ -17,6 +18,8 @@ from archimedes.api.schemas import (
 from archimedes.chain.executor import chain_executor
 from archimedes.chain.trace_publisher import trace_publisher
 from archimedes.services.log_scrubber import sanitize_log_value
+
+logger = logging.getLogger(__name__)
 
 
 class VaultService:
@@ -170,7 +173,7 @@ class VaultService:
                     market_ctx = last_trace.get("market_context", {})
                     current_regime = market_ctx.get("regime")
             except Exception:
-                pass
+                logger.debug("vault strategy provenance lookup failed", exc_info=True)
 
             return VaultDetailResponse(
                 address=address,
@@ -426,7 +429,7 @@ class VaultService:
             finally:
                 session.close()
         except Exception:
-            pass
+            logger.debug("vault name resolution failed", exc_info=True)
         return None, None
 
     async def _get_recent_traces(self, vault_address: str, limit: int = 5) -> list[TraceResponse]:
@@ -453,5 +456,5 @@ class VaultService:
                         )
                     )
         except Exception:
-            pass
+            logger.debug("vault recent traces fetch failed", exc_info=True)
         return traces

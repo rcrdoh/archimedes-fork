@@ -93,7 +93,7 @@ def _fetch_price_panel(symbols: list[str], start: str, end: str) -> tuple[pd.Dat
                 closes[sym] = df["Close"]
                 volumes[sym] = df["Volume"]
         except Exception:
-            pass
+            logger.debug("price/volume frame load failed for a symbol", exc_info=True)
 
     close_panel = pd.DataFrame(closes).dropna()
     volume_panel = pd.DataFrame(volumes).dropna()

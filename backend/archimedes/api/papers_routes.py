@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, Query
 
 from archimedes.db import get_session
 from archimedes.services.corpus_categories import label_for as _category_label
+
+logger = logging.getLogger(__name__)
 
 papers_router = APIRouter(prefix="/api/papers", tags=["papers"])
 
@@ -112,7 +115,7 @@ async def get_paper(arxiv_id: str):
                     for r in records
                 ]
         except Exception:
-            pass
+            logger.debug("citing-strategies lookup failed", exc_info=True)
 
         return {
             "arxiv_id": record.arxiv_id,
@@ -144,7 +147,7 @@ async def get_paper(arxiv_id: str):
                 for r in records
             ]
     except Exception:
-        pass
+        logger.debug("citing-strategies lookup failed", exc_info=True)
 
     return {
         "arxiv_id": paper.arxiv_id,

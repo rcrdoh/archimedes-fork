@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from archimedes.api.schemas import ContractAddressesResponse
 from archimedes.chain.client import chain_client
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigService:
@@ -22,7 +26,7 @@ class ConfigService:
             for i, addr in enumerate(pool_addresses):
                 pools[f"pool_{i}"] = addr
         except Exception:
-            pass
+            logger.debug("amm pool enumeration failed", exc_info=True)
 
         # Get vaults from factory
         vaults: dict[str, str] = {}
@@ -31,7 +35,7 @@ class ConfigService:
             for i, addr in enumerate(vault_addresses):
                 vaults[f"vault_{i}"] = addr
         except Exception:
-            pass
+            logger.debug("vault enumeration failed", exc_info=True)
 
         return ContractAddressesResponse(
             usdc=settings.usdc_address,

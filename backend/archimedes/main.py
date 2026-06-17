@@ -4,6 +4,7 @@ Minimal bootstrap for the hackathon MVP. All routes are wired to
 chain services that read/write Arc smart contracts.
 """
 
+import logging
 import os
 
 # Load .env into os.environ at import time for modules that use os.getenv()
@@ -52,6 +53,8 @@ from archimedes.api.routes import (
 from archimedes.api.selection_bias_routes import selection_bias_router
 from archimedes.api.user_routes import user_router
 from archimedes.db import init_db
+
+logger = logging.getLogger(__name__)
 
 # ── Docs gate: disable /docs and /openapi.json in production ──────────
 # Default OFF when PUBLIC_DOMAIN is set (production). Override with
@@ -273,7 +276,7 @@ async def health():
             corpus_last_intake = meta.get("last_intake_at")
             artifact_hash = meta.get("artifact_hash")
     except Exception:
-        pass
+        logger.debug("corpus meta read failed", exc_info=True)
 
     # Paper RAG health (semantic retrieval)
     paper_rag_status = "disabled"

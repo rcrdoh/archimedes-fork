@@ -6,12 +6,15 @@ daily returns for the selection-bias rigor gate.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 
 from sqlalchemy.orm import Session
 
 from archimedes.models.backtest import BacktestResult
 from archimedes.models.backtest_store import BacktestResultRecord
+
+logger = logging.getLogger(__name__)
 
 
 def insert_backtest_if_missing(
@@ -76,7 +79,7 @@ def get_daily_returns(session: Session, strategy_id: str) -> list[float]:
                 if daily:
                     return daily
         except (_json.JSONDecodeError, KeyError):
-            pass
+            logger.debug("cached backtest parse failed", exc_info=True)
 
     # Fallback: derive from equity_curve
     result = row.to_backtest_result()

@@ -166,7 +166,7 @@ def query_proposals(
                     since_dt = datetime.fromisoformat(since)
                     q = q.filter(StrategyProposal.created_at >= since_dt)
                 except (ValueError, TypeError):
-                    pass
+                    logger.debug("invalid 'since' filter %r — ignoring date bound", since, exc_info=True)
 
             total = q.count()
             rows = q.order_by(StrategyProposal.created_at.desc()).offset(offset).limit(limit).all()

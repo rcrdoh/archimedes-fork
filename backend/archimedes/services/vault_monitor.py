@@ -162,7 +162,7 @@ class VaultMonitor:
                 age = (datetime.now(UTC) - hb_time).total_seconds()
                 agent_alive = age < 600  # alive if heartbeat < 10min old
             except Exception:
-                pass
+                logger.debug("agent heartbeat parse failed — treating as not-alive", exc_info=True)
 
         # Sharpe drift requires a strategy-specific backtest baseline. Until that
         # baseline is wired in, do not compute drift from a hard-coded value.
