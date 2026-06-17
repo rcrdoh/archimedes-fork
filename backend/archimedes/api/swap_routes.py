@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from archimedes.api.limiter import limiter
 from archimedes.api.schemas import PoolListResponse, PoolResponse, SwapQuoteResponse
+from archimedes.services.log_scrubber import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ async def get_swap_quote(
         # internals, contract addresses, and revert reasons (audit 2026-06-14;
         # same leak class fixed in vaults/portfolio routes #605). Log full
         # detail server-side; return a generic message.
-        logger.exception("swap quote failed for %s -> %s", token_in, token_out)
+        logger.exception("swap quote failed for %s -> %s", sanitize_log_value(token_in), sanitize_log_value(token_out))
         raise HTTPException(status_code=400, detail="Quote failed — check the token pair and amount.") from e
 
 

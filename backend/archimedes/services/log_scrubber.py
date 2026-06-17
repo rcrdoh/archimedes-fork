@@ -19,3 +19,15 @@ def scrub_profile(profile_dict: dict[str, Any]) -> dict[str, Any]:
     can see that a value *was* present without seeing the value itself.
     """
     return {k: ("<REDACTED>" if k in _PII_FIELDS else v) for k, v in profile_dict.items()}
+
+
+def sanitize_log_value(value: Any) -> str:
+    """Neutralize CR/LF in a user-controlled value before it is logged.
+
+    Guards against log forging (CWE-117): an attacker-supplied value containing
+    newline or carriage-return characters could otherwise inject forged log
+    lines (fake entries, spoofed levels). Both characters are replaced with a
+    single space so the original value stays legible. Any value type is
+    accepted and coerced to ``str``.
+    """
+    return str(value).replace("\r", " ").replace("\n", " ")

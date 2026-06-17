@@ -35,6 +35,7 @@ from archimedes.api.generate_schemas import (
 )
 from archimedes.api.limiter import limiter
 from archimedes.services.job_queue import EVENT_LOG_TTL, get_job_store
+from archimedes.services.log_scrubber import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ async def stream_events(job_id: str, request: Request) -> StreamingResponse:
         elapsed = 0.0
         while elapsed < _STREAM_TIMEOUT_SECONDS:
             if await request.is_disconnected():
-                logger.info("sse client disconnected (job=%s, after=%d)", job_id, cursor)
+                logger.info("sse client disconnected (job=%s, after=%d)", sanitize_log_value(job_id), cursor)
                 return
 
             new_events = await store.list_events(job_id, after_id=cursor)
@@ -211,9 +212,9 @@ async def cancel_job(
     task = _RUNNING_TASKS.get(job_id)
     if task is not None and not task.done():
         task.cancel()
-        logger.info("hard-cancelled job %s", job_id)
+        logger.info("hard-cancelled job %s", sanitize_log_value(job_id))
     else:
-        logger.info("cancel for %s: no live task (already finished or restart)", job_id)
+        logger.info("cancel for %s: no live task (already finished or restart)", sanitize_log_value(job_id))
 
     return {"job_id": job_id, "status": "cancelled"}
 

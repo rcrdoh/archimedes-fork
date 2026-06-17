@@ -23,6 +23,8 @@ from __future__ import annotations
 import logging
 from typing import TypedDict
 
+from archimedes.services.log_scrubber import sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -84,12 +86,16 @@ def regime_weight_schedule(risk_profile: str, regime: str) -> RegimeMix:
     """
     profile_schedule = _SCHEDULE.get(risk_profile.lower())
     if not profile_schedule:
-        logger.warning("regime_weight_schedule: unknown profile %r, using default", risk_profile)
+        logger.warning("regime_weight_schedule: unknown profile %r, using default", sanitize_log_value(risk_profile))
         return _DEFAULT_MIX
 
     mix = profile_schedule.get(regime.lower())
     if not mix:
-        logger.warning("regime_weight_schedule: unknown regime %r for %s, using transition", regime, risk_profile)
+        logger.warning(
+            "regime_weight_schedule: unknown regime %r for %s, using transition",
+            sanitize_log_value(regime),
+            sanitize_log_value(risk_profile),
+        )
         mix = profile_schedule.get("transition", _DEFAULT_MIX)
 
     return mix

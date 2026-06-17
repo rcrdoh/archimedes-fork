@@ -15,6 +15,8 @@ from typing import Any
 
 import redis.asyncio as aioredis
 
+from archimedes.services.log_scrubber import sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -101,7 +103,7 @@ class JobStore:
         if error:
             updates["error"] = error
         await r.hset(key, mapping=updates)
-        logger.info("job: %s → %s", job_id, status)
+        logger.info("job: %s → %s", sanitize_log_value(job_id), status)
 
     # ── Event log (for streaming jobs) ────────────────────────────────────
 

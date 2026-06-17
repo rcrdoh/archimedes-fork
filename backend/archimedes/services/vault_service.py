@@ -16,6 +16,7 @@ from archimedes.api.schemas import (
 )
 from archimedes.chain.executor import chain_executor
 from archimedes.chain.trace_publisher import trace_publisher
+from archimedes.services.log_scrubber import sanitize_log_value
 
 
 class VaultService:
@@ -196,7 +197,7 @@ class VaultService:
         except Exception:
             import logging
 
-            logging.getLogger(__name__).exception(f"Failed to get vault detail for {address}")
+            logging.getLogger(__name__).exception("Failed to get vault detail for %s", sanitize_log_value(address))
             return None
 
     def _metrics_to_summary(self, metrics: dict, meta=None) -> VaultSummaryResponse:
@@ -311,7 +312,7 @@ class VaultService:
                         "return_inception": round(weighted_return, 4),
                     }
         except Exception as e:
-            logger.debug(f"Redis price snapshot not available for {vault_address}: {e}")
+            logger.debug("Redis price snapshot not available for %s: %s", sanitize_log_value(vault_address), e)
 
         # Fallback: compute simulated returns from allocation weights
         # This gives realistic numbers until real price history accumulates

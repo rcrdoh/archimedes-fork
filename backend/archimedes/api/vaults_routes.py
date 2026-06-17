@@ -11,6 +11,7 @@ from archimedes.api._route_helpers import strategy_provider, vault_svc
 from archimedes.api.auth_siwe import require_verified_wallet
 from archimedes.api.limiter import limiter
 from archimedes.chain.strategy_publisher import strategy_publisher
+from archimedes.services.log_scrubber import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 from archimedes.api.schemas import (
@@ -43,10 +44,10 @@ async def _anchor_strategies_async(strategy_ids: list[str]) -> None:
         try:
             passport = strategy_provider.get_strategy(sid)
             if passport is None:
-                logger.debug("anchor: strategy %s not found in provider — skipping", sid)
+                logger.debug("anchor: strategy %s not found in provider — skipping", sanitize_log_value(sid))
                 continue
             if not getattr(passport, "methodology_hash", None):
-                logger.info("skipping anchor for %s: no methodology_hash", sid)
+                logger.info("skipping anchor for %s: no methodology_hash", sanitize_log_value(sid))
                 continue
 
             paper_hashes = [p.arxiv_id for p in passport.papers if p.arxiv_id]
@@ -59,9 +60,9 @@ async def _anchor_strategies_async(strategy_ids: list[str]) -> None:
                 regime_tag=regime_tag,
                 metadata_uri="",
             )
-            logger.info("anchored strategy %s on-chain", sid)
+            logger.info("anchored strategy %s on-chain", sanitize_log_value(sid))
         except Exception as exc:
-            logger.warning("anchor failed for strategy %s (non-fatal): %s", sid, exc)
+            logger.warning("anchor failed for strategy %s (non-fatal): %s", sanitize_log_value(sid), exc)
 
 
 @vaults_router.get("/", response_model=VaultListResponse)

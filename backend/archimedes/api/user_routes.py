@@ -27,7 +27,7 @@ from archimedes.api.user_schemas import UserProfileCreate, UserProfileResponse
 from archimedes.db import get_session
 from archimedes.models.user_profile import UserProfile
 from archimedes.services.email_crypto import decrypt_email, encrypt_email
-from archimedes.services.log_scrubber import scrub_profile
+from archimedes.services.log_scrubber import sanitize_log_value, scrub_profile
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ async def get_profile(wallet: str, request: Request):
 
         logger.info(
             "get_profile: wallet=%s owner=%s data=%s",
-            wallet_lower,
+            sanitize_log_value(wallet_lower),
             is_owner,
             scrub_profile(response.model_dump()),
         )
@@ -168,10 +168,10 @@ async def upsert_profile(payload: UserProfileCreate, request: Request, response:
 
         logger.info(
             "upsert_profile: wallet=%s data=%s",
-            wallet,
+            sanitize_log_value(wallet),
             scrub_profile(
                 {
-                    "wallet_address": wallet,
+                    "wallet_address": sanitize_log_value(wallet),
                     "email": payload.email,
                     "display_name": payload.display_name,
                     "marketing_opt_in": payload.marketing_opt_in,
@@ -185,7 +185,7 @@ async def upsert_profile(payload: UserProfileCreate, request: Request, response:
     except Exception as e:
         session.rollback()
         # Do NOT include PII in error messages
-        logger.error("upsert_profile failed for wallet=%s: %s", wallet, type(e).__name__)
+        logger.error("upsert_profile failed for wallet=%s: %s", sanitize_log_value(wallet), type(e).__name__)
         raise HTTPException(status_code=500, detail="Profile update failed") from e
     finally:
         session.close()

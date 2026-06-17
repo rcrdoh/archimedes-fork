@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from archimedes.services.log_scrubber import sanitize_log_value
 from archimedes.services.strategy_signal_evaluator import GLOBAL_ASSETS
 
 _logger = logging.getLogger(__name__)
@@ -320,15 +321,15 @@ def _shock_for(asset_class: str, symbol: str, scenario_def: dict) -> tuple[float
         fx_shocks = scenario_def.get("fx_per_pair", {})
         if symbol in fx_shocks:
             return float(fx_shocks[symbol]), True
-        _logger.warning("stress: FX pair %r not in %r scenario", symbol, scenario_def.get("label"))
+        _logger.warning("stress: FX pair %r not in %r scenario", sanitize_log_value(symbol), scenario_def.get("label"))
         return 0.0, False
     shocks = scenario_def.get("shocks", {})
     if asset_class in shocks:
         return float(shocks[asset_class]), True
     _logger.warning(
         "stress: asset_class %r (%s) not in %r scenario — defaulting to 0%% shock",
-        asset_class,
-        symbol,
+        sanitize_log_value(asset_class),
+        sanitize_log_value(symbol),
         scenario_def.get("label"),
     )
     return 0.0, False
