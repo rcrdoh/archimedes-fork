@@ -41,7 +41,7 @@ class TestVaultMetadataAnchor:
     @patch("archimedes.api.vaults_routes.strategy_publisher")
     @patch("archimedes.api.vaults_routes.strategy_provider")
     def test_metadata_post_calls_anchor_once_per_strategy_id(self, mock_provider, mock_publisher):
-        mock_provider.get_strategy.side_effect = lambda sid: _make_passport(sid)
+        mock_provider.get_strategy.side_effect = _make_passport
         mock_publisher.anchor = AsyncMock()
 
         resp = client.post(
@@ -91,7 +91,7 @@ class TestVaultMetadataAnchor:
     @patch("archimedes.api.vaults_routes.strategy_publisher")
     @patch("archimedes.api.vaults_routes.strategy_provider")
     def test_metadata_post_succeeds_when_anchor_raises(self, mock_provider, mock_publisher):
-        mock_provider.get_strategy.side_effect = lambda sid: _make_passport(sid)
+        mock_provider.get_strategy.side_effect = _make_passport
         mock_publisher.anchor = AsyncMock(side_effect=RuntimeError("simulated chain failure"))
 
         resp = client.post(

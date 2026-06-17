@@ -70,11 +70,6 @@ class ChainExecutor:
         token_addresses = holdings_data[0]
         amounts = holdings_data[1]
 
-        # Read target allocations
-        target_data = await vault.functions.getTargetAllocations().call()
-        target_data[0]
-        target_data[1]
-
         # Read total assets — fall back to off-chain NAV if stale price
         total_assets = await self._safe_total_assets(vault, token_addresses, amounts)
 
@@ -652,8 +647,6 @@ class ChainExecutor:
             return await vault.functions.totalAssets().call()
         except Exception:
             # Fallback: compute off-chain using raw prices
-            import logging
-
             logging.getLogger(__name__).warning("totalAssets() reverted — computing NAV off-chain with raw prices")
             usdc_address = chain_client.settings.usdc_address
             nav = 0

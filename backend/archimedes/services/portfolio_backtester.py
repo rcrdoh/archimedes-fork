@@ -269,10 +269,10 @@ def _annualized_metrics(daily_returns: list[float], equity_curve: list[float]) -
     sortino = ((mu - RF_DAILY) / down_rms) * np.sqrt(ANNUALIZATION) if down_rms > 0 else 0.0
 
     eq = np.asarray(equity_curve, dtype=float)
-    cagr = float((eq[-1] / eq[0]) ** (ANNUALIZATION / T) - 1.0) if eq[0] > 0 and T >= 2 else 0.0
+    cagr = float((eq[-1] / eq[0]) ** (ANNUALIZATION / T) - 1.0) if eq[0] > 0 else 0.0
 
     drawdown = (eq / np.maximum.accumulate(eq)) - 1.0
-    max_dd = float(-drawdown.min()) if T > 0 else 0.0
+    max_dd = float(-drawdown.min())
 
     calmar = float(cagr / max_dd) if max_dd > 0 else 0.0
 
@@ -852,7 +852,7 @@ def walk_forward_validate(
             logger.debug("WF split %d OOS failed: %s", i, exc)
 
         cliff = float("nan")
-        if is_sharpe == is_sharpe and oos_sharpe == oos_sharpe and abs(is_sharpe) > 1e-10:
+        if not np.isnan(is_sharpe) and not np.isnan(oos_sharpe) and abs(is_sharpe) > 1e-10:
             cliff = (is_sharpe - oos_sharpe) / abs(is_sharpe)
 
         splits.append(
@@ -876,7 +876,7 @@ def walk_forward_validate(
     mean_oos = float(np.mean(valid_oos)) if valid_oos else float("nan")
     mean_cliff = float(np.mean(valid_cliffs)) if valid_cliffs else float("nan")
     max_cliff = float(max(valid_cliffs)) if valid_cliffs else float("nan")
-    passes_cliff_gate = (mean_cliff == mean_cliff) and (mean_cliff <= 0.30)
+    passes_cliff_gate = (not np.isnan(mean_cliff)) and (mean_cliff <= 0.30)
 
     return {
         "splits": splits,
@@ -1130,7 +1130,7 @@ def run_parallel_backtest(
 
     def _valid(r: dict[str, Any]) -> bool:
         v = r.get(metric, float("nan"))
-        return bool(r["ok"]) and isinstance(v, float) and v == v  # not NaN
+        return bool(r["ok"]) and isinstance(v, float) and not np.isnan(v)
 
     ranked = [r for r in results if _valid(r)]
     # max_drawdown is negative/zero — the largest (closest to 0) is best.

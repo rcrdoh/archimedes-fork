@@ -322,14 +322,9 @@ class VaultService:
         if not allocations:
             return {"return_24h": 0.0, "return_7d": 0.0, "return_30d": 0.0, "return_inception": 0.0}
 
-        from archimedes.chain.contracts import get_contract_loader
-
-        loader = get_contract_loader()
-
         weighted_annual = 0.0
         total_weight = 0
         for alloc in allocations:
-            token = alloc.token_address
             weight = int(alloc.weight_pct * 100)  # BPS
             if weight == 0:
                 continue
