@@ -592,7 +592,7 @@ async def get_portfolio_advisor(
             if sr < 0.3:
                 continue
             mu_ann = s.real_cagr if s.real_cagr is not None else 0.08
-            vol_ann = abs(mu_ann / sr) if sr != 0 else 0.20
+            vol_ann = abs(mu_ann / sr)
             full_kelly = mu_ann / max(vol_ann**2, 1e-6)
             # Shrink full Kelly by the ratio OOS/IS Sharpe so the fraction
             # reflects walk-forward edge rather than inflated in-sample edge.
@@ -639,7 +639,7 @@ async def get_portfolio_advisor(
             if sr < 0.3:
                 continue
             mu_ann = s.real_cagr if s.real_cagr is not None else 0.08
-            vol_ann = abs(mu_ann / sr) if sr != 0 else 0.20
+            vol_ann = abs(mu_ann / sr)
             kelly = min(0.5 * (mu_ann / max(vol_ann**2, 1e-6)), 0.5)
             universe = s.asset_universe if s.asset_universe else ["SPY"]
             per_asset_kelly = round(kelly / len(universe), 4)

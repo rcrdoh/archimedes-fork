@@ -310,7 +310,7 @@ class AssetMarketService:
             # Convert Series to a plain list for downstream math.
             raw_hist = histories.get(synth)
             if raw_hist is not None and hasattr(raw_hist, "tolist"):
-                hist_prices = [float(v) for v in raw_hist.tolist() if v == v]  # v==v filters NaN
+                hist_prices = [float(v) for v in raw_hist.tolist() if not math.isnan(v)]
             elif isinstance(raw_hist, dict):
                 hist_prices = raw_hist.get("close") or []
             else:

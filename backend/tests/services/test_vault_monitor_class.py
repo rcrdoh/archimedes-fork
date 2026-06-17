@@ -56,7 +56,7 @@ class TestSnapshotAllVaults:
         mon = _build_monitor()
         with patch("archimedes.services.vault_monitor.chain_executor") as ce:
             ce.get_all_vaults = AsyncMock(return_value=["0xA", "0xB"])
-            ce.get_vault_metrics = AsyncMock(side_effect=lambda addr: _vault_metrics(addr))
+            ce.get_vault_metrics = AsyncMock(side_effect=_vault_metrics)
             snaps = await mon.snapshot_all_vaults()
         assert len(snaps) == 2
         assert {s["vault_address"] for s in snaps} == {"0xA", "0xB"}
