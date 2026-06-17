@@ -461,8 +461,11 @@ async def get_portfolio_advisor(
                 "decision_type": trace.decision_type.value,
                 "trigger": trace.trigger,
             }
-        except Exception as e:
-            return {"trace_id": None, "trace_hash": None, "error": str(e)}
+        except Exception:
+            import logging as _logging
+
+            _logging.getLogger(__name__).exception("build/anchor reasoning trace failed")
+            return {"trace_id": None, "trace_hash": None, "error": "trace build failed"}
 
     def _run_stress(allocs: list[dict], usdc_w: float) -> list:
         try:

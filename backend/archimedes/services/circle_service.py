@@ -57,8 +57,9 @@ class CircleService:
                             "custody_type": wallet.get("custodyType", "DEVELOPER"),
                         }
                     return {"error": f"API returned {resp.status}"}
-            except Exception as e:
-                return {"error": str(e)}
+            except Exception:
+                logger.exception("circle wallet status fetch failed")
+                return {"error": "wallet status unavailable"}
 
     async def get_integration_status(self) -> dict:
         """Get comprehensive Circle integration status for the demo."""

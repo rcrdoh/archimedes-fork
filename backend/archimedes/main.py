@@ -389,12 +389,15 @@ async def health_amm():
             "pools": pools,
         }
 
-    except Exception as exc:
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("AMM health check failed")
         return JSONResponse(
             status_code=503,
             content={
                 "status": "amm_health_check_failed",
-                "reason": str(exc),
+                "reason": "AMM health check failed — see server logs.",
             },
         )
 

@@ -122,7 +122,10 @@ class TestGetWalletBalance:
         session = _MockSession(RuntimeError("network down"))
         with patch("archimedes.services.circle_service.aiohttp.ClientSession", return_value=session):
             result = await svc.get_wallet_balance()
-        assert "network down" in result["error"]
+        # Failure is signalled, but the raw exception detail must NOT leak to the
+        # caller-facing response (CWE-209 — info exposure). See get_wallet_balance.
+        assert result["error"] == "wallet status unavailable"
+        assert "network down" not in result["error"]
 
 
 class TestGetIntegrationStatus:
