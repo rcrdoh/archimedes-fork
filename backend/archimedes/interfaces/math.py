@@ -20,7 +20,7 @@ from archimedes.models.portfolio import (
     RiskProfile,
     TargetAllocation,
 )
-from archimedes.models.regime import RegimeClassification
+from archimedes.models.regime import EnsembleConsensus, RegimeClassification
 from archimedes.models.strategy import Strategy
 
 
@@ -67,8 +67,11 @@ class IPortfolioConstructor(Protocol):
         risk_profile: RiskProfile,
         strategies: list[Strategy],
         backtest_results: dict[str, BacktestResult],  # strategy_id → result
-        regime: RegimeClassification,
+        regime: RegimeClassification | None,
         current_portfolio: Portfolio | None = None,
+        ensemble_consensus: EnsembleConsensus | None = None,
+        *,
+        base_weights: dict[str, float] | None = None,
     ) -> list[TargetAllocation]:
         """Construct target allocations for a vault.
 
@@ -82,6 +85,16 @@ class IPortfolioConstructor(Protocol):
              - USYC floor per risk profile
              - Max sector/asset concentration
           5. Map strategy weights to token allocations
+
+        ``regime`` (exogenous market regime) and ``ensemble_consensus``
+        (endogenous strategy-ensemble decisiveness) are two orthogonal
+        throttles on position sizing — both Optional, both degrade to a
+        conservative default when unavailable.
+
+        ``base_weights`` are pre-aggregated raw target weights (symbol→weight)
+        from the runner's signal aggregation. When provided, construct scales
+        these directly rather than re-deriving weights — this is the production
+        path. token_address resolution is the caller's responsibility.
 
         Returns list of TargetAllocation with weights summing to 1.0.
         """

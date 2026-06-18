@@ -32,12 +32,14 @@ from archimedes.chain.trace_publisher import trace_publisher
 from archimedes.chain.v_check import VCheck
 from archimedes.models.portfolio import (
     Portfolio,
+    RiskProfile,
     TargetAllocation,
     TradeDirection,
     TradeOrder,
 )
 from archimedes.models.regime import EnsembleConsensus, RegimeClassification
 from archimedes.models.trace import DecisionType, ReasoningTrace
+from archimedes.services.portfolio_constructor import PortfolioConstructor
 from archimedes.services.redis_state import AgentStateStore
 from archimedes.services.source_tracker import build_consulted_hashes
 from archimedes.services.strategy_provider import default_provider
@@ -148,6 +150,9 @@ class StrategyRunner:
         # hermetic, no fitted artifact. Kept SEPARATE from the endogenous
         # EnsembleConsensus signal (issue #659): the two are complementary.
         self.regime_detector: VixRegimeDetector = VixRegimeDetector()
+        # Position sizer (issue #662): throttles aggregated target weights by
+        # the exogenous market regime AND the endogenous ensemble consensus.
+        self.portfolio_constructor: PortfolioConstructor = PortfolioConstructor()
         self._synth_addrs = chain_client.settings.synth_addresses
         self._usdc_addr = chain_client.settings.usdc_address
         self._known_vaults: set[str] = set()  # Vaults we've already seen
@@ -236,8 +241,18 @@ class StrategyRunner:
             # not shadow the market regime.
             await self.state.save_ensemble_consensus(consensus, all_signals)
 
-            # 4. Build target allocations
-            targets = self._weights_to_targets(target_weights, all_signals)
+            # 4. Build target allocations — throttle raw weights by the
+            # exogenous market regime AND the endogenous ensemble consensus
+            # (issue #662), then resolve symbols → token addresses.
+            allocations = self.portfolio_constructor.construct(
+                risk_profile=RiskProfile.MODERATE,
+                strategies=strategies,
+                backtest_results={},
+                regime=regime_classification,
+                ensemble_consensus=consensus,
+                base_weights=target_weights,
+            )
+            targets = self._weights_to_targets({a.symbol: a.weight for a in allocations}, all_signals)
 
             # 5. Get managed vaults (polling VaultFactory discovers new vaults)
             vaults = await self._get_managed_vaults()
@@ -299,12 +314,23 @@ class StrategyRunner:
                         )
                         continue
 
-                    # Aggregate scoped signals into per-vault target weights
+                    # Aggregate scoped signals into per-vault target weights,
+                    # then throttle by regime + ensemble consensus (issue #662).
                     vault_weights = strategy_evaluator.aggregate_signals(
                         scoped_signals,
                         usdc_floor=USDC_FLOOR,
                     )
-                    vault_targets = self._weights_to_targets(vault_weights, scoped_signals)
+                    vault_allocations = self.portfolio_constructor.construct(
+                        risk_profile=RiskProfile.MODERATE,
+                        strategies=strategies,
+                        backtest_results={},
+                        regime=regime_classification,
+                        ensemble_consensus=consensus,
+                        base_weights=vault_weights,
+                    )
+                    vault_targets = self._weights_to_targets(
+                        {a.symbol: a.weight for a in vault_allocations}, scoped_signals
+                    )
 
                     logger.info(
                         "[tick %s] Vault %s: scoped to %d/%d strategies → %s",
