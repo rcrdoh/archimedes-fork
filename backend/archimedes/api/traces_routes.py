@@ -238,8 +238,6 @@ async def publish_trace(req: TracePublishRequest, _: None = Depends(require_inte
             off_chain_data["arc_tx_hash"] = arc_tx_hash
             off_chain_data["is_verified"] = True
     except Exception as e:
-        import logging
-
         logging.getLogger(__name__).error(f"On-chain publish failed: {e}")
 
     state = AgentStateStore()

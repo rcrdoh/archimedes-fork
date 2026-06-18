@@ -297,3 +297,79 @@ class TestClassifyMarketRegime:
         classification, regime = await runner._classify_market_regime("tick-4")
         assert classification is None
         assert regime == "unknown"
+
+
+class TestAlignedDecisionDedup:
+    """_process_vault deduplicates identical no-trade ("aligned") decisions.
+
+    Regression for the unreachable-dedup bug (CodeQL "Unreachable code"): the
+    dedup guard used to sit in the rebalance branch behind ``and not trades``,
+    which the earlier ``if not trades: return`` made statically unreachable — so
+    identical "aligned" SKIP traces were re-anchored on-chain every tick. The
+    dedup now lives on the no-trade path; a repeated identical decision is
+    skipped (repeat counter incremented), not re-published.
+    """
+
+    @pytest.fixture()
+    def runner(self):
+        with (
+            patch("archimedes.chain.agent_runner.chain_client") as mock_client,
+            patch("archimedes.chain.agent_runner.chain_executor") as mock_executor,
+            patch("archimedes.chain.agent_runner.trace_publisher"),
+            patch("archimedes.chain.agent_runner.default_provider"),
+            patch("archimedes.chain.agent_runner.AgentStateStore"),
+        ):
+            mock_client.settings = MagicMock(
+                synth_addresses={"sSPY": "0xsspy", "sGOLD": "0xsgold"},
+                usdc_address="0xusdc",
+                oracle_addresses={},  # empty → no oracle-setting calls
+            )
+            mock_executor.read_portfolio = AsyncMock(return_value=_make_portfolio())
+            mock_executor.set_token_oracles = AsyncMock()
+            mock_executor.set_target_allocations = AsyncMock()
+            from archimedes.chain.agent_runner import StrategyRunner
+
+            # yield (not return) so the module-level patches stay active while
+            # the test calls _process_vault, which reads chain_executor at call
+            # time.
+            yield StrategyRunner()
+
+    @staticmethod
+    def _consensus():
+        from archimedes.models.regime import ConsensusLabel, EnsembleConsensus
+
+        return EnsembleConsensus(flat_pct=0.2, signal_count=3, label=ConsensusLabel.RISK_ON)
+
+    async def test_identical_aligned_decision_published_once(self, runner):
+        # No drift → no trades → aligned SKIP path on both ticks.
+        runner._compute_trades = MagicMock(return_value=[])
+        runner._publish_trace = AsyncMock()
+        call = {
+            "vault_address": "0xvault123",
+            "targets": _make_targets(USDC=0.30, sSPY=0.40, sGOLD=0.30),
+            "all_signals": [],
+            "market_regime": "unknown",
+            "consensus": self._consensus(),
+        }
+        await runner._process_vault(tick_id="t1", **call)
+        await runner._process_vault(tick_id="t2", **call)
+
+        # First aligned tick publishes; the identical second tick is deduped.
+        assert runner._publish_trace.await_count == 1
+        assert runner._last_reasoning_count["0xvault123"] == 2
+
+    async def test_changed_aligned_decision_republishes(self, runner):
+        runner._compute_trades = MagicMock(return_value=[])
+        runner._publish_trace = AsyncMock()
+        base = {
+            "vault_address": "0xvault123",
+            "targets": _make_targets(USDC=0.30, sSPY=0.40, sGOLD=0.30),
+            "all_signals": [],
+            "consensus": self._consensus(),
+        }
+        await runner._process_vault(tick_id="t1", market_regime="risk_on", **base)
+        # Different market regime → different reasoning string → must re-publish.
+        await runner._process_vault(tick_id="t2", market_regime="risk_off", **base)
+
+        assert runner._publish_trace.await_count == 2
+        assert runner._last_reasoning_count["0xvault123"] == 1

@@ -158,8 +158,6 @@ async def _startup_populate_rigor_gate():
     Idempotent: only populates strategies that don't yet have DSR/PBO values.
     Skips entirely if the backtest_results table is empty.
     """
-    import logging
-
     _logger = logging.getLogger("archimedes.startup")
     try:
         from archimedes.db import get_session
@@ -203,8 +201,6 @@ async def _startup_populate_rigor_gate():
 @app.on_event("startup")
 async def _startup_seed_corpus():
     """Seed papers table from manifest.jsonl (idempotent — adds new papers only)."""
-    import logging
-
     _logger = logging.getLogger("archimedes.startup")
     try:
         from archimedes.services.corpus_service import seed_from_manifest
@@ -393,8 +389,6 @@ async def health_amm():
         }
 
     except Exception:
-        import logging
-
         logging.getLogger(__name__).exception("AMM health check failed")
         return JSONResponse(
             status_code=503,

@@ -539,6 +539,23 @@ class StrategyRunner:
 
         if not trades:
             logger.info("[tick %s] No drift — portfolio aligned with strategy signals", tick_id)
+            # Deduplicate identical aligned decisions: when the portfolio stays
+            # within drift thresholds tick after tick with the same reasoning,
+            # re-anchoring the SKIP trace wastes gas and clutters the Reasoning
+            # page. Increment a repeat counter and skip the publish instead.
+            aligned_reasoning = self._build_reasoning(all_signals, market_regime, consensus, trades, portfolio)
+            if self._last_reasoning.get(vault_address) == aligned_reasoning:
+                count = self._last_reasoning_count.get(vault_address, 1) + 1
+                self._last_reasoning_count[vault_address] = count
+                logger.info(
+                    "[tick %s] Vault %s: identical aligned decision (repeat #%d) — skipping trace publish",
+                    tick_id,
+                    vault_address[:10],
+                    count,
+                )
+                return
+            self._last_reasoning[vault_address] = aligned_reasoning
+            self._last_reasoning_count[vault_address] = 1
             await self._publish_trace(
                 vault_address,
                 DecisionType.SKIP,
@@ -613,21 +630,11 @@ class StrategyRunner:
         # Phase 1: COMMIT — compute hash and anchor on-chain BEFORE trade
         reasoning = self._build_reasoning(all_signals, market_regime, consensus, trades, portfolio)
 
-        # Deduplicate: skip identical decisions to avoid trace spam.
-        # When the same strategy signals produce the same reasoning, anchoring
-        # a duplicate trace wastes gas and clutters the Reasoning page.
-        prev_reasoning = self._last_reasoning.get(vault_address)
-        if prev_reasoning == reasoning and not trades:
-            count = self._last_reasoning_count.get(vault_address, 1) + 1
-            self._last_reasoning_count[vault_address] = count
-            logger.info(
-                "[tick %s] Vault %s: identical decision (repeat #%d) — skipping trace publish",
-                tick_id,
-                vault_address[:10],
-                count,
-            )
-            return
-        # Record current reasoning for next-tick comparison
+        # A rebalance always publishes — trades are real actions that must be
+        # anchored, so identical reasoning is never deduplicated here. Record
+        # this decision so the next aligned (no-trade) tick dedups against the
+        # most recently published reasoning (the no-trade branch above is the
+        # only place identical decisions are skipped).
         self._last_reasoning[vault_address] = reasoning
         self._last_reasoning_count[vault_address] = 1
 

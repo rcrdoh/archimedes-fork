@@ -66,8 +66,6 @@ class VaultService:
         try:
             vault_addresses = await chain_executor.get_all_vaults()
         except Exception as e:
-            import logging
-
             logging.getLogger(__name__).error(f"Failed to get vault addresses: {e}")
             return VaultListResponse(vaults=[], total=0)
 
@@ -88,8 +86,6 @@ class VaultService:
                 finally:
                     session.close()
             except Exception as exc:
-                import logging
-
                 logging.getLogger(__name__).warning("vault metadata batch read failed (non-fatal): %s", exc)
 
         summaries: list[VaultSummaryResponse] = []
@@ -102,8 +98,6 @@ class VaultService:
                     continue
                 summaries.append(summary)
             except Exception as e:
-                import logging
-
                 logging.getLogger(__name__).warning(f"Skipping vault {addr}: {e}")
                 continue
 
@@ -198,8 +192,6 @@ class VaultService:
                 current_regime=current_regime,
             )
         except Exception:
-            import logging
-
             logging.getLogger(__name__).exception("Failed to get vault detail for %s", sanitize_log_value(address))
             return None
 
@@ -251,7 +243,6 @@ class VaultService:
         to compute a weighted return. If price snapshots exist in Redis (set by
         the oracle updater), uses real price changes instead.
         """
-        import logging
         import os
 
         import redis as _redis
