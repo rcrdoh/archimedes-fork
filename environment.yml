@@ -30,6 +30,7 @@ dependencies:
       - numpy>=2.4.6,<3.0             # numpy 2 verified against backtrader 1.9.78.123 on 2026-06-12: full analytics-engine suite (170 tests) + backend backtrader tests + e2e Faber SMA200 run all green. Aligned with backend/requirements.txt (dependabot #489).
       - pandas>=2.2
       - scipy>=1.13
+      - scikit-learn>=1.5            # GaussianMixture + StandardScaler for the GmmRegimeDetector (issue #661); BSD-3-Clause. Aligned with backend/requirements.txt.
       - matplotlib>=3.8
       - seaborn>=0.13
 
