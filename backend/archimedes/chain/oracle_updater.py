@@ -223,8 +223,10 @@ class OracleUpdater:
         3. Deviation cap — the move vs the last known good price (on-chain
            read, falling back to the last successfully pushed value) must be
            within ``ORACLE_MAX_DEVIATION_BPS`` (default 2000 = 20%, mirroring
-           PriceOracle.sol's maxDeviationBps). First-ever pushes with no
-           reference are allowed.
+           PriceOracle.sol's maxDeviationBps). A *confirmed-absent* reference
+           (genuine first push) is allowed; an *unobtainable* reference (the
+           on-chain read failed and there is no cached fallback) fails CLOSED —
+           we refuse the push rather than send it unchecked (issue #587).
 
         Single-source design (deferred multi-source to v2 per issue #508):
         Each symbol currently has exactly one upstream source (yfinance for
@@ -244,8 +246,15 @@ class OracleUpdater:
         if age_s > self._max_upstream_staleness_s:
             return f"stale upstream data ({age_s:.0f}s old > {self._max_upstream_staleness_s}s cap)"
 
-        reference_int = await self._get_reference_price_int(price.symbol)
-        if reference_int is not None:
+        reference_int, reference_known = await self._get_reference_price_int(price.symbol)
+        if reference_int is None:
+            if not reference_known:
+                return (
+                    "reference price unobtainable (on-chain read failed, no cached "
+                    "fallback) — failing closed to avoid unchecked push"
+                )
+            # reference confirmed absent (genuine first push) → allow
+        else:
             deviation_bps = abs(price_int - reference_int) * 10_000 / reference_int
             if deviation_bps > self._max_deviation_bps:
                 return (
@@ -255,20 +264,46 @@ class OracleUpdater:
 
         return None
 
-    async def _get_reference_price_int(self, symbol: str) -> int | None:
-        """Last known good price (6-dec int): on-chain first, then last pushed.
+    async def _get_reference_price_int(self, symbol: str) -> tuple[int | None, bool]:
+        """Resolve the deviation reference price (6-dec int) for a symbol.
 
-        Returns None when no reference exists (first-ever push for a symbol).
+        Returns a ``(reference_int, reference_known)`` tuple so the caller can
+        distinguish a *confirmed-absent* reference (genuine first push, safe to
+        allow) from an *unobtainable* one (on-chain read failed and no cached
+        fallback — must fail closed to avoid an unchecked push). The two cases
+        both used to surface as a bare ``None``, which let an RPC outage bypass
+        the only deviation protection (issue #587, part 2).
+
+        Cases:
+
+        - on-chain read succeeds, price > 0 → ``(price_int, True)``
+        - on-chain read succeeds but 0/empty, last-pushed cached → ``(last_pushed, True)``
+        - on-chain read succeeds but 0/empty, no cache → ``(None, True)``
+          (reference *confirmed absent* — genuine first push)
+        - on-chain read throws, last-pushed cached → ``(last_pushed, True)``
+          (RPC down, but we still hold a fallback reference)
+        - on-chain read throws, no cache → ``(None, False)``
+          (reference *unobtainable* — caller must fail closed)
         """
         try:
             from archimedes.chain.contracts import get_contract_loader
 
             onchain = await get_contract_loader().oracle_for(symbol).functions.price().call()
             if onchain and int(onchain) > 0:
-                return int(onchain)
+                return int(onchain), True
+            # On-chain read succeeded but reports no price yet.
+            cached = self._last_pushed_price_int.get(symbol)
+            if cached is not None:
+                return cached, True
+            # Confirmed absent: the read worked and there is genuinely no price.
+            return None, True
         except Exception as e:
             logger.warning(f"Could not read on-chain reference price for {symbol}: {e}")
-        return self._last_pushed_price_int.get(symbol)
+            cached = self._last_pushed_price_int.get(symbol)
+            if cached is not None:
+                return cached, True
+            # Unobtainable: read threw and we have no cached fallback.
+            return None, False
 
     async def _get_circle_public_key(self, session: aiohttp.ClientSession) -> str | None:
         """Fetch Circle's RSA public key (cached per instance)."""
