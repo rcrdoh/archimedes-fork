@@ -44,9 +44,25 @@ contract AssetRegistry is IAssetRegistry, Ownable {
     mapping(address => VaultInfo) private _vaults;
     address[] private _vaultList;
 
+    /// @notice Owner-curated token → oracle allowlist. A vault manager can wire
+    ///         only oracles registered here (Vault.setTokenOraclesFromRegistry),
+    ///         so it can never point a token at an arbitrary attacker contract.
+    ///         The public getter satisfies IAssetRegistry.registeredOracle.
+    mapping(address => address) public override registeredOracle;
+
     // ─── Constructor ─────────────────────────────────────────────────
 
     constructor(address _owner) Ownable(_owner) {}
+
+    // ─── Oracle Allowlist ────────────────────────────────────────────
+
+    /// @notice Register or de-register the canonical oracle for a token.
+    /// @dev    address(0) de-registers; consumers treat an unregistered token
+    ///         as "no known-good oracle" and reject manager-driven wiring.
+    function setRegisteredOracle(address token, address oracle) external override onlyOwner {
+        registeredOracle[token] = oracle;
+        emit OracleRegistered(token, oracle);
+    }
 
     // ─── Synthetic Assets ────────────────────────────────────────────
 

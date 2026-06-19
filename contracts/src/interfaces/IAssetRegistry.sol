@@ -12,6 +12,7 @@ interface IAssetRegistry {
     event BridgedRegistered(address indexed token, uint256 sourceChainId);
     event VaultRegistered(address indexed vault, uint8 tier, address creator);
     event VaultMetricsUpdated(address indexed vault, uint256 aum, uint256 timestamp);
+    event OracleRegistered(address indexed token, address indexed oracle);
 
     // ── Synthetic Assets ─────────────────────────────────────
     /// @notice Register a synthetic asset.
@@ -29,6 +30,17 @@ interface IAssetRegistry {
 
     /// @notice List all registered synthetic token addresses.
     function getAllSynthetics() external view returns (address[] memory);
+
+    // ── Oracle Allowlist ─────────────────────────────────────
+    /// @notice Register (or de-register) the canonical oracle for a token.
+    ///         Owner-curated allowlist consumed by Vault.setTokenOraclesFromRegistry,
+    ///         so a manager can wire only known-good oracles for new assets.
+    /// @param token Token whose NAV-pricing oracle is being set
+    /// @param oracle Oracle address; address(0) de-registers the token
+    function setRegisteredOracle(address token, address oracle) external;
+
+    /// @notice Get the registered oracle for a token (address(0) if unregistered).
+    function registeredOracle(address token) external view returns (address);
 
     // ── Bridged Assets ───────────────────────────────────────
     /// @notice Register a bridged asset from another chain.

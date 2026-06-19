@@ -6,6 +6,7 @@ import "../src/Vault.sol";
 import "../src/VaultFactory.sol";
 import "../src/AMMRouter.sol";
 import "../src/AMMPool.sol";
+import "../src/AssetRegistry.sol";
 
 /// @dev Mock ERC-20 USDC for testing
 contract MockUSDC is ERC20 {
@@ -520,6 +521,117 @@ contract VaultTest is Test {
 
         // The creator/owner can still set oracles.
         vm.prank(creator);
+        v.setTokenOracles(tokens, oracles);
+    }
+
+    // ─── Registry-allowlisted oracle wiring (issue #620) ─────────────
+    //
+    // The agent (onlyManager, not onlyOwner) must be able to wire oracles for a
+    // new synth, but ONLY from an owner-curated allowlist — so it can price new
+    // assets autonomously yet can never point a token at an arbitrary attacker
+    // oracle. These tests build a vault whose agent is DISTINCT from the
+    // creator/owner so onlyManager and onlyOwner are actually distinguishable
+    // (in the shared setUp, agent == creator == owner).
+
+    address internal constant REG_CREATOR = address(0xC0FFEE);
+    address internal constant REG_AGENT = address(0xA9E27);
+
+    /// @dev Deploy a vault with a distinct creator/owner and agent, returning it.
+    function _distinctAgentVault() internal returns (Vault v) {
+        vm.prank(REG_CREATOR);
+        address vaultAddr = factory.createVault("Reg", "REG", 0, 0, true);
+        v = Vault(payable(vaultAddr));
+        vm.prank(REG_CREATOR); // creator == Ownable owner
+        v.setAgent(REG_AGENT);
+    }
+
+    function _singleton(address a) internal pure returns (address[] memory arr) {
+        arr = new address[](1);
+        arr[0] = a;
+    }
+
+    /// @dev Owner registers an oracle in AssetRegistry and points the vault at
+    ///      the registry; the AGENT (onlyManager) wires it via the allowlist and
+    ///      the vault's tokenOracle now equals the registered oracle.
+    function test_setTokenOraclesFromRegistry_agent_wires_allowlisted() public {
+        Vault v = _distinctAgentVault();
+
+        AssetRegistry registry = new AssetRegistry(REG_CREATOR);
+        vm.prank(REG_CREATOR);
+        registry.setRegisteredOracle(address(sTSLA), address(tslaOracle));
+
+        vm.prank(REG_CREATOR);
+        v.setAssetRegistry(address(registry));
+
+        // The agent — which is NOT the owner — wires the allowlisted oracle.
+        vm.prank(REG_AGENT);
+        v.setTokenOraclesFromRegistry(_singleton(address(sTSLA)));
+
+        assertEq(v.tokenOracle(address(sTSLA)), address(tslaOracle));
+    }
+
+    /// @dev A token with no entry in the allowlist reverts OracleNotRegistered —
+    ///      the agent cannot wire an oracle the owner never approved.
+    function test_revert_setTokenOraclesFromRegistry_unregistered_token() public {
+        Vault v = _distinctAgentVault();
+
+        AssetRegistry registry = new AssetRegistry(REG_CREATOR);
+        vm.prank(REG_CREATOR);
+        v.setAssetRegistry(address(registry));
+
+        vm.prank(REG_AGENT);
+        vm.expectRevert(abi.encodeWithSelector(Vault.OracleNotRegistered.selector, address(sTSLA)));
+        v.setTokenOraclesFromRegistry(_singleton(address(sTSLA)));
+    }
+
+    /// @dev With no registry set, the allowlist path reverts AssetRegistryNotSet.
+    function test_revert_setTokenOraclesFromRegistry_registry_unset() public {
+        Vault v = _distinctAgentVault();
+
+        vm.prank(REG_AGENT);
+        vm.expectRevert(Vault.AssetRegistryNotSet.selector);
+        v.setTokenOraclesFromRegistry(_singleton(address(sTSLA)));
+    }
+
+    /// @dev A caller that is neither manager nor owner cannot use the allowlist
+    ///      path — reverts Unauthorized (onlyManager).
+    function test_revert_setTokenOraclesFromRegistry_non_manager() public {
+        Vault v = _distinctAgentVault();
+
+        AssetRegistry registry = new AssetRegistry(REG_CREATOR);
+        vm.prank(REG_CREATOR);
+        registry.setRegisteredOracle(address(sTSLA), address(tslaOracle));
+        vm.prank(REG_CREATOR);
+        v.setAssetRegistry(address(registry));
+
+        // bob is neither the creator (owner) nor the agent.
+        vm.prank(bob);
+        vm.expectRevert(Vault.Unauthorized.selector);
+        v.setTokenOraclesFromRegistry(_singleton(address(sTSLA)));
+    }
+
+    /// @dev setAssetRegistry is owner-only: a non-owner call reverts Ownable.
+    function test_revert_setAssetRegistry_non_owner() public {
+        Vault v = _distinctAgentVault();
+
+        AssetRegistry registry = new AssetRegistry(REG_CREATOR);
+        vm.prank(REG_AGENT); // agent is not the owner
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, REG_AGENT));
+        v.setAssetRegistry(address(registry));
+    }
+
+    /// @dev #609 property preserved: the agent calling the ARBITRARY-override
+    ///      setTokenOracles still reverts (onlyOwner). Combined with the
+    ///      allowlist tests above, the agent's ONLY oracle path is the
+    ///      owner-curated registry — it can never inject an unregistered oracle.
+    function test_revert_setTokenOracles_agent_still_owner_only() public {
+        Vault v = _distinctAgentVault();
+
+        address[] memory tokens = _singleton(address(sTSLA));
+        address[] memory oracles = _singleton(address(tslaOracle));
+
+        vm.prank(REG_AGENT);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, REG_AGENT));
         v.setTokenOracles(tokens, oracles);
     }
 

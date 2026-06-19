@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 
 import "./interfaces/IVault.sol";
 import "./interfaces/IAMMRouter.sol";
+import "./interfaces/IAssetRegistry.sol";
 import "./PriceOracle.sol";
 
 /// @title Vault
@@ -94,6 +95,11 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     ///         covers the 30 bps AMM fee plus bounded price impact.
     uint256 public maxSlippageBps = 100;
 
+    /// @notice Owner-curated registry consulted by setTokenOraclesFromRegistry.
+    ///         The manager may wire oracles only from this allowlist, never an
+    ///         arbitrary address — see setTokenOraclesFromRegistry.
+    IAssetRegistry public assetRegistry;
+
     // ─── Errors ──────────────────────────────────────────────────────
 
     error ZeroAmount();
@@ -106,12 +112,16 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     error SlippageBpsTooHigh();
     error OracleNotSet();
     error InvalidOraclePrice();
+    error OracleNotRegistered(address token);
+    error AssetRegistryNotSet();
 
     // ─── Events (Vault-local) ────────────────────────────────────────
 
     event MaxSlippageBpsSet(uint256 oldBps, uint256 newBps);
     event AgentSet(address indexed oldAgent, address indexed newAgent);
     event PlatformFeeRecipientSet(address indexed oldRecipient, address indexed newRecipient);
+    event AssetRegistrySet(address indexed registry);
+    event TokenOraclesSetFromRegistry(uint256 count);
 
     // ─── Constructor ─────────────────────────────────────────────────
 
@@ -405,6 +415,28 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
         emit TokenOraclesSet(tokens.length);
     }
 
+    /// @notice Wire NAV-pricing oracles for new tokens from the owner-curated
+    ///         AssetRegistry allowlist. Lets the manager (agent) price new
+    ///         synths autonomously WITHOUT being able to point a token at an
+    ///         arbitrary oracle: every oracle written here must already be
+    ///         registered by the owner via AssetRegistry.setRegisteredOracle.
+    /// @dev    onlyManager — the bounded counterpart to the owner-only
+    ///         setTokenOracles (which remains the arbitrary-override path).
+    ///         The allowlist closes the same hole an unrestricted onlyManager
+    ///         setter would open: a compromised manager can only select among
+    ///         owner-approved oracles, never inject a self-serving one.
+    ///         Reverts if the registry is unset, or if any token has no
+    ///         registered (allowlisted) oracle.
+    function setTokenOraclesFromRegistry(address[] calldata tokens) external onlyManager {
+        if (address(assetRegistry) == address(0)) revert AssetRegistryNotSet();
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address oracle = assetRegistry.registeredOracle(tokens[i]);
+            if (oracle == address(0)) revert OracleNotRegistered(tokens[i]);
+            tokenOracle[tokens[i]] = oracle;
+        }
+        emit TokenOraclesSetFromRegistry(tokens.length);
+    }
+
     function getHoldings()
         external
         view
@@ -441,6 +473,14 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     function setPlatformFeeRecipient(address _recipient) external onlyOwner {
         emit PlatformFeeRecipientSet(platformFeeRecipient, _recipient);
         platformFeeRecipient = _recipient;
+    }
+
+    /// @notice Point the vault at the owner-curated oracle allowlist used by
+    ///         setTokenOraclesFromRegistry. Owner-only: it defines which
+    ///         oracles the manager is allowed to wire.
+    function setAssetRegistry(address _registry) external onlyOwner {
+        assetRegistry = IAssetRegistry(_registry);
+        emit AssetRegistrySet(_registry);
     }
 
     /// @notice Set the max slippage tolerance applied to all AMM swaps.
