@@ -56,7 +56,7 @@
 **What we have (post Day-10):**
 
 - ✅ **Live autonomous orchestrator** — `chain/agent_runner.py` (744 lines) runs on the EC2 testnet stack. Polls market, evaluates per-strategy signals, rebalances vaults, publishes reasoning trace hashes on-chain. Env-configurable (`AGENT_INTERVAL_SECONDS`, `AGENT_VAULT_ADDRESSES`, `AGENT_USDC_FLOOR`, etc.).
-- ✅ **Regime detection — two implementations live** — `regime_detector.py` (v1 heuristic) and `statistical_regime.py` (v2 GMM-based with multi-signal scoring + transition matrix). The `RegimePanel` UI surface shipped.
+- ✅ **Regime detection — wired into the agent loop** — `vix_regime_detector.py` (rule-based VIX/MA, the canonical exogenous detector, #660) with `gmm_regime_detector.py` (data-driven 4-component Gaussian Mixture, #661) as a drop-in that falls back to the rule-based detector until a model is fitted. The earlier `regime_detector.py` (v1 heuristic) and `statistical_regime.py` (online-EM GMM) were removed in the #621/#688 consolidation. The `RegimePanel` UI surface shipped.
 - ✅ **Four portfolio constructors** — `portfolio_constructor.py` (orchestrator), `portfolio_optimizer.py` (Önder's MVO), `kelly_portfolio.py` (Kelly + risk parity + regime-aware deleveraging), and the new (Day-10) `portfolio_agent.py` (**LLM-driven agentic advisor with tool-use, 12-iteration agent loop**, picks individual instruments not just ETFs).
 - ✅ **Backtest evaluator** — Önder's analytics engine produces real `BacktestResult` records with the full selection-bias contract (DSR / PBO / OOS Sharpe / look-ahead audit). **2 Tier-1 strategies pass the full gate today** (Faber 2007 SMA-200, Moreira-Muir 2017 vol-managed); the others' verdicts are visible in the passport.
 - ✅ **3-input fusion engine** — `services/strategy_fusion.py` consumes user brief × live market regime × 10,000-paper corpus → grounded strategy spec. Async generation jobs (`POST /api/strategies/generate`).
@@ -67,7 +67,7 @@
 
 - ❌ **Commit-reveal trace integrity** spec (`specs/commit-reveal-trace-spec.md`) is spec'd but not live — the on-chain anchor still attests existence-at-T, not existence-before-trade.
 - ❌ **Stress engine UI integration** — the backend is wired and clean, but no UI surface renders the scenario table yet.
-- ❌ The Day-9 `regime_detector.py` vs `statistical_regime.py` redundancy — both exist; which one drives the live demo is unclear from the code (see `chuan-architecture-survey.md` Gap Cluster #2).
+- ✅ ~~The Day-9 `regime_detector.py` vs `statistical_regime.py` redundancy~~ — **resolved** (#621/#688): both removed; `vix_regime_detector.py` is the single wired detector, with `gmm_regime_detector.py` as the data-driven drop-in.
 
 **To get to 9/10:** ship one of (a) commit-reveal trace integrity wired live to the UI's "Verify trace" affordance, or (b) the stress-engine table surfaced in `Portfolio.jsx` with a one-click run against the active portfolio.
 

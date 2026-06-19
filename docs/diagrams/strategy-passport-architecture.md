@@ -197,7 +197,7 @@ flowchart TB
   end
 
   subgraph LAYER3[Layer 3 - regime-aware portfolio weighting]
-    REGCLASS[statistical_regime.py<br/>current regime - risk_on / risk_off / transition]
+    REGCLASS[vix_regime_detector.py / gmm_regime_detector.py<br/>current regime - risk_on / risk_off / transition / crisis]
     PCA[Portfolio Construction Agent]
     SCHED[Weight schedule per regime:<br/>risk_on:70% bull / 25% bear / 5% neutral<br/>risk_off:25% bull / 70% bear / 5% neutral<br/>transition:40% bull / 40% bear / 20% neutral]
     DEPLOY[Vault deployed with regime-balanced mix<br/>survives the regime it actually faces]
@@ -221,7 +221,7 @@ All three together = **structural diversification against macro regime risk**, b
 
 - **Always-both** skips a variant only if the KB has no candidate papers for that regime matching the brief (visible "no bear candidate available — your brief is structurally bull-only" message; honest empty state, not a silent drop). Default behavior is "try both, report both."
 - **Weight schedule** is a hardcoded constant per risk profile in v1 (conservative / moderate / aggressive each have their own schedule). v2 makes it user-configurable in the WelcomeProfileModal.
-- **Regime classification** comes from `statistical_regime.py` which already exists (statistical regime detection). The Live Execution Agent's cost-benefit sub-agent reads it each tick; on regime transitions, the portfolio agent gets a recompute trigger and rebalances toward the new regime's weight schedule (subject to cost-benefit, of course).
+- **Regime classification** comes from the wired `vix_regime_detector.py` (rule-based VIX/MA, #660), with `gmm_regime_detector.py` (data-driven Gaussian Mixture, #661) as a drop-in. The Live Execution Agent's cost-benefit sub-agent reads it each tick; on regime transitions, the portfolio agent gets a recompute trigger and rebalances toward the new regime's weight schedule (subject to cost-benefit, of course).
 - **Corpus seeding adjustment.** The bear bucket of our 10k-paper corpus seed v2 needs explicit attention: vol-managed portfolios (Moreira-Muir 2017 already in), volatility risk premium (Bondarenko, Whaley), defensive sector rotation, downside beta (Ang/Chen/Xing 2006), short-interest factor research. Without bear-friendly corpus material, always-both generation degenerates to "no bear candidate" for most briefs.
 
 ---

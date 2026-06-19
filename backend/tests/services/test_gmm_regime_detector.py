@@ -16,8 +16,8 @@ correspond to the four regimes, fit on those, and exercise:
   * hysteresis on the GMM path — one contrary tick does NOT flip until confirmed.
   * load_gmm_model on a missing path → None (no raise).
 
-Distinct from ``test_statistical_regime.py`` (the scipy 2-component online-EM
-model) and ``test_vix_regime_detector.py`` (the rule-based fallback).
+Distinct from ``test_vix_regime_detector.py`` (the rule-based fallback this
+detector delegates to when no fitted model is present).
 """
 
 from __future__ import annotations

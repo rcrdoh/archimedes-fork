@@ -13,9 +13,8 @@ regimes; Ang & Bekaert 2002 ("International Asset Allocation With Regime
 Shifts", RFS) showed regime structure in volatility/correlation. A Gaussian
 Mixture is the unconditional (no Markov transition) cousin: each regime is a
 Gaussian cluster in feature space, and posterior responsibilities give a
-soft regime probability. We deliberately keep the transition dynamics out of
-scope (that is `statistical_regime.py`'s territory) — this is a clustering
-classifier with hysteresis layered on for stability.
+soft regime probability. We deliberately keep transition dynamics out of scope
+— this is a clustering classifier with hysteresis layered on for stability.
 
 HONEST FALLBACK. A meaningful fit needs ≥504 trading days (~2y) of real
 ``^VIX`` + ``SPY`` data. We never fetch that in tests or CI and never commit a
