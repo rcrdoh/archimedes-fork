@@ -30,6 +30,7 @@ from archimedes.chain.executor import InsufficientLiquidityError, chain_executor
 from archimedes.chain.oracle_updater import OracleUpdater
 from archimedes.chain.trace_publisher import trace_publisher
 from archimedes.chain.v_check import VCheck
+from archimedes.interfaces.math import IRegimeDetector
 from archimedes.models.portfolio import (
     Portfolio,
     RiskProfile,
@@ -39,6 +40,7 @@ from archimedes.models.portfolio import (
 )
 from archimedes.models.regime import EnsembleConsensus, RegimeClassification
 from archimedes.models.trace import DecisionType, ReasoningTrace
+from archimedes.services.gmm_regime_detector import GmmRegimeDetector
 from archimedes.services.portfolio_constructor import PortfolioConstructor
 from archimedes.services.redis_state import AgentStateStore
 from archimedes.services.source_tracker import build_consulted_hashes
@@ -146,10 +148,17 @@ class StrategyRunner:
         self.state = AgentStateStore()
         # Oracle for market snapshots (VIX + S&P MAs) feeding regime detection.
         self.oracle = OracleUpdater()
-        # Exogenous market-regime classifier (issue #660). Rule-based VIX/MA —
-        # hermetic, no fitted artifact. Kept SEPARATE from the endogenous
-        # EnsembleConsensus signal (issue #659): the two are complementary.
-        self.regime_detector: VixRegimeDetector = VixRegimeDetector()
+        # Exogenous market-regime classifier (issues #660, #661). Data-driven
+        # 4-component Gaussian Mixture (Hamilton 1989 / Ang & Bekaert 2002 in
+        # spirit) that DROPS IN for the rule-based detector — but falls back to
+        # VixRegimeDetector whenever no fitted gmm_model.pkl is present, history
+        # is too short (<22 days), or VIX/price are missing. Until the offline
+        # fit (scripts/fit_gmm_regime.py) produces an artifact, this behaves
+        # exactly like the rule-based VIX/MA classifier. Kept SEPARATE from the
+        # endogenous EnsembleConsensus signal (issue #659): the two are
+        # complementary; the regime says what the market is doing, the consensus
+        # how decisive our strategies are.
+        self.regime_detector: IRegimeDetector = GmmRegimeDetector(fallback=VixRegimeDetector())
         # Position sizer (issue #662): throttles aggregated target weights by
         # the exogenous market regime AND the endogenous ensemble consensus.
         self.portfolio_constructor: PortfolioConstructor = PortfolioConstructor()
