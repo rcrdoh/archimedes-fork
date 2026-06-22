@@ -23,7 +23,7 @@ scikit-learn>=1.5  # GaussianMixture + StandardScaler for the data-driven GmmReg
 
 # Market data
 yfinance>=1.4.1
-requests>=2.32
+requests>=2.34.2
 # Bumped from 3.13.5 to close CVE-2026-34993 / CVE-2026-47265 (HTTP parser
 # DoS/smuggling).
 aiohttp>=3.14.1
