@@ -298,6 +298,7 @@ async def health():
         "fusion_enabled": _fusion_on,
         "llm_provider": llm_provider,
         "llm_backend": llm_backend,
+        "llm_model": getattr(backend, "model_id", None),
         "llm_available": is_available,
         "llm_has_api_key": bool(os.getenv("LLM_API_KEY") or os.getenv("ANTHROPIC_API_KEY")),
         "llm_has_auth_token": bool(os.getenv("LLM_AUTH_TOKEN") or os.getenv("ANTHROPIC_AUTH_TOKEN")),

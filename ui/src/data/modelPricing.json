@@ -1,0 +1,23 @@
+{
+  "generated": "2026-06-24",
+  "region": "us-east-1",
+  "unit": "USD per 1M tokens · standard on-demand",
+  "source": "AWS Price List API + agreement rate cards; live Converse availability probes",
+  "note": "Snapshot. Batch inference is ~50% cheaper. Anthropic models require a one-time account use-case form before they invoke; everything marked ✓ works immediately.",
+  "models": [
+    { "provider": "Amazon", "name": "Nova Micro", "model_id": "amazon.nova-micro-v1:0", "input": 0.035, "output": 0.14, "works_now": true, "recommended": true },
+    { "provider": "OpenAI", "name": "gpt-oss-20b", "model_id": "openai.gpt-oss-20b-1:0", "input": 0.035, "output": 0.15, "works_now": true },
+    { "provider": "Z.AI", "name": "GLM 4.7 Flash", "model_id": "zai.glm-4.7-flash", "input": 0.035, "output": 0.20, "works_now": true, "recommended": true },
+    { "provider": "Amazon", "name": "Nova Lite", "model_id": "amazon.nova-lite-v1:0", "input": 0.06, "output": 0.24, "works_now": true, "recommended": true },
+    { "provider": "Qwen", "name": "Qwen3 32B", "model_id": "qwen.qwen3-32b-v1:0", "input": 0.075, "output": 0.30, "works_now": true },
+    { "provider": "Meta", "name": "Llama 4 Scout 17B", "model_id": "us.meta.llama4-scout-17b-instruct-v1:0", "input": 0.17, "output": 0.66, "works_now": true },
+    { "provider": "DeepSeek", "name": "DeepSeek v3.2", "model_id": "deepseek.v3.2", "input": 0.31, "output": 0.925, "works_now": true, "recommended": true },
+    { "provider": "Z.AI", "name": "GLM 4.7", "model_id": "zai.glm-4.7", "input": 0.30, "output": 1.10, "works_now": true },
+    { "provider": "Moonshot", "name": "Kimi K2.5", "model_id": "moonshotai.kimi-k2.5", "input": 0.30, "output": 1.50, "works_now": true, "recommended": true },
+    { "provider": "Amazon", "name": "Nova Pro", "model_id": "amazon.nova-pro-v1:0", "input": 0.40, "output": 1.60, "works_now": true },
+    { "provider": "Meta", "name": "Llama 3.3 70B", "model_id": "us.meta.llama3-3-70b-instruct-v1:0", "input": 0.72, "output": 0.72, "works_now": true },
+    { "provider": "Mistral", "name": "Mistral Small", "model_id": "mistral.mistral-small-2402-v1:0", "input": 1.0, "output": 3.0, "works_now": true },
+    { "provider": "Anthropic", "name": "Claude Haiku 4.5", "model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "input": 1.0, "output": 5.0, "works_now": false, "premium": true },
+    { "provider": "Anthropic", "name": "Claude Sonnet 4.6", "model_id": "us.anthropic.claude-sonnet-4-6", "input": 3.0, "output": 15.0, "works_now": false, "premium": true }
+  ]
+}
