@@ -12,6 +12,16 @@ dependencies:
                 # have to install Node separately and CI-vs-local parity
                 # breaks (the ESLint gate runs in CI only).
 
+  # Infra / cloud CLI tooling — conda-forge binaries, pinned so the whole team
+  # (and a from-scratch setup) gets one consistent version for IaC + AWS work.
+  - terraform>=1.10   # IaC for the AWS stack (infra/*.tf). >=1.10 required for S3-native
+                      #   state locking (use_lockfile=true; see infra/README.md). Verified 1.15.3.
+  - awscli>=2.15      # AWS CLI v2 (conda-forge ships v2). v2 is REQUIRED for `aws configure sso`
+                      #   / IAM Identity Center — v1's SSO support is insufficient. Verified 2.34.48.
+  # NOTE: aws-sam-cli is intentionally NOT here — it is not packaged on conda-forge.
+  #   Install via Homebrew (`brew install aws-sam-cli`). See infra/README.md
+  #   "Local CLI tooling" for when SAM actually applies (Lambda/serverless only).
+
   # Python deps installed via pip — pinned loosely; tighten in pyproject.toml as the project firms up.
   - pip:
       # --- Web backend ---

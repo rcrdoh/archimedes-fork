@@ -1,5 +1,28 @@
 # Archimedes Infrastructure
 
+## Local CLI tooling
+
+The infra workflow needs three command-line tools. Two come from the `archimedes`
+conda env (pinned in [`../environment.yml`](../environment.yml), so `conda env create`
+gives everyone the same versions); the third is a Homebrew install because it is not
+packaged on conda-forge.
+
+| Tool | Version (verified) | How to install | Why |
+| --- | --- | --- | --- |
+| **Terraform** | 1.15.3 | conda env (`terraform>=1.10`) | IaC for the whole AWS stack (`infra/*.tf`). 1.10+ required for S3-native state locking (`use_lockfile=true`). |
+| **AWS CLI v2** | 2.34.48 | conda env (`awscli>=2.15`) | Deploys, SSM sessions, and **`aws configure sso`** for IAM Identity Center. **v2 is required** — v1's SSO support is insufficient for the Identity Center login flow. |
+| **AWS SAM CLI** | 1.162.1 | **Homebrew**: `brew install aws-sam-cli` (not on conda-forge) | Serverless build/deploy + `sam local` testing. Only needed if/when we add Lambda pieces — see note below. |
+
+Run env-scoped tools with `conda run -n archimedes <cmd>` (or `conda activate archimedes`
+first) so you are always on the pinned versions, not whatever is on the system PATH.
+
+**On SAM's role:** the production stack is **ECS-on-EC2 + Aurora + ALB, managed by
+Terraform** — Terraform is the IaC backbone and SAM does not replace it. SAM is
+purpose-built for **Lambda / API Gateway serverless** apps and local Lambda emulation.
+Treat it as *additive*: reach for it only when we introduce a concrete Lambda use-case
+(e.g. an event-driven nanopayment-settlement hook, a scheduled job, or lightweight glue),
+not as a second way to manage the core web tier. Until then it is installed-but-unused.
+
 ## Terraform State Backend (S3)
 
 State is stored remotely in S3 with S3-native locking (Terraform 1.10+,
