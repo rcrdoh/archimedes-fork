@@ -73,10 +73,16 @@ function saveCredential(credential) {
 // [a-zA-Z0-9_@.:+-] constraints. Not persisted: discoverable login needs no
 // username, so there is nothing to remember between sessions.
 function newUniqueUsername() {
-  const suffix = (crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`)
-    .replace(/-/g, '')
-    .slice(0, 12)
-  return `archimedes-${suffix}`
+  // Cryptographically secure 12-hex-char suffix. `crypto` is always present in
+  // the secure contexts where WebAuthn works, so randomUUID is the happy path;
+  // getRandomValues is the fallback for engines lacking randomUUID. No
+  // Math.random fallback — it is not cryptographically secure and CodeQL
+  // (js/insecure-randomness) rightly flags it in this credential-creation path.
+  const uuid = crypto.randomUUID?.()
+  if (uuid) return `archimedes-${uuid.replace(/-/g, '').slice(0, 12)}`
+  const bytes = crypto.getRandomValues(new Uint8Array(6))
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return `archimedes-${hex}`
 }
 
 export function clearCircleSession() {
