@@ -42,9 +42,10 @@ const arcTestnet = {
 // Demo-grade persistence. Per Circle docs, production should use httpOnly
 // cookies to mitigate XSS credential theft — out of scope for hackathon demo.
 const CREDENTIAL_STORAGE_KEY = 'archimedes_circle_credential'
-// Per-device username so Circle's server-side uniqueness check doesn't lock
-// out everyone after the first registrant (see issue #367). Generated on
-// first use; same key reused across sessions so MSCA address stays stable.
+// Legacy: older builds persisted a per-device username here. Registration now
+// generates a fresh unique username per wallet (newUniqueUsername) and login is
+// discoverable (no username), so nothing is written here anymore — the key is
+// retained only so clearCircleSession() can purge values left by old builds.
 const USERNAME_STORAGE_KEY = 'archimedes_circle_username'
 
 // True if a CLIENT_KEY was supplied at build time. The modal hides the
@@ -66,23 +67,16 @@ function saveCredential(credential) {
   } catch { /* storage unavailable */ }
 }
 
-// Returns the per-device username, generating + persisting one on first use.
-// Format: `archimedes-<8 hex chars>` — within Circle's 5-50 char and
-// [a-zA-Z0-9_@.:+-] constraints; 8 hex = 4 billion namespaces, collision-free
-// in practice across a hackathon team and any number of judges.
-function getOrCreateUsername() {
-  try {
-    const existing = localStorage.getItem(USERNAME_STORAGE_KEY)
-    if (existing) return existing
-    const suffix = (crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`)
-      .replace(/-/g, '')
-      .slice(0, 8)
-    const fresh = `archimedes-${suffix}`
-    localStorage.setItem(USERNAME_STORAGE_KEY, fresh)
-    return fresh
-  } catch {
-    return `archimedes-${Date.now()}`
-  }
+// A fresh, UNIQUE username for each Register (new wallet). Circle's server
+// rejects duplicate usernames, so reusing one would block creating a second
+// wallet. Format: `archimedes-<12 hex chars>` — within Circle's 5-50 char and
+// [a-zA-Z0-9_@.:+-] constraints. Not persisted: discoverable login needs no
+// username, so there is nothing to remember between sessions.
+function newUniqueUsername() {
+  const suffix = (crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`)
+    .replace(/-/g, '')
+    .slice(0, 12)
+  return `archimedes-${suffix}`
 }
 
 export function clearCircleSession() {
@@ -120,71 +114,48 @@ function friendlyPasskeyError(err) {
   return msg || 'Passkey sign-in failed.'
 }
 
-// Single entry point for both flows. The caller passes `mode = 'register'`
-// for a new user; we default to 'login' if we already have a stored
-// credential. Returns the smart account + its address + the credential
-// (also persisted to localStorage for next-session re-login).
+// Connect a Circle Modular Wallet via passkey. Two EXPLICIT flows — the caller
+// chooses; we never auto-decide (auto-deciding is what minted a brand-new
+// wallet on every fresh browser, since "no cached credential" fell through to
+// Register):
 //
-// Throws standard WebAuthn DOMException errors on user cancellation
-// (NotAllowedError) or domain mismatch (SecurityError) — caller should
-// catch and surface a friendly message.
-// Username constraint per Circle API: 5-50 chars, [a-zA-Z0-9_@.:+-]+ only.
-// Spaces are rejected; 'Archimedes user' (the old default) failed every
-// first-time signup with "The username is invalid."
-// Username is per-device (see getOrCreateUsername) so Circle's server-side
-// uniqueness check doesn't collide across teammates / judges — issue #367.
-export async function connectCirclePasskey({ mode = 'auto', username } = {}) {
+//   - mode 'login'    → DISCOVERABLE login. Omit both username and credentialId
+//     so the browser shows its native passkey picker listing EVERY passkey
+//     registered for this origin. The user picks one; its public key
+//     deterministically derives that wallet's MSCA address. This is how a user
+//     signs back into a SPECIFIC existing wallet (and recovers it on a fresh
+//     browser / device).
+//   - mode 'register' → CREATE a new wallet: register a fresh passkey under a
+//     unique username (Circle rejects duplicate usernames). New credential →
+//     new MSCA address.
+//
+// Returns the smart account + address + credential (persisted to localStorage
+// for silent next-session rehydrate — see rehydrateSmartAccount). Throws a
+// friendly message on WebAuthn cancellation / domain mismatch.
+export async function connectCirclePasskey({ mode = 'login' } = {}) {
   if (!circlePasskeyEnabled()) {
     throw new Error('Circle passkey wallet is not configured (missing VITE_CIRCLE_CLIENT_KEY).')
   }
 
-  const resolvedUsername = username ?? getOrCreateUsername()
-  const stored = loadStoredCredential()
-  let resolvedMode = mode === 'auto'
-    ? (stored ? WebAuthnMode.Login : WebAuthnMode.Register)
-    : (mode === 'login' ? WebAuthnMode.Login : WebAuthnMode.Register)
-
   // Passkey transport handles WebAuthn challenge issuance + verification.
   const passkeyTransport = toPasskeyTransport(CLIENT_URL, CLIENT_KEY)
 
-  // Either issue a new P256 credential (Register) OR re-authenticate an
-  // existing one (Login). Browser prompts the user for biometrics here.
+  // Browser prompts the user for biometrics here. Register issues a new P256
+  // credential under a unique username; Login is discoverable (no username, no
+  // credentialId) so the browser surfaces all passkeys for this origin to pick.
   let credential
   try {
-    credential = await toWebAuthnCredential({
-      transport: passkeyTransport,
-      mode: resolvedMode,
-      username: resolvedUsername,
-      credentialId: resolvedMode === WebAuthnMode.Login ? stored?.id : undefined,
-    })
+    credential = await toWebAuthnCredential(
+      mode === 'register'
+        ? { transport: passkeyTransport, mode: WebAuthnMode.Register, username: newUniqueUsername() }
+        : { transport: passkeyTransport, mode: WebAuthnMode.Login },
+    )
   } catch (err) {
-    // "Username is duplicated" — Circle server already has a credential for
-    // this username, but our localStorage is empty (typical: Safari ITP
-    // purged it, or user switched browsers). Retry as Login WITHOUT a
-    // credentialId — WebAuthn surfaces the user's existing passkeys for
-    // this origin via discoverable credentials, and the user re-auths.
-    // Only auto-retry when the caller didn't pin a specific mode.
-    const msg = String(err?.message ?? err ?? '')
-    const isDuplicate = /username is duplicated/i.test(msg)
-    if (mode === 'auto' && resolvedMode === WebAuthnMode.Register && isDuplicate) {
-      resolvedMode = WebAuthnMode.Login
-      try {
-        credential = await toWebAuthnCredential({
-          transport: passkeyTransport,
-          mode: WebAuthnMode.Login,
-          username: resolvedUsername,
-        })
-      } catch (retryErr) {
-        throw new Error(friendlyPasskeyError(retryErr), { cause: retryErr })
-      }
-    } else {
-      throw new Error(friendlyPasskeyError(err), { cause: err })
-    }
+    throw new Error(friendlyPasskeyError(err), { cause: err })
   }
 
-  // Persist for next-session login. Stores the credential ID + public key,
-  // NOT the private key (the private key lives in the device's secure
-  // enclave and never leaves it).
+  // Persist the credential (id + public key, NOT the private key — that stays
+  // in the device's secure enclave) so we can silently rehydrate next session.
   saveCredential(credential)
 
   // Modular transport handles bundler RPC + chain-specific calls for the
@@ -192,9 +163,9 @@ export async function connectCirclePasskey({ mode = 'auto', username } = {}) {
   const modularTransport = toModularTransport(`${CLIENT_URL}/arcTestnet`, CLIENT_KEY)
   const client = createPublicClient({ chain: arcTestnet, transport: modularTransport })
 
-  // Derive a WebAuthnAccount viem account from the credential, then turn
-  // it into a Circle smart account. The MSCA address is deterministic
-  // from the credential's public key — same passkey → same address.
+  // Derive a WebAuthnAccount viem account from the credential, then turn it
+  // into a Circle smart account. The MSCA address is deterministic from the
+  // credential's public key — same passkey → same wallet address.
   const owner = toWebAuthnAccount({ credential })
   const smartAccount = await toCircleSmartAccount({ client, owner })
 
@@ -203,7 +174,7 @@ export async function connectCirclePasskey({ mode = 'auto', username } = {}) {
     smartAccount,
     client,
     credential,
-    mode: resolvedMode,
+    mode,
   }
 }
 

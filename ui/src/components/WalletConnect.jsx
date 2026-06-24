@@ -91,11 +91,11 @@ export default function WalletConnect({ address, displayName, onConnect, onDisco
     }
   }
 
-  const handleConnect = async (providerId) => {
+  const handleConnect = async (providerId, opts) => {
     setBusy(true)
     setError('')
     try {
-      const result = await connectWallet(providerId)
+      const result = await connectWallet(providerId, opts)
 
       // SIWE: prove wallet ownership via signature (EIP-4361)
       try {
@@ -354,34 +354,68 @@ export default function WalletConnect({ address, displayName, onConnect, onDisco
                           <span style={{ flex: 1, height: 1, background: 'var(--glass-border)' }} />
                         </div>
                       )}
-                      <button className="wallet-option" onClick={() => handleConnect(p.id)} disabled={busy}>
-                        {p.iconDataUri ? (
-                          <img
-                            src={p.iconDataUri}
-                            alt=""
-                            width={20}
-                            height={20}
-                            style={{ borderRadius: 4 }}
-                          />
-                        ) : (
-                          <span className={`wallet-icon ${p.icon} w-5 h-5`} />
-                        )}
-                        {p.id === CIRCLE_PROVIDER_ID ? (
-                          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, flex: 1 }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                              <span>{p.name}</span>
-
+                      {p.id === CIRCLE_PROVIDER_ID ? (
+                        // Circle Modular Wallets — lead with the Circle ecosystem,
+                        // then two EXPLICIT choices so users can pick a specific
+                        // existing wallet (discoverable passkey picker) instead of
+                        // always minting a new one.
+                        <div
+                          style={{
+                            border: '1px solid var(--glass-border)',
+                            borderRadius: 10,
+                            padding: 12,
+                            background: 'var(--surface-2)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 10,
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {p.iconDataUri ? (
+                              <img src={p.iconDataUri} alt="" width={20} height={20} style={{ borderRadius: 4 }} />
+                            ) : (
+                              <span className={`wallet-icon ${p.icon} w-5 h-5`} />
+                            )}
+                            <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                              <span style={{ fontWeight: 600, color: 'var(--text-1)' }}>Circle Modular Wallets</span>
+                              <span style={{ fontSize: '0.78rem', color: 'var(--text-3)', lineHeight: 1.4 }}>
+                                Face ID / Touch ID · smart-contract account on Arc · no extension, no seed phrase
+                              </span>
                             </span>
-                            <span
-                              style={{ fontSize: '0.8rem', color: 'var(--text-3)', lineHeight: 1.45, textAlign: 'left' }}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                              className="btn btn-primary"
+                              style={{ flex: 1 }}
+                              onClick={() => handleConnect(p.id, { mode: 'login' })}
+                              disabled={busy}
                             >
-                              Powered by <strong style={{ color: 'var(--text-2)' }}>Circle Modular Wallets</strong> · Face ID / Touch ID · Smart-contract account on Arc · No extension, no seed phrase
-                            </span>
+                              Sign in to existing
+                            </button>
+                            <button
+                              className="btn btn-outline"
+                              style={{ flex: 1 }}
+                              onClick={() => handleConnect(p.id, { mode: 'register' })}
+                              disabled={busy}
+                            >
+                              Create new wallet
+                            </button>
+                          </div>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-4)', lineHeight: 1.4 }}>
+                            <strong style={{ color: 'var(--text-3)' }}>Sign in to existing</strong> opens your passkey
+                            picker — choose the wallet you want. <strong style={{ color: 'var(--text-3)' }}>Create new</strong> mints a fresh wallet.
                           </span>
-                        ) : (
+                        </div>
+                      ) : (
+                        <button className="wallet-option" onClick={() => handleConnect(p.id)} disabled={busy}>
+                          {p.iconDataUri ? (
+                            <img src={p.iconDataUri} alt="" width={20} height={20} style={{ borderRadius: 4 }} />
+                          ) : (
+                            <span className={`wallet-icon ${p.icon} w-5 h-5`} />
+                          )}
                           <span>{p.name}</span>
-                        )}
-                      </button>
+                        </button>
+                      )}
                     </Fragment>
                   )
                 })}

@@ -335,11 +335,11 @@ function findWalletProvider(providerId) {
 // connectWallet() so the WalletConnect onConnect callback works
 // uniformly. Triggers a WebAuthn prompt (biometric / hardware key) for
 // the user — caller should debounce + show a "Authenticating..." state.
-export async function connectCircleWallet() {
+export async function connectCircleWallet({ mode = 'login' } = {}) {
   if (!circlePasskeyEnabled()) {
     throw new Error('Circle passkey wallet is not configured.')
   }
-  const result = await connectCirclePasskey({ mode: 'auto' })
+  const result = await connectCirclePasskey({ mode })
   _address = result.address
   _providerId = CIRCLE_PROVIDER_ID
   _provider = null
@@ -350,8 +350,8 @@ export async function connectCircleWallet() {
   return { address: _address, provider: CIRCLE_PROVIDER_ID }
 }
 
-export async function connectWallet(providerId) {
-  if (providerId === CIRCLE_PROVIDER_ID) return connectCircleWallet()
+export async function connectWallet(providerId, opts) {
+  if (providerId === CIRCLE_PROVIDER_ID) return connectCircleWallet(opts)
 
   const provider = findWalletProvider(providerId)
   if (!provider) throw new Error(`Unknown provider: ${providerId}`)
