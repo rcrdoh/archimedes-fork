@@ -92,7 +92,7 @@ resource "aws_s3_bucket_policy" "alb_logs" {
 # Using DNS validation via Route 53.
 
 resource "aws_acm_certificate" "main" {
-  domain_name       = "archimedes-arc.app"
+  domain_name       = "${var.domain_name}"
   validation_method = "DNS"
 
   tags = {
@@ -106,7 +106,7 @@ resource "aws_acm_certificate" "main" {
 
 # Route 53 zone lookup (zone already exists from initial setup)
 data "aws_route53_zone" "main" {
-  name         = "archimedes-arc.app."
+  name         = "${var.domain_name}."
   private_zone = false
 }
 
