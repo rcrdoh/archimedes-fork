@@ -58,7 +58,7 @@ Foundry, Circle wallet, and oracle targets (`compile`, `test`, `wallet`, `feed`,
 
 **Built today — visible on the live site right now:**
 
-- **Live HTTPS testnet deploy** at <https://archimedes-arc.app/> behind nginx + Route 53 + ACM. 11 Solidity contracts deployed on Arc testnet (chain ID `5042002`).
+- **Live HTTPS testnet deploy** at <[https://archimedes-arc.com](https://archimedes-arc.com/)/> behind nginx + Route 53 + ACM. 11 Solidity contracts deployed on Arc testnet (chain ID `5042002`).
 - **SPEC-1 end-to-end evidence on-chain** — submission-day dress-rehearsal walkthrough captured in [`docs/runbooks/arc-testnet-e2e-evidence.md`](docs/runbooks/arc-testnet-e2e-evidence.md). Two vaults deployed by a real user wallet, **8 transactions confirmed** on Arc testnet (`txreceipt_status: 1` for every one), `vault.creator == user wallet` verified on each — the architectural proof that user funds never pass through platform custody. **The wedge held empirically**: of 6 strategies in the library, exactly the 2 that pass DSR ≥ 0.95 + PBO < 0.5 + OOS Sharpe ≥ 0.5 + look-ahead audit were deployed; the other 4 were correctly gate-blocked.
 - **Real on-chain rebalance traces in production** — the autonomous agent has been writing rebalance txs against the deployed `Vault` + `ReasoningTraceRegistry` contracts; `curl https://archimedes-arc.app/api/traces/?limit=10` returns `arc_tx_hash` values verifiable on `testnet.arcscan.app`.
 - **End-to-end deposit flow** — `CreateVaultModal` → `DepositFlow` stepper signs 3 wallet txs (USDC.approve → vault.deposit → vault.setTargetAllocations). `StrategyPublisher` anchors the passport's `methodology_hash` on the `StrategyRegistry` contract per vault created.
