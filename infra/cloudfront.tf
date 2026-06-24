@@ -26,8 +26,8 @@ provider "aws" {
 # eu-west-2). CloudFront can only attach a us-east-1 cert.
 resource "aws_acm_certificate" "cloudfront" {
   provider                  = aws.us_east_1
-  domain_name               = "archimedes-arc.app"
-  subject_alternative_names = ["www.archimedes-arc.app"]
+  domain_name               = var.domain_name
+  subject_alternative_names = ["www.${var.domain_name}"]
   validation_method         = "DNS"
 
   tags = {
@@ -215,7 +215,7 @@ resource "aws_cloudfront_distribution" "main" {
   is_ipv6_enabled = true
   comment         = "${var.project_name} edge CDN (virality tier, issue #155)"
   price_class     = "PriceClass_100" # NA + EU edges only (cost containment)
-  aliases         = ["archimedes-arc.app"]
+  aliases         = ["${var.domain_name}"]
 
   origin {
     domain_name = aws_lb.main.dns_name
@@ -283,6 +283,7 @@ resource "aws_cloudfront_distribution" "main" {
     allowed_methods            = ["GET", "HEAD", "OPTIONS"]
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = aws_cloudfront_cache_policy.static_assets.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.all_viewer.id
     response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
     compress                   = true
   }
@@ -295,6 +296,7 @@ resource "aws_cloudfront_distribution" "main" {
     allowed_methods            = ["GET", "HEAD", "OPTIONS"]
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = aws_cloudfront_cache_policy.static_assets.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.all_viewer.id
     response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
     compress                   = true
   }
@@ -307,6 +309,7 @@ resource "aws_cloudfront_distribution" "main" {
     allowed_methods            = ["GET", "HEAD", "OPTIONS"]
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = aws_cloudfront_cache_policy.static_assets.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.all_viewer.id
     response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
     compress                   = true
   }
@@ -319,6 +322,7 @@ resource "aws_cloudfront_distribution" "main" {
     allowed_methods            = ["GET", "HEAD", "OPTIONS"]
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = aws_cloudfront_cache_policy.static_assets.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.all_viewer.id
     response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
     compress                   = true
   }
@@ -347,12 +351,12 @@ data "aws_cloudfront_cache_policy" "caching_disabled" {
   name = "Managed-CachingDisabled"
 }
 
-# ── Route 53 alias: archimedes-arc.app → CloudFront ───────────
+# ── Route 53 alias: ${var.domain_name} → CloudFront ───────────
 # Replaces the direct A record to the EC2 EIP. Uses the existing zone data
 # source (data.aws_route53_zone.main, defined in alb.tf).
 resource "aws_route53_record" "apex_cloudfront" {
   zone_id = data.aws_route53_zone.main.zone_id
-  name    = "archimedes-arc.app"
+  name    = var.domain_name
   type    = "A"
 
   alias {
@@ -364,7 +368,7 @@ resource "aws_route53_record" "apex_cloudfront" {
 
 resource "aws_route53_record" "apex_cloudfront_ipv6" {
   zone_id = data.aws_route53_zone.main.zone_id
-  name    = "archimedes-arc.app"
+  name    = var.domain_name
   type    = "AAAA"
 
   alias {

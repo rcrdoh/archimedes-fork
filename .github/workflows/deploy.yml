@@ -10,14 +10,15 @@
 #   Population runbook: infra/iam/README.md § "SSM Parameter Store — app secrets".
 #
 # Required GitHub Variables (or hardcoded below):
-#   AWS_ROLE_ARN — arn:aws:iam::159903201072:role/archimedes-github-deploy
-#   EC2_INSTANCE_ID — i-0987f70a131ed3ab1
+#   AWS_ROLE_ARN — arn:aws:iam::037613907429:role/archimedes-github-deploy
+#   EC2_INSTANCE_ID — i-01803d3abc271d39b
 #   DEPLOY_ENABLED — gate flag; the deploy job runs ONLY when this repo variable
 #     equals 'true'. Unset/false → the job is skipped (neutral, not failed). The
-#     deploy target was torn down post-hackathon for cost (#436, EC2-only) and the
-#     box is offline, so unguarded runs would fail on every push to main. Set
-#     DEPLOY_ENABLED=true (Settings → Secrets and variables → Actions → Variables)
-#     to re-enable once a deploy target exists again.
+#     stack was rebuilt on a NEW account (037613907429 / us-east-1) and is LIVE
+#     again at archimedes-arc.com (2026-06-24), so the deploy target exists. This
+#     gate is kept OFF until the migration PR (#716) merges + the OIDC role/trust
+#     are confirmed; flip DEPLOY_ENABLED=true (Settings → Secrets and variables →
+#     Actions → Variables) to make merges to main auto-deploy.
 #
 # ─── KNOWN SECURITY DEBT ───
 #
@@ -61,18 +62,18 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: eu-west-2
-  EC2_INSTANCE_ID: i-0987f70a131ed3ab1
+  AWS_REGION: us-east-1
+  EC2_INSTANCE_ID: i-01803d3abc271d39b
 
 jobs:
   deploy:
     name: Deploy
-    # Gated behind an explicit opt-in repo variable. The deploy target (managed
-    # tier + EC2) was torn down post-hackathon for cost (#436, EC2-only) and the
-    # instance is offline / DNS released, so an unguarded run would fail on the
-    # SSM SendCommand to a dead instance on every push to main. With DEPLOY_ENABLED
-    # unset, this job is SKIPPED (neutral, keeps the Actions history green); set the
-    # repo variable DEPLOY_ENABLED=true to re-enable once a deploy target exists.
+    # Gated behind an explicit opt-in repo variable. The stack is LIVE again on
+    # the new account (037613907429 / us-east-1, instance i-01803d3abc271d39b),
+    # but the gate stays OFF until the migration PR (#716) merges and the OIDC
+    # role + trust policy are confirmed, so a stray push to main can't deploy
+    # mid-migration. With DEPLOY_ENABLED unset, this job is SKIPPED (neutral,
+    # keeps the Actions history green); set DEPLOY_ENABLED=true to enable.
     if: ${{ vars.DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35  # SSM 30min + AWS API overhead + buffer
@@ -81,7 +82,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6.2.0
         with:
-          role-to-assume: arn:aws:iam::159903201072:role/archimedes-github-deploy
+          role-to-assume: arn:aws:iam::037613907429:role/archimedes-github-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy via SSM SendCommand
@@ -112,7 +113,7 @@ jobs:
               "# the box-local, gitignored .env (untouched by git reset) carries any",
               "# values not yet in SSM, incl. the build-time VITE_CIRCLE_CLIENT_KEY. See",
               "# infra/iam/README.md for the SSM population runbook.",
-              "grep -q '"'"'^PUBLIC_DOMAIN='"'"' .env || echo '"'"'PUBLIC_DOMAIN=https://archimedes-arc.app'"'"' >> .env",
+              "grep -q '"'"'^PUBLIC_DOMAIN='"'"' .env || echo '"'"'PUBLIC_DOMAIN=https://archimedes-arc.com'"'"' >> .env",
               "docker compose build",
               "# Remove renamed orphan containers left by interrupted --force-recreate runs.",
               "# docker --filter name= uses Go RE2: [0-9a-f]+ matches the hex rename prefix.",

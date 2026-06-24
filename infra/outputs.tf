@@ -108,6 +108,6 @@ output "cloudfront_distribution_id" {
 }
 
 output "backend_asg_name" {
-  description = "Backend auto-scaling group name"
-  value       = aws_autoscaling_group.backend.name
+  description = "Backend auto-scaling group name (null unless the optional ASG tier is enabled via backend_ami_id)"
+  value       = one(aws_autoscaling_group.backend[*].name)
 }

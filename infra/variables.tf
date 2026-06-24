@@ -1,13 +1,19 @@
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "eu-west-2"
+  default     = "us-east-1"
+}
+
+variable "domain_name" {
+  description = "Primary domain for the stack (ACM cert + Route 53 zone + CloudFront/ALB aliases). The hosted zone must already exist — auto-created when the domain is registered via Route 53 Domains."
+  type        = string
+  default     = "archimedes-arc.com"
 }
 
 variable "instance_type" {
-  description = "EC2 instance type"
+  description = "EC2 instance type. t3.medium (4 GB) fixes the t3.small docker-build OOM (#439)."
   type        = string
-  default     = "t3.small"
+  default     = "t3.medium"
 }
 
 variable "key_name" {
@@ -31,7 +37,7 @@ variable "project_name" {
 variable "repo_url" {
   description = "GitHub repo HTTPS URL for cloning on the instance"
   type        = string
-  default     = "https://github.com/a-apin/archimedes-arcadia.git"
+  default     = "https://github.com/a-apin/archimedes.git"
 }
 
 # AMI for the backend auto-scaling group (issue #155, OPTIONAL virality tier).

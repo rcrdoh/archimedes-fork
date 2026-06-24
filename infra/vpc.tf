@@ -11,8 +11,15 @@
 # only). Moving EC2 to the private subnet is a separate PR after the
 # deploy pipeline is converted to SSM.
 
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
 locals {
-  azs = ["eu-west-2a", "eu-west-2b"]
+  # First two available AZs in the ACTIVE region. Was hardcoded eu-west-2a/b,
+  # which broke the us-east-1 apply (subnets can't be created in foreign AZs).
+  # This makes the VPC region-agnostic.
+  azs = slice(data.aws_availability_zones.available.names, 0, 2)
 }
 
 # ── VPC ───────────────────────────────────────────────────────

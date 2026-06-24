@@ -5,9 +5,9 @@ terraform {
   # Bootstrap: S3 bucket created out-of-band via AWS CLI.
   # See infra/README.md for the bootstrap commands.
   backend "s3" {
-    bucket       = "archimedes-tfstate-159903201072"
+    bucket       = "archimedes-tfstate-037613907429"
     key          = "infra/terraform.tfstate"
-    region       = "eu-west-2"
+    region       = "us-east-1"
     encrypt      = true
     use_lockfile = true # S3-native locking (Terraform 1.10+), no DynamoDB needed
   }
@@ -151,6 +151,7 @@ resource "aws_instance" "archimedes" {
   instance_type          = var.instance_type
   key_name               = aws_key_pair.deploy.key_name
   vpc_security_group_ids = [aws_security_group.archimedes.id]
+  iam_instance_profile   = aws_iam_instance_profile.ec2.name # SSM SendCommand target + /archimedes/prod/* secret reads
 
   # 20 GB gp3 root volume (enough for Docker images + data)
   root_block_device {

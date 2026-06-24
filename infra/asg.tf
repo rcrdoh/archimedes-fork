@@ -1,10 +1,15 @@
 # ── Auto-Scaling Group for the backend API tier ───────────────────────
 #
-# OPTIONAL / virality-prep (issue #155). This file is INERT until an
+# OPTIONAL / virality-prep (issue #155). This tier is INERT until an
 # operator (a) bakes a backend AMI via infra/scripts/bake-backend-ami.sh,
 # (b) sets `backend_ami_id` to the resulting AMI, and (c) runs
-# `terraform apply` with AWS credentials. No CI step applies this — merging
-# the PR changes nothing on the live stack. See the operational note in the PR.
+# `terraform apply` with AWS credentials.
+#
+# GATING (added 2026-06-24): every resource here is gated on
+# `local.asg_enabled` (= backend_ami_id non-empty). With no AMI supplied the
+# whole tier is count=0 — `terraform apply` creates nothing in this file, so the
+# core single-EC2 stack stands up cleanly without a placeholder AMI. Bake an AMI
+# + set backend_ami_id (or TF_VAR_backend_ami_id) to enable the tier.
 #
 # Design:
 #   - Launch template runs the backend AMI (postgres/redis already live as
@@ -23,6 +28,10 @@
 # loops are the source of truth for vault/regime state and must not be
 # load-balanced or duplicated.
 
+locals {
+  asg_enabled = var.backend_ami_id != "" ? 1 : 0
+}
+
 # ── Security group for ASG instances (lives in the new VPC) ───
 # The existing single-EC2 SG (aws_security_group.archimedes) is in the
 # DEFAULT VPC; the ALB + target group live in aws_vpc.main, so ASG instances
@@ -30,6 +39,7 @@
 # (needs to reach Aurora, ElastiCache, Arc RPC, Anthropic, ECR/Docker Hub).
 
 resource "aws_security_group" "backend_asg" {
+  count       = local.asg_enabled
   name        = "${var.project_name}-backend-asg-sg"
   description = "Backend ASG instances - HTTP from ALB only"
   vpc_id      = aws_vpc.main.id
@@ -61,23 +71,25 @@ resource "aws_security_group" "backend_asg" {
 # elasticache.tf (other-lane files) — security_group_rule keeps the change
 # additive and confined to this file.
 resource "aws_security_group_rule" "aurora_from_asg" {
+  count                    = local.asg_enabled
   type                     = "ingress"
   description              = "Postgres from backend ASG"
   from_port                = 5432
   to_port                  = 5432
   protocol                 = "tcp"
   security_group_id        = aws_security_group.aurora.id
-  source_security_group_id = aws_security_group.backend_asg.id
+  source_security_group_id = aws_security_group.backend_asg[0].id
 }
 
 resource "aws_security_group_rule" "redis_from_asg" {
+  count                    = local.asg_enabled
   type                     = "ingress"
   description              = "Redis from backend ASG"
   from_port                = 6379
   to_port                  = 6379
   protocol                 = "tcp"
   security_group_id        = aws_security_group.redis.id
-  source_security_group_id = aws_security_group.backend_asg.id
+  source_security_group_id = aws_security_group.backend_asg[0].id
 }
 
 # ── Launch template ───────────────────────────────────────────
@@ -87,12 +99,13 @@ resource "aws_security_group_rule" "redis_from_asg" {
 # Store at boot per the deploy convention.
 
 resource "aws_launch_template" "backend" {
+  count         = local.asg_enabled
   name_prefix   = "${var.project_name}-backend-"
   image_id      = var.backend_ami_id
   instance_type = var.instance_type
   key_name      = aws_key_pair.deploy.key_name
 
-  vpc_security_group_ids = [aws_security_group.backend_asg.id]
+  vpc_security_group_ids = [aws_security_group.backend_asg[0].id]
 
   # Encrypt the root volume at rest (same posture as the single EC2 — see
   # main.tf root_block_device). Holds Docker layers + any SSM-pulled secrets.
@@ -137,6 +150,7 @@ resource "aws_launch_template" "backend" {
 # ── Auto-scaling group ────────────────────────────────────────
 
 resource "aws_autoscaling_group" "backend" {
+  count               = local.asg_enabled
   name                = "${var.project_name}-backend-asg"
   min_size            = 2
   desired_capacity    = 2
@@ -150,7 +164,7 @@ resource "aws_autoscaling_group" "backend" {
   health_check_grace_period = 300 # allow boot + docker compose up before health-checking
 
   launch_template {
-    id      = aws_launch_template.backend.id
+    id      = aws_launch_template.backend[0].id
     version = "$Latest"
   }
 
@@ -180,14 +194,16 @@ resource "aws_autoscaling_group" "backend" {
 
 # Scale-out on high CPU (avg > 60% for 2 consecutive 1-min periods).
 resource "aws_autoscaling_policy" "scale_out_cpu" {
+  count                  = local.asg_enabled
   name                   = "${var.project_name}-scale-out-cpu"
-  autoscaling_group_name = aws_autoscaling_group.backend.name
+  autoscaling_group_name = aws_autoscaling_group.backend[0].name
   adjustment_type        = "ChangeInCapacity"
   scaling_adjustment     = 1
   cooldown               = 120
 }
 
 resource "aws_cloudwatch_metric_alarm" "cpu_high" {
+  count               = local.asg_enabled
   alarm_name          = "${var.project_name}-backend-cpu-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
@@ -198,10 +214,10 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   statistic           = "Average"
 
   dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.backend.name
+    AutoScalingGroupName = aws_autoscaling_group.backend[0].name
   }
 
-  alarm_actions = [aws_autoscaling_policy.scale_out_cpu.arn]
+  alarm_actions = [aws_autoscaling_policy.scale_out_cpu[0].arn]
 
   tags = {
     Project = var.project_name
@@ -211,14 +227,16 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
 # Scale-out on ALB request count > 1000/min (sum over 1 min) against the
 # backend target group.
 resource "aws_autoscaling_policy" "scale_out_requests" {
+  count                  = local.asg_enabled
   name                   = "${var.project_name}-scale-out-requests"
-  autoscaling_group_name = aws_autoscaling_group.backend.name
+  autoscaling_group_name = aws_autoscaling_group.backend[0].name
   adjustment_type        = "ChangeInCapacity"
   scaling_adjustment     = 1
   cooldown               = 120
 }
 
 resource "aws_cloudwatch_metric_alarm" "requests_high" {
+  count               = local.asg_enabled
   alarm_name          = "${var.project_name}-backend-requests-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
@@ -233,7 +251,7 @@ resource "aws_cloudwatch_metric_alarm" "requests_high" {
     LoadBalancer = aws_lb.main.arn_suffix
   }
 
-  alarm_actions = [aws_autoscaling_policy.scale_out_requests.arn]
+  alarm_actions = [aws_autoscaling_policy.scale_out_requests[0].arn]
 
   tags = {
     Project = var.project_name
@@ -244,14 +262,16 @@ resource "aws_cloudwatch_metric_alarm" "requests_high" {
 # Slow scale-in (long evaluation + 300s cooldown) avoids flapping when load
 # briefly dips. min_size=2 floors the group so we never drop below HA.
 resource "aws_autoscaling_policy" "scale_in_cpu" {
+  count                  = local.asg_enabled
   name                   = "${var.project_name}-scale-in-cpu"
-  autoscaling_group_name = aws_autoscaling_group.backend.name
+  autoscaling_group_name = aws_autoscaling_group.backend[0].name
   adjustment_type        = "ChangeInCapacity"
   scaling_adjustment     = -1
   cooldown               = 300
 }
 
 resource "aws_cloudwatch_metric_alarm" "cpu_low" {
+  count               = local.asg_enabled
   alarm_name          = "${var.project_name}-backend-cpu-low"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 10
@@ -262,10 +282,10 @@ resource "aws_cloudwatch_metric_alarm" "cpu_low" {
   statistic           = "Average"
 
   dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.backend.name
+    AutoScalingGroupName = aws_autoscaling_group.backend[0].name
   }
 
-  alarm_actions = [aws_autoscaling_policy.scale_in_cpu.arn]
+  alarm_actions = [aws_autoscaling_policy.scale_in_cpu[0].arn]
 
   tags = {
     Project = var.project_name
