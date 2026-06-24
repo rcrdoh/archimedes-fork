@@ -1,8 +1,8 @@
 """Provider-agnostic LLM backend factory.
 
 Reads ``LLM_PROVIDER`` ∈ {``anthropic``, ``anthropic_compatible``, ``bedrock``,
-``openai``, ``ollama``} and constructs the right backend.  Falls back to
-``CannedBackend`` when no credentials are present — loud degradation, never silent.
+``bedrock_converse``, ``openai``, ``ollama``} and constructs the right backend.
+Falls back to ``CannedBackend`` when no credentials are present — loud degradation.
 
 Back-compat: ``ANTHROPIC_*`` env vars still work this release (deprecated alias
 path, emits a WARN log).
@@ -25,6 +25,11 @@ DEFAULT_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-20250514")
 # cheapest option (the free/default tier). Pricier, stronger models (Sonnet/Opus)
 # are available via LLM_BEDROCK_MODEL and are intended to be gated to paying users.
 DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+# Default for the Converse path (provider=bedrock_converse). Amazon Nova Micro is
+# the cheapest competitive text model on Bedrock ($0.035/$0.14 per 1M) and — being
+# AWS-native — is invokable immediately, with NO Anthropic use-case form. Overridable
+# via LLM_BEDROCK_MODEL (e.g. zai.glm-4.7-flash, deepseek.v3.2, us.meta.llama3-3-70b-instruct-v1:0).
+DEFAULT_CONVERSE_MODEL = "amazon.nova-micro-v1:0"
 MAX_TOKENS = 4096
 
 
@@ -176,7 +181,7 @@ class BedrockBackend:
         except ImportError as exc:
             logger.warning("llm: Bedrock unavailable (%s) — needs anthropic[bedrock] + boto3; canned fallback", exc)
             self._client = None
-        except Exception as exc:  # noqa: BLE001 — any client-init failure degrades loudly to canned
+        except Exception as exc:
             logger.warning("llm: Bedrock client init failed (%s); canned fallback", exc)
             self._client = None
 
@@ -204,6 +209,80 @@ class BedrockBackend:
         if served:
             self._served = str(served)
         return resp.content[0].text.strip() if resp.content else ""
+
+
+# ── AWS Bedrock via the Converse API (uniform across ALL providers, IAM auth) ──
+
+
+class BedrockConverseBackend:
+    """Bedrock **Converse** API via boto3 — one request/response shape across every
+    Bedrock provider (Amazon Nova, Meta Llama, Mistral, DeepSeek, Qwen, Z.AI GLM,
+    Moonshot Kimi, Anthropic, ...). IAM auth via the boto3 credential chain (EC2
+    instance role in prod); no API key.
+
+    Unlike the Anthropic-SDK ``BedrockBackend``, this works with the many
+    non-Anthropic models that are invokable WITHOUT the Anthropic use-case form, so
+    it serves real intelligence immediately and cheaply. Default: Amazon Nova Micro.
+    Model id from ``LLM_BEDROCK_MODEL`` (else ``DEFAULT_CONVERSE_MODEL``). This is
+    also the path a future per-user model picker rides on (one API, any model).
+    """
+
+    def __init__(self, model: str | None = None) -> None:
+        self._region = os.getenv("LLM_BEDROCK_REGION", "") or os.getenv("AWS_REGION", "") or "us-east-1"
+        self._model = model or os.getenv("LLM_BEDROCK_MODEL", "") or DEFAULT_CONVERSE_MODEL
+        self._served = self._model
+        self._client = None
+        try:
+            import boto3
+
+            if boto3.Session().get_credentials() is None:
+                logger.warning("llm: Bedrock(Converse) selected but no AWS credentials resolvable; canned fallback")
+                return
+            self._client = boto3.client("bedrock-runtime", region_name=self._region)
+        except ImportError as exc:
+            logger.warning("llm: Bedrock(Converse) unavailable (%s) — needs boto3; canned fallback", exc)
+            self._client = None
+        except Exception as exc:
+            logger.warning("llm: Bedrock(Converse) client init failed (%s); canned fallback", exc)
+            self._client = None
+
+    @property
+    def model_id(self) -> str:
+        return self._model
+
+    @property
+    def served_model(self) -> str:
+        return self._served
+
+    @property
+    def available(self) -> bool:
+        return self._client is not None
+
+    def complete(self, system: str, user: str) -> str:
+        assert self._client is not None
+        kwargs: dict = {
+            "modelId": self._model,
+            "messages": [{"role": "user", "content": [{"text": user}]}],
+            "inferenceConfig": {"maxTokens": MAX_TOKENS},
+        }
+        if system and system.strip():
+            kwargs["system"] = [{"text": system}]
+        try:
+            resp = self._client.converse(**kwargs)
+        except Exception as exc:
+            if system and "system" in str(exc).lower():
+                kwargs.pop("system", None)
+                kwargs["messages"] = [{"role": "user", "content": [{"text": f"{system}\n\n{user}"}]}]
+                resp = self._client.converse(**kwargs)
+            else:
+                raise
+        blocks = resp.get("output", {}).get("message", {}).get("content", []) or []
+        # Reasoning models may emit a reasoningContent block before the text — return
+        # the first block that actually carries text.
+        for b in blocks:
+            if isinstance(b, dict) and b.get("text"):
+                return b["text"].strip()
+        return ""
 
 
 # ── OpenAI-compatible (httpx, no SDK) ────────────────────────────────
@@ -314,7 +393,7 @@ class CannedBackend:
     def available(self) -> bool:
         return False
 
-    def complete(self, system: str, user: str) -> str:  # noqa: ARG002 — Protocol-shaped fallback; signature matches live LLM backends
+    def complete(self, system: str, user: str) -> str:
         return json.dumps(
             {
                 "fallback": True,
@@ -327,7 +406,13 @@ class CannedBackend:
 
 
 def make_llm_backend() -> (
-    AnthropicBackend | AnthropicCompatibleBackend | BedrockBackend | OpenAIBackend | OllamaBackend | CannedBackend
+    AnthropicBackend
+    | AnthropicCompatibleBackend
+    | BedrockBackend
+    | BedrockConverseBackend
+    | OpenAIBackend
+    | OllamaBackend
+    | CannedBackend
 ):
     """Construct the LLM backend from ``LLM_*`` env vars.
 
@@ -335,6 +420,8 @@ def make_llm_backend() -> (
       - ``anthropic``: Anthropic SDK with ``LLM_API_KEY``
       - ``anthropic_compatible``: Anthropic SDK with ``LLM_AUTH_TOKEN`` + ``LLM_BASE_URL``
       - ``bedrock``: Anthropic SDK over AWS Bedrock (IAM auth, no key; ``LLM_BEDROCK_MODEL``)
+      - ``bedrock_converse``: Bedrock Converse API over boto3 — ANY provider (Nova/Llama/
+        Mistral/DeepSeek/GLM/Kimi/…), IAM auth, no key (``LLM_BEDROCK_MODEL``)
       - ``openai``: httpx to OpenAI-compatible endpoint (``LLM_BASE_URL`` + ``LLM_API_KEY``)
       - ``ollama``: httpx to Ollama (``LLM_BASE_URL``, no key)
 
@@ -351,7 +438,8 @@ def make_llm_backend() -> (
     builders = {
         "anthropic": lambda: AnthropicBackend(model=model),
         "anthropic_compatible": lambda: AnthropicCompatibleBackend(model=model),
-        "bedrock": BedrockBackend,  # resolves its own Bedrock model id (not the generic LLM_MODEL default)
+        "bedrock": BedrockBackend,  # Anthropic-SDK path; resolves its own Bedrock model id
+        "bedrock_converse": BedrockConverseBackend,  # Converse API — any provider; resolves its own model id
         "openai": lambda: OpenAIBackend(model=model),
         "ollama": lambda: OllamaBackend(model=model),
     }

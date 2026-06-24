@@ -4,6 +4,7 @@ import GenerationStream from './GenerationStream'
 import GenerationStatus from './GenerationStatus'
 import FusionResult from './FusionResult'
 import PortfolioAdvisor from './PortfolioAdvisor'
+import ModelCostPanel from './ModelCostPanel'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -397,6 +398,12 @@ export default function Generate({ onNavigate }) {
             <div className="info-box warning mt-3">{startError}</div>
           )}
         </div>
+      )}
+
+      {/* ── Model & cost transparency (which LLM is running + the cost landscape).
+          Inside the wallet gate — only shown to connected users. ── */}
+      {!jobId && !fusionJobId && !fusionResult && (
+        <ModelCostPanel />
       )}
 
       {/* ── SSE STREAM (agent + architect paths) ── */}

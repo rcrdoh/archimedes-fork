@@ -60,12 +60,16 @@ resource "aws_iam_role_policy" "ec2_ssm_params" {
   })
 }
 
-# Invoke Anthropic models on Bedrock (IAM auth — no API key). The LLM backend
-# (services/llm_backend.BedrockBackend) calls this via the instance role. Scoped
-# to Anthropic foundation models in ALL regions (cross-region inference profiles
-# like `us.anthropic.*` route the call to us-east-1/2 + us-west-2, so InvokeModel
-# is checked against both the inference-profile ARN and the destination
-# foundation-model ARNs) plus this account's inference profiles.
+# Invoke Bedrock foundation models (IAM auth — no API key). The LLM backends call
+# this via the instance role: services/llm_backend.BedrockBackend (Anthropic SDK)
+# and BedrockConverseBackend (the Converse API, for ANY provider — Amazon Nova,
+# Meta Llama, Mistral, DeepSeek, Qwen, Z.AI GLM, Moonshot Kimi, Anthropic, ...).
+# Scoped to foundation models in ALL regions (cross-region inference profiles like
+# `us.*` route the call to us-east-1/2 + us-west-2, so InvokeModel is checked
+# against both the inference-profile ARN and the destination foundation-model
+# ARNs) plus this account's inference profiles. Broad across providers because the
+# multi-model cost picker can target any of them; spend is bounded by the backstop
+# below, not by this resource scope.
 #
 # COST BACKSTOP: the budget guardrail (infra/scripts/setup-budgets.sh) attaches a
 # Bedrock-DENY policy to THIS role when the cost budget trips. An explicit Deny
@@ -77,11 +81,11 @@ resource "aws_iam_role_policy" "ec2_bedrock_invoke" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "InvokeAnthropicOnBedrock"
+        Sid    = "InvokeBedrockFoundationModels"
         Effect = "Allow"
         Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
         Resource = [
-          "arn:aws:bedrock:*::foundation-model/anthropic.*",
+          "arn:aws:bedrock:*::foundation-model/*",
           "arn:aws:bedrock:*:037613907429:inference-profile/*"
         ]
       }
