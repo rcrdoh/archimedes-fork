@@ -18,6 +18,13 @@ on:
       - "environment.yml"
       - ".github/workflows/import-guard.yml"
 
+# Least-privilege GITHUB_TOKEN: this workflow only reads the repo to run the
+# guards; it never writes. The explicit block satisfies CodeQL
+# actions/missing-workflow-permissions and bounds blast radius if a third-party
+# action in the job is ever compromised.
+permissions:
+  contents: read
+
 jobs:
   import-guard:
     runs-on: ubuntu-latest
