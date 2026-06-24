@@ -6,7 +6,7 @@
 
 ## Problem statement
 
-Four demo-blocking issues on the live UI at <https://archimedes-arc.app/>:
+Four demo-blocking issues on the live UI at <https://archimedes-arc.com/>:
 
 1. **Landing "Strategies" CTA does nothing useful** — clicking it changes the URL but lands the user on the Landing component wrapped in Layout (sidebar appears unexpectedly). Cause: `onNavigate('strategies')` is called but the spine's route key is `library`. The unknown page-id falls to App.jsx's renderPage default branch, which returns `<Landing>` — now rendered inside Layout because the `if (page === 'landing')` early-return bypass doesn't fire.
 

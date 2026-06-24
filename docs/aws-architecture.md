@@ -39,8 +39,8 @@ Internet → Route 53 → Elastic IP → EC2 (nginx:80/443) → Docker network
 | **EC2 Instance** | `i-0987f70a131ed3ab1` (`archimedes-server`) | Docker host, runs entire stack | t3.small (2 vCPU, 2 GB RAM, 20 GB gp3) | ~$17.28 compute + $1.60 EBS = **$18.88** |
 | **Elastic IP** | `eipalloc-0de7ade1e4d96e097` → `16.61.56.158` | Stable public IP (survives stop/start) | Attached to EC2 | **$0** (free while attached) |
 | **Security Group** | `sg-022a1abad15a9b988` (`archimedes-sg`) | Ingress: SSH(22)/HTTP(80)/HTTPS(443) from 0.0.0.0/0 + port 80 from 10.0.0.0/23. Egress: all | — | **$0** |
-| **Route 53 Hosted Zone** | `Z03812612E5OLGK1YGZSR` | `archimedes-arc.app.` DNS | A record → `16.61.56.158` (TTL 60) | **$0.50** |
-| **ACM Certificate** | `arn:aws:acm:us-east-1::certificate/9ba0da81...` | TLS cert for `archimedes-arc.app` | DNS-validated, ISSUED | **$0** |
+| **Route 53 Hosted Zone** | `Z03812612E5OLGK1YGZSR` | `archimedes-arc.com.` DNS | A record → `16.61.56.158` (TTL 60) | **$0.50** |
+| **ACM Certificate** | `arn:aws:acm:us-east-1::certificate/9ba0da81...` | TLS cert for `archimedes-arc.com` | DNS-validated, ISSUED | **$0** |
 | **S3: Corpus Artifacts** | `archimedes-corpus-artifacts-prod` | KB pipeline output (empty) | SSE-S3, versioned | **~$0** |
 | **S3: Paper PDFs** | `archimedes-paper-pdfs-prod` | Ingested paper PDFs (empty) | SSE-S3 | **~$0** |
 | **S3: TF State** | `archimedes-tfstate-159903201072` | Terraform remote state | Versioned, SSE-S3, S3-native locking | **~$0** |
@@ -81,7 +81,7 @@ SSM, which means it cannot self-recover from an OS-level hang (issue #439).
 ### 1.5 DNS architecture
 
 ```
-archimedes-arc.app.  →  A record  →  16.61.56.158 (Elastic IP)
+archimedes-arc.com.  →  A record  →  16.61.56.158 (Elastic IP)
                                         → i-0987f70a131ed3ab1 (t3.small)
 ```
 
@@ -280,12 +280,12 @@ aws ec2 start-instances --instance-ids i-0987f70a131ed3ab1 --region eu-west-2
 # Wait for InstanceStatus = ok
 
 # 4. DNS update (EIP should prevent this, but verify)
-dig +short archimedes-arc.app
+dig +short archimedes-arc.com
 # Should match the Elastic IP (16.61.56.158)
 
 # 5. Verify site
-curl -sI https://archimedes-arc.app/ | head -5
-curl -s https://archimedes-arc.app/api/health
+curl -sI https://archimedes-arc.com/ | head -5
+curl -s https://archimedes-arc.com/api/health
 ```
 
 ### 4.2 Check Docker health

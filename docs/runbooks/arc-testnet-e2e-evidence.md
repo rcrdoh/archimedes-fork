@@ -1,13 +1,13 @@
 # Arc Testnet E2E Evidence — 2026-05-26
 
 > **Status:** Live, on-chain, replayable. SPEC-1 executed by Önder Akkaya
-> against `https://archimedes-arc.app/` via a user-controlled MetaMask
+> against `https://archimedes-arc.com/` via a user-controlled MetaMask
 > wallet (no backend private keys, no canned data).
 
 **Generated:** 2026-05-26 (TR night, ahead of final demo)
 **Operator:** Önder Akkaya (`@onder-akkaya`)
 **Chain ID:** 5042002 (Arc Testnet)
-**Live URL:** <https://archimedes-arc.app/>
+**Live URL:** <https://archimedes-arc.com/>
 
 ---
 
@@ -97,7 +97,7 @@ change. The pre-#342 backend-as-creator architecture returned `[]` from
 up on the Portfolio page. After #342 Part 2, the Portfolio page lists
 the operator's own vaults correctly.
 
-**Live evidence (screenshot of `https://archimedes-arc.app/portfolio` at
+**Live evidence (screenshot of `https://archimedes-arc.com/portfolio` at
 ~03:10 TR time, 2026-05-26):**
 
 | Tile | Value |
@@ -183,7 +183,7 @@ on any reasoning card and confirm the merkle root within ~1 second.
 
 ## Replay instructions for judges
 
-1. Open <https://archimedes-arc.app/>.
+1. Open <https://archimedes-arc.com/>.
 2. Connect MetaMask on Arc Testnet (chain ID `5042002`, RPC `https://rpc.testnet.arc.network`).
 3. Fund the wallet via <https://faucet.circle.com/> (20 USDC every 2h).
 4. Sidebar → **Library** → **Examples** tab → click any green-✅ rigor-passing entry.

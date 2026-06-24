@@ -83,7 +83,7 @@
 
 **What we have:**
 
-- ✅ **Live testnet deploy** at `https://archimedes-arc.app/` (EC2 `13.40.112.220`) with the full spine (Landing / Generate / Library / Corpus / Portfolio / Reasoning / Learnings) and the agentic advisor wired end-to-end.
+- ✅ **Live testnet deploy** at `https://archimedes-arc.com/` (EC2 `13.40.112.220`) with the full spine (Landing / Generate / Library / Corpus / Portfolio / Reasoning / Learnings) and the agentic advisor wired end-to-end.
 - ✅ **Real product** users can browse + generate + deploy strategies against, with no fake data on the judge path.
 - ✅ **Discord presence** + the launch communiques going out.
 - ⚠️ **arc-canteen telemetry status: ambiguous.** Some `update-product` calls have been made; the per-merge cadence is inconsistent. Each teammate needs to verify with `arc-canteen status`.

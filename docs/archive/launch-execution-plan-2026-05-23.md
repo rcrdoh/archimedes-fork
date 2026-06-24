@@ -63,11 +63,11 @@ Pitch framing locked: Wall Street has the rigor toolkit (DSR/PBO/walk-forward OO
 | **Generate consolidation** | Single input + single Generate button. Backend `_pick_pipeline()` heuristic auto-routes between Fusion (novel synthesis — default), Architect (fast curated-library preview — fallback), and the agentic SSE pipeline (third). All three result components remain; UI renders whichever the backend picked. |
 | **KB pipeline** | Bot system stands up GPU EC2 + runs SPECTER2 embeddings + HDBSCAN clusters + REBEL/SciSpacy KG over the 10k q-fin corpus + persists artifacts to S3 + DynamoDB + serves via `/api/papers/corpus/graph` + `/kg`. |
 | **Identity** | Wallet = identity. No required signup. Optional `WelcomeProfileModal` on first wallet connect captures display_name + email + interests + attribution + marketing_opt_in. All fields optional; user can Skip. Header shows "Welcome, &lt;name&gt;" when set. |
-| **HTTPS + domain** | Chuan's bots register `archimedes-arc.app` via AWS Route 53 + obtain Let's Encrypt cert via certbot + configure nginx + force HTTP→HTTPS + HSTS. The `.app` TLD forces HTTPS via the HSTS preload list. End-to-end bot-provisioned. |
+| **HTTPS + domain** | Chuan's bots register `archimedes-arc.com` via AWS Route 53 + obtain Let's Encrypt cert via certbot + configure nginx + force HTTP→HTTPS + HSTS. The `.app` TLD forces HTTPS via the HSTS preload list. End-to-end bot-provisioned. |
 | **Scalability + load-balancing** | First-class architectural pillar — virality-ready from day one. AWS Application Load Balancer in front of an auto-scaling group of EC2 (min=2, max=4, desired=2) for the backend tier; CloudFront distribution in front of ALB caches static assets at the edge and absorbs cold spikes. Postgres + Redis move to a dedicated database EC2 (v1) — RDS + ElastiCache is the v2 hop. Closes the "we go viral and our single EC2 dies" failure mode that would forfeit traction at the worst possible moment. T3.6 ships this; § 11 confirms the risk is mitigated, not just accepted. |
 | **LLM backend** | GLM-4.7 stays primary (working, tested, free tier). **Empirically validated:** GLM-4.5 ranks #3 globally on the StockBench benchmark (Chen et al. 2026, [arxiv 2510.02209](https://arxiv.org/abs/2510.02209)) — behind only Kimi-K2 (Moonshot) and Qwen3-235B-Instruct, ahead of Claude-4-Sonnet (#7) and GPT-5 (#9). StockBench also found that reasoning-tuned models DO NOT systematically outperform instruction-tuned in trading workflows — sharpens our skepticism of reasoning-mode-by-default. Ship BYOK header support (`X-Anthropic-Api-Key`) so judges + users can self-fund Claude direct. Bedrock spec is filed on-record but **unassigned** to `t2o2`; we activate it only if we choose to deploy. |
 | **Submission deadline** | Hard: Monday 2026-05-25 23:59 ET (Tue 04:59 UTC). Personal target: Sunday 2026-05-24 23:59 CT. Monday is buffer (final video re-record, late docs polish). |
-| **Delivery surface** | Three artifacts: (1) public GitHub repo at `a-apin/archimedes-arcadia` (org renamed from `a-apin` 2026-05-23 PM; GitHub auto-redirects old URLs), (2) live HTTPS website at `https://archimedes-arc.app`, (3) ≤ 3-minute demo video. All other docs are supporting evidence. |
+| **Delivery surface** | Three artifacts: (1) public GitHub repo at `a-apin/archimedes-arcadia` (org renamed from `a-apin` 2026-05-23 PM; GitHub auto-redirects old URLs), (2) live HTTPS website at `https://archimedes-arc.com`, (3) ≤ 3-minute demo video. All other docs are supporting evidence. |
 | **RFB alignment** | **Primary: [RFB 04 Adaptive Portfolio Manager](https://luma.com/7i50p2r9)** — direct hit (regime detection, asset allocation, rebalancing, risk management; goal-based PM interface; correlation-based diversification; cross-chain-ready rebalancing infra). **Adjacent: RFB 02 Prediction Market Trader Intelligence** (our Kelly Criterion + risk parity + +EV sizing maps to the "optimal bet sizing" primitive) and **RFB 06 Social Trading Intelligence** (our Tier-1 verified strategy library + paper-anchored passport + DSR/PBO rigor IS the "AI selects, weights, and monitors" pattern applied to strategies-as-traders; the rigor-gated library IS the leaderboard). Every refreshed doc in M.4 makes this alignment explicit. |
 | **Security posture** | First-class pillar (Section 7). Zero-trust, secrets out of `.env` into AWS SSM Parameter Store + IAM instance profile, HTTPS everywhere, security headers, CORS lockdown, rate limits, dependency scanning, secret-leak detection, user-data minimization with KMS encryption. Same rigor as the statistical pipeline. |
 | **Reproducibility target** | **R3 per Xia et al. 2026** ([arxiv 2605.19337](https://arxiv.org/abs/2605.19337)). Their audit of 19 trading-agent papers found **15/19 are R0** (no code/data artifacts), **0/19 reach R3** (fully replayable with artifact versioning + immutable provenance). Archimedes is engineered to be the first production trading-agent system to ship at R3: on-chain `ReasoningTraceRegistry` provides immutable timestamped anchors for every agent decision; KB pipeline artifacts persisted to S3 with versioned manifests; strategy DSLs + backtest seeds committed to git; vault contracts + ABIs verifiable on Arc. This is a pitch beat and a verification goal. |
@@ -87,7 +87,7 @@ Pitch framing locked: Wall Street has the rigor toolkit (DSR/PBO/walk-forward OO
 - **t2o2** = Chuan's GitHub bot system handle. Assignment of an issue to `t2o2` triggers autonomous execution against `main`.
 - **moonshot** = Chuan's Discord handle in the Archimedes Arcadia server. **Not the same** as the unrelated `moonshot` Discord handle in the Canteen admin server (which is Anuhya, a Canteen admin). Avoid the name "moonshot" in this plan to prevent confusion; we use Chuan and t2o2 instead.
 - **a-apin** = our GitHub organization (`github.com/a-apin`), renamed from `a-apin` on 2026-05-23 PM. GitHub auto-redirects the old `a-apin/archimedes-arcadia` URL, but every committed reference + the git remote should be updated to the new org name when convenient.
-- **archimedes-arc.app** = our live HTTPS domain (registered via Route 53 in T3.6 / TS.1). All deploy + demo links use this. The IP `13.40.112.220` is the legacy EC2 origin; CloudFront sits in front of the ALB which sits in front of the auto-scaling backend tier.
+- **archimedes-arc.com** = our live HTTPS domain (registered via Route 53 in T3.6 / TS.1). All deploy + demo links use this. The IP `13.40.112.220` is the legacy EC2 origin; CloudFront sits in front of the ALB which sits in front of the auto-scaling backend tier.
 
 ### 2.2 Issue lifecycle (manual `t2o2` assignment)
 
@@ -1516,7 +1516,7 @@ single EC2 dies" failure mode.
    backend EC2s connect via the AWS-internal network.
 2. Create AMI from current backend EC2 state (after #142 + #143 land).
 3. Provision ALB (Application Load Balancer) with:
-   - Listener 443 → backend target group (TLS via ACM cert for archimedes-arc.app + alt name)
+   - Listener 443 → backend target group (TLS via ACM cert for archimedes-arc.com + alt name)
    - Listener 80 → 301 redirect to 443
    - Health check: GET /api/health (200 expected)
    - Sticky sessions OFF (backend is stateless after Postgres + Redis externalization)
@@ -1530,7 +1530,7 @@ single EC2 dies" failure mode.
    - Cache behaviors: /assets/* + /static/* + *.js + *.css cached 1h at edge; /api/* + /events/* NOT cached (SSE + dynamic); / (HTML) cached 60s with cache-control respect
    - Origin shield: us-east-1 (cheapest AWS region for ACM)
    - Rate-limit: 2000 req/min per IP at the edge (defense-in-depth alongside slowapi in TS.5)
-6. Route 53 record for archimedes-arc.app → CloudFront distribution (replaces direct A record to EC2 IP).
+6. Route 53 record for archimedes-arc.com → CloudFront distribution (replaces direct A record to EC2 IP).
 
 ## Scope
 Files to ADD:
@@ -1547,7 +1547,7 @@ Files to MODIFY:
 - backend/archimedes/services/redis_state.py — confirm Redis connection uses REDIS_HOST env, not hardcoded localhost
 - backend/archimedes/db.py — confirm Postgres connection uses DATABASE_HOST + reads from SSM if available
 - infra/nginx/nginx.conf — backend nginx no longer terminates TLS (ALB does); listen 80 internal; trust X-Forwarded-Proto from ALB
-- ui/src/config.js — API base URL = https://archimedes-arc.app (no port)
+- ui/src/config.js — API base URL = https://archimedes-arc.com (no port)
 
 Files to NOT TOUCH:
 - contracts/, oracle_runner (one canonical oracle, not load-balanced)
@@ -1556,12 +1556,12 @@ Files to NOT TOUCH:
 ## Acceptance
 - [ ] `aws elbv2 describe-load-balancers --query 'LoadBalancers[?LoadBalancerName==`archimedes-prod-alb`]'` → 1 result with State.Code = active
 - [ ] `aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names archimedes-prod-asg --query 'AutoScalingGroups[0].{Desired:DesiredCapacity,Min:MinSize,Max:MaxSize,InService:Instances[?LifecycleState==`InService`] | length(@)}'` → {Desired: 2, Min: 2, Max: 4, InService: 2}
-- [ ] `aws cloudfront list-distributions --query 'DistributionList.Items[?Aliases.Items[?contains(@, `archimedes-arc.app`)]].{Status:Status,DomainName:DomainName}'` → 1 result, Status = Deployed
-- [ ] `curl -sI https://archimedes-arc.app/` returns 200 with `via:` header containing `CloudFront` AND `Strict-Transport-Security` header
-- [ ] `curl -sI https://archimedes-arc.app/assets/<any-file>.js` returns `x-cache: Hit from cloudfront` on second request
-- [ ] `curl -sI https://archimedes-arc.app/api/health` returns 200 WITHOUT `x-cache: Hit` (API path is uncached)
+- [ ] `aws cloudfront list-distributions --query 'DistributionList.Items[?Aliases.Items[?contains(@, `archimedes-arc.com`)]].{Status:Status,DomainName:DomainName}'` → 1 result, Status = Deployed
+- [ ] `curl -sI https://archimedes-arc.com/` returns 200 with `via:` header containing `CloudFront` AND `Strict-Transport-Security` header
+- [ ] `curl -sI https://archimedes-arc.com/assets/<any-file>.js` returns `x-cache: Hit from cloudfront` on second request
+- [ ] `curl -sI https://archimedes-arc.com/api/health` returns 200 WITHOUT `x-cache: Hit` (API path is uncached)
 - [ ] Kill one backend EC2 (manually terminate via AWS console); within 5 min ASG launches a replacement AND site stays up the whole time (no 502s in curl loop)
-- [ ] Load test: `for i in {1..500}; do curl -s https://archimedes-arc.app/api/health & done; wait` → 100% 200 responses; ALB cloudwatch metrics show requests distributed across both backend EC2s
+- [ ] Load test: `for i in {1..500}; do curl -s https://archimedes-arc.com/api/health & done; wait` → 100% 200 responses; ALB cloudwatch metrics show requests distributed across both backend EC2s
 - [ ] Postgres + Redis ONLY reachable from backend ASG security group (security group rules verified via `aws ec2 describe-security-groups`)
 - [ ] `pytest -q backend/tests` → same pass count as before (no behavioral regression from externalized DB)
 - [ ] Daily AWS cost (CloudWatch billing alarm) confirms < $5/day at idle load (ALB ~$0.80/day + 2x t3.small EC2 + db EC2 + CloudFront ~$0.10/day at low traffic)
@@ -1569,8 +1569,8 @@ Files to NOT TOUCH:
 ## Verify
 aws elbv2 describe-target-health --target-group-arn $(aws elbv2 describe-target-groups --names archimedes-prod-tg --query 'TargetGroups[0].TargetGroupArn' --output text) --query 'TargetHealthDescriptions[*].{Id:Target.Id,Health:TargetHealth.State}'
 # expect both backend EC2s State: healthy
-curl -sI https://archimedes-arc.app/ | grep -E "^(HTTP|Via|X-Cache|Strict-Transport)"
-ab -n 1000 -c 50 https://archimedes-arc.app/api/health  # apache bench; expect 100% success
+curl -sI https://archimedes-arc.com/ | grep -E "^(HTTP|Via|X-Cache|Strict-Transport)"
+ab -n 1000 -c 50 https://archimedes-arc.com/api/health  # apache bench; expect 100% success
 
 ## Anti-goals
 - DO NOT skip the dedicated DB EC2 step — having postgres on the backend AMI defeats the auto-scaling because each new instance would have an empty database.
@@ -1591,7 +1591,7 @@ ab -n 1000 -c 50 https://archimedes-arc.app/api/health  # apache bench; expect 1
 Cross-lane (infra + backend). Chuan reviews ASG + DB EC2 refactor. Dan reviews CloudFront cache behaviors. Big spec — audit subagent REQUIRED per § 2.6 before filing.
 
 ## Depends on
-T3.1 (IAM role pattern), TS.1 (ACM cert for archimedes-arc.app)
+T3.1 (IAM role pattern), TS.1 (ACM cert for archimedes-arc.com)
 ```
 
 ### T3.7 — Implement Xia 2026 named protocols (Outcome Embargo, Time-Aware Retrieval, Hierarchy of Truth, Source Tracking, V_check)
@@ -2498,27 +2498,27 @@ First-class. Same rigor as the statistical pipeline. Zero-trust posture, secrets
 - Incident response runbooks + kill switches (pause oracle, pause agent runner, pause new vault creation)
 - Daily pg_dump → S3 backup (Track D will add as a quick item if time permits)
 
-### TS.1 — Route 53 + HTTPS via Let's Encrypt for `archimedes-arc.app` (bot-provisioned end-to-end)
+### TS.1 — Route 53 + HTTPS via Let's Encrypt for `archimedes-arc.com` (bot-provisioned end-to-end)
 
 ```
-APIN - Infra - Register archimedes-arc.app via Route 53; HTTPS via Let's Encrypt on nginx + ACM cert for ALB; HSTS + force-redirect
+APIN - Infra - Register archimedes-arc.com via Route 53; HTTPS via Let's Encrypt on nginx + ACM cert for ALB; HSTS + force-redirect
 
 ## TLDR
 Plain HTTP at http://13.40.112.220/ is the #1 visible security issue for judges. Bot
-system registers archimedes-arc.app via AWS Route 53, provisions Let's Encrypt cert via
+system registers archimedes-arc.com via AWS Route 53, provisions Let's Encrypt cert via
 certbot for the nginx-on-EC2 path (interim), AND provisions an ACM cert in us-east-1
 for T3.6's CloudFront/ALB (the final production path). The .app TLD forces HTTPS via
 the HSTS preload list — no opt-out, no exceptions.
 
 ## Summary
-Domain = `archimedes-arc.app` (locked).
+Domain = `archimedes-arc.com` (locked).
 1. Register the domain via AWS Route 53 in Chuan's account.
 2. Create the hosted zone + A record → 13.40.112.220 (interim, until T3.6's CloudFront
    distribution is up; then this becomes an alias to the CloudFront domain).
-3. Install certbot on the current EC2 origin; run `certbot --nginx -d archimedes-arc.app`
+3. Install certbot on the current EC2 origin; run `certbot --nginx -d archimedes-arc.com`
    with auto-renew cron. nginx config redirects 80 → 443; HSTS header (max-age=31536000,
    includeSubDomains) on all responses.
-4. Provision an ACM certificate for `archimedes-arc.app` + `*.archimedes-arc.app` in
+4. Provision an ACM certificate for `archimedes-arc.com` + `*.archimedes-arc.com` in
    us-east-1 (CloudFront's required region for ACM certs). This is consumed by T3.6.
 
 ## Scope
@@ -2530,24 +2530,24 @@ Files to ADD:
 
 Files to MODIFY:
 - infra/nginx/nginx.conf — add 443 server block + 80 redirect + security headers
-- .env.example — add PUBLIC_DOMAIN env var (default archimedes-arc.app)
-- ui/src/config.js — API base URL → https://archimedes-arc.app
+- .env.example — add PUBLIC_DOMAIN env var (default archimedes-arc.com)
+- ui/src/config.js — API base URL → https://archimedes-arc.com
 
 Files to NOT TOUCH: contracts/, frontend wallet code, backend service code.
 
 ## Acceptance
-- [ ] `aws route53domains list-domains --region us-east-1 --query 'Domains[?DomainName==`archimedes-arc.app`]'` → 1 result
-- [ ] `aws route53 list-hosted-zones --query 'HostedZones[?Name==`archimedes-arc.app.`]'` → 1 result
-- [ ] `aws acm list-certificates --region us-east-1 --query 'CertificateSummaryList[?DomainName==`archimedes-arc.app`].Status'` → ["ISSUED"]
-- [ ] `curl -sI https://archimedes-arc.app/` returns 200 with `Strict-Transport-Security: max-age=31536000; includeSubDomains` header
-- [ ] `curl -sI http://archimedes-arc.app/` returns 301 redirect to https://archimedes-arc.app/
-- [ ] Browser → https://archimedes-arc.app/ → green padlock; no cert warning
+- [ ] `aws route53domains list-domains --region us-east-1 --query 'Domains[?DomainName==`archimedes-arc.com`]'` → 1 result
+- [ ] `aws route53 list-hosted-zones --query 'HostedZones[?Name==`archimedes-arc.com.`]'` → 1 result
+- [ ] `aws acm list-certificates --region us-east-1 --query 'CertificateSummaryList[?DomainName==`archimedes-arc.com`].Status'` → ["ISSUED"]
+- [ ] `curl -sI https://archimedes-arc.com/` returns 200 with `Strict-Transport-Security: max-age=31536000; includeSubDomains` header
+- [ ] `curl -sI http://archimedes-arc.com/` returns 301 redirect to https://archimedes-arc.com/
+- [ ] Browser → https://archimedes-arc.com/ → green padlock; no cert warning
 - [ ] `nginx -t` (on EC2) exits 0
 - [ ] certbot timer / cron scheduled (verify `systemctl list-timers | grep certbot` OR `crontab -l | grep certbot`)
 - [ ] `certbot renew --dry-run` exits 0 (renewal pipeline works)
 
 ## Verify
-DOMAIN=archimedes-arc.app
+DOMAIN=archimedes-arc.com
 curl -sI "https://${DOMAIN}/" | grep -E "^(HTTP|Strict-Transport)"
 curl -sI "http://${DOMAIN}/" | grep -E "^(HTTP|Location)"
 aws route53 list-hosted-zones --query "HostedZones[?Name==\`${DOMAIN}.\`]"
@@ -2722,7 +2722,7 @@ TS.1 (needs 443 server block to exist)
 - `docs/competitor-landscape.md` (add rosetta-alpha as the most credible competitor; refresh framing; explicitly position Archimedes against the 19-study primary subset Xia audits)
 - `docs/judging-rubric-assessment.md` (refresh Day-12 score with TS + T3.6 ALB-CloudFront + T3.7 named protocols + T3.8 StockBench rank + T3.9 paper-qa semantic-retrieval + T-PE.8 episodic memory)
 - `docs/anti-features.md` (add security non-claims + BYOK posture + we-don't-promise-returns posture + "all LLM agents underperform passive baseline in downturns per StockBench — we don't pretend otherwise")
-- `README.md` — top fold updated; quick-start updated to `https://archimedes-arc.app`; explicit "Built for [RFB 04 Adaptive Portfolio Manager](https://luma.com/7i50p2r9) with adjacent fit to RFB 02 + RFB 06" badge or statement near the title; **org references updated to `a-apin` (grep-and-replace every `a-apin` reference — `a-apin` is the canonical org going forward)**; **add Xia et al. 2026 + Chen et al. 2026 + Trading-R1 + TradingAgents to a "Cited literature" section** with arxiv links; add the cross-project lineage paragraph ("three repos, one lineage: Linus + Archimedes + KnowledgeBase debut together — the Linus orient at submodules/Linus/docs/audits/2026-05-22-reveal-prep/archimedes-orient.md is the canonical sibling-perspective read"). Cite Linus-Maestro audit explicitly as validation of the externally-verifiable-hashes design choice (lesson #2 — "shifting provenance enforcement from runtime types to externally-verifiable hashes is a strict upgrade").
+- `README.md` — top fold updated; quick-start updated to `https://archimedes-arc.com`; explicit "Built for [RFB 04 Adaptive Portfolio Manager](https://luma.com/7i50p2r9) with adjacent fit to RFB 02 + RFB 06" badge or statement near the title; **org references updated to `a-apin` (grep-and-replace every `a-apin` reference — `a-apin` is the canonical org going forward)**; **add Xia et al. 2026 + Chen et al. 2026 + Trading-R1 + TradingAgents to a "Cited literature" section** with arxiv links; add the cross-project lineage paragraph ("three repos, one lineage: Linus + Archimedes + KnowledgeBase debut together — the Linus orient at submodules/Linus/docs/audits/2026-05-22-reveal-prep/archimedes-orient.md is the canonical sibling-perspective read"). Cite Linus-Maestro audit explicitly as validation of the externally-verifiable-hashes design choice (lesson #2 — "shifting provenance enforcement from runtime types to externally-verifiable hashes is a strict upgrade").
 - `ARC-OSS-SHOWCASE.md` — add TS pillar as forkable primitives; add T3.6 scalability architecture as a forkable primitive; add T3.7 named-protocols implementation as a forkable primitive ("Outcome Embargo, Time-Aware Retrieval, Hierarchy of Truth, Source Tracking, V_check — every Xia 2026 protocol, in production code"); add T3.9 paper-qa wrapping as a forkable primitive (Linus + Archimedes cross-project semantic-retrieval bridge); add T-PE.8 strategy_proposals table as a forkable primitive (Linus DEC-0029 Layer-C shape, Postgres-realized).
 - `CLAUDE.md` (this repo's project context) — **grep `a-apin` and replace with `a-apin` (canonical org)**; verify the team table + the canonical pitch frame match Section 3.1; update HTTPS domain reference; verify RFB 04 + RFB 02 + RFB 06 alignment is named in the Scope section; add Xia + StockBench to the architectural primitives section; add the K=1 + externalized rigor architectural commitment as a 5th architectural primitive
 - `docs/benchmarks/stockbench-results.md` — committed by T3.8; referenced from README + deck
@@ -2781,9 +2781,9 @@ Do a DEEP and AGGRESSIVE audit:
    outside docs/archive/ and submodules/. Any remaining matches are stale references the
    M.4 sweep missed; fix them now (a-apin is canonical). Then verify the live URLs the
    README + deck cite actually resolve:
-     curl -sI https://archimedes-arc.app | head -3
+     curl -sI https://archimedes-arc.com | head -3
      curl -sI https://github.com/a-apin/archimedes-arcadia | head -3
-   Both should be 200 (or 301 to https for archimedes-arc.app's redirect).
+   Both should be 200 (or 301 to https for archimedes-arc.com's redirect).
 
 6. Final pass: read top-fold README + ARC-OSS-SHOWCASE + the pitch deck outline as if you
    were a judge with 5 minutes. Flag anything that reads "intermediate" / "in-progress" /
@@ -2870,7 +2870,7 @@ Read first:
 - docs/specs/page-roles-spec.md
 - The 5 UI components that need surgery: ui/src/components/{Landing,Generate,Explore,
   Reasoning,Portfolio}.jsx
-- Snapshot what each page renders today via curl https://archimedes-arc.app/<route>
+- Snapshot what each page renders today via curl https://archimedes-arc.com/<route>
   (or the legacy 13.40.112.220 IP if DNS hasn't cut over yet) for context. Current
   code is the source of truth.
 
@@ -2994,7 +2994,7 @@ Anti-goals:
 
 Done = T3.1 + T3.2 + T3.3 + T3.4 + T3.6 + T3.7 + T3.8 + T3.9 merged; S3 + DynamoDB
 populated; KB pipeline artifact in S3; Corpus Graph + KG tabs render real data;
-archimedes-arc.app serves through CloudFront + ALB + ASG; site survives a single-EC2
+archimedes-arc.com serves through CloudFront + ALB + ASG; site survives a single-EC2
 termination test; paper-qa semantic-retrieval wired behind fusion candidate seam +
 /health reports paper_rag: live; StockBench result in docs/benchmarks/stockbench-results.md.
 ```
@@ -3023,7 +3023,7 @@ Spec elaboration protocol per § 2.6:
 Execute in parallel:
 
 SECURITY (TS.x) — all UNASSIGNED:
-1. Elaborate + file TS.1 (HTTPS via Route 53; archimedes-arc.app domain locked) —
+1. Elaborate + file TS.1 (HTTPS via Route 53; archimedes-arc.com domain locked) —
    coordinate with Track C's T3.6 (shared ACM cert).
 2. Elaborate + file TS.2 (SSM secrets) — file after T3.1 lands.
 3. Elaborate + file TS.3 (security headers) — file after TS.1.
@@ -3206,7 +3206,7 @@ MON 23:59 ET     Hard deadline.
 - **~~Fusion strategies can't pass the rigor gate.~~** Two divergent strategy stores (file-based passport for curated; slim JSON-blob ORM for generated) meant fusion outputs couldn't be backtested through the DSR/PBO/OOS pipeline. T-PE.3 collapses the two stores into one typed `strategy_passports` table; fusion strategies now flow through the same rigor pipeline as curated. The "fusion is the major user-facing primitive" claim becomes verifiable.
 - **~~`on_chain_registration_tx` always renders blank.~~** The field has been wired through the dataclass + API + UI for weeks, but no `StrategyRegistry.sol` existed to populate it. T-PE.1 ships the contract + `chain/strategy_publisher.py`; Tier-1 promotion now fires `registerStrategy()`. The "every Tier-1 strategy is on-chain anchored" pitch beat becomes verifiable from any block explorer.
 - **~~Virality kills the demo.~~** A successful demo that goes viral previously meant a single EC2 buckling under the load — forfeiting traction at the exact moment the market was paying attention. T3.6's ALB + CloudFront + auto-scaling group closes this; the system absorbs 50,000 wallet connections by scaling out and edge-caching, not by going down. The architecture pitches viral-readiness as a deliberate beat, not a hope.
-- **~~Plain HTTP red flag for judges.~~** TS.1 (Let's Encrypt cert on nginx — and now T3.6's ACM cert on ALB) closes this; green padlock at archimedes-arc.app from Sunday onward.
+- **~~Plain HTTP red flag for judges.~~** TS.1 (Let's Encrypt cert on nginx — and now T3.6's ACM cert on ALB) closes this; green padlock at archimedes-arc.com from Sunday onward.
 - **~~Secrets in .env on a single EC2.~~** TS.2 moves to AWS SSM Parameter Store + IAM instance profile; the new backend AMI (T3.6) bakes nothing sensitive.
 
 **Graceful degradation (if Sunday goes sideways):**

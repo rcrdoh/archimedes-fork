@@ -53,7 +53,7 @@
 
 ## Phase 2 — Connect to the site
 
-1. Open <https://archimedes-arc.app/> in a browser tab where MetaMask is
+1. Open <https://archimedes-arc.com/> in a browser tab where MetaMask is
    active.
 2. Verify the **hero text** reads
    *"Agentic trading, grounded in research."* / *"Your Intent. Our Rigor."*
@@ -273,6 +273,6 @@ replicable for any judge or auditor — every tx hash above resolves to a
 real `Status: Success` transaction on Arc testnet that can be inspected
 without trusting our screenshots.
 
-Live URL: <https://archimedes-arc.app/>
+Live URL: <https://archimedes-arc.com/>
 Chain ID: 5042002 (Arc Sepolia testnet)
 USDC address: `0x3600000000000000000000000000000000000000`

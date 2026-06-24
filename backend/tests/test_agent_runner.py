@@ -165,7 +165,7 @@ class TestPerVaultScopingLegacyFallback:
 
     PR #324 introduced per-vault strategy scoping via VaultMetadata.strategy_ids.
     The first version of #324 made vaults with no VaultMetadata row (legacy
-    vaults — including all 6 vaults live on archimedes-arc.app at the time of
+    vaults — including all 6 vaults live on archimedes-arc.com at the time of
     the merge) hit an `is None → continue` branch that silently skipped every
     rebalance. This regression test enforces the recovered behavior: vaults
     with no metadata MUST be processed via the global-consensus fallback so

@@ -54,7 +54,7 @@ The other half of Traction. For every person who has:
 - Given feedback on the deck, the architecture, or the UX
 - Read `user-stories.md` or `docs/design.md` and reacted
 - Said *anything* substantive in Discord (Archimedes Arcadia + Canteen servers)
-- Tested the live testnet deploy at `https://archimedes-arc.app/`
+- Tested the live testnet deploy at `https://archimedes-arc.com/`
 
 …run `arc-canteen update traction` and log the conversation. Include:
 

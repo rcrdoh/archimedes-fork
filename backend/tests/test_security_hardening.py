@@ -61,7 +61,7 @@ def test_docs_disabled_when_public_domain_set():
         _DOTENV_NEUTRALIZE
         + """
 import os
-os.environ["PUBLIC_DOMAIN"] = "https://archimedes-arc.app"
+os.environ["PUBLIC_DOMAIN"] = "https://archimedes-arc.com"
 os.environ["EMAIL_ENCRYPTION_KEY"] = "test-key-32chars-for-ci"
 os.environ.pop("ENABLE_API_DOCS", None)
 os.environ["TESTING"] = "1"
@@ -90,7 +90,7 @@ def test_docs_enabled_when_flag_set():
         _DOTENV_NEUTRALIZE
         + """
 import os
-os.environ["PUBLIC_DOMAIN"] = "https://archimedes-arc.app"
+os.environ["PUBLIC_DOMAIN"] = "https://archimedes-arc.com"
 os.environ["EMAIL_ENCRYPTION_KEY"] = "test-key-32chars-for-ci"
 os.environ["ENABLE_API_DOCS"] = "1"
 os.environ["TESTING"] = "1"
@@ -152,7 +152,7 @@ def test_startup_fails_without_encryption_key_in_production():
         _DOTENV_NEUTRALIZE
         + """
 import os
-os.environ["PUBLIC_DOMAIN"] = "https://archimedes-arc.app"
+os.environ["PUBLIC_DOMAIN"] = "https://archimedes-arc.com"
 os.environ.pop("EMAIL_ENCRYPTION_KEY", None)
 os.environ["TESTING"] = "1"
 

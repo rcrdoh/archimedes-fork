@@ -3,7 +3,7 @@
 > **Status:** Day-14 refresh (2026-05-25, submission day). Submission target: [Arc OSS Showcase](https://arc-oss.thecanteenapp.com/) — Canteen's parallel competition for open-source codebases that other Arc builders can fork.
 > **License:** [Unlicense](LICENSE) — full public-domain dedication. Use, modify, distribute freely, no warranty, no attribution required.
 > **Repo:** <https://github.com/a-apin/archimedes-arcadia>
-> **Live testnet deploy:** <https://archimedes-arc.app/>
+> **Live testnet deploy:** <https://archimedes-arc.com/>
 
 ## Why Archimedes belongs in the Arc OSS Showcase
 
@@ -103,7 +103,7 @@ Four-control admission gate that prevents in-sample-overfit strategies from bein
 
 ### 3. On-chain reasoning trace anchoring
 
-`keccak256` hashing of agent reasoning traces + on-chain anchor via a dedicated registry contract. Anyone can recompute the hash from the off-chain trace and prove the trace existed at the recorded block time. **Live proof:** the autonomous agent has been writing rebalance traces against the deployed contract right now — `curl https://archimedes-arc.app/api/traces/?limit=10` returns real `arc_tx_hash` values verifiable on `testnet.arcscan.app`.
+`keccak256` hashing of agent reasoning traces + on-chain anchor via a dedicated registry contract. Anyone can recompute the hash from the off-chain trace and prove the trace existed at the recorded block time. **Live proof:** the autonomous agent has been writing rebalance traces against the deployed contract right now — `curl https://archimedes-arc.com/api/traces/?limit=10` returns real `arc_tx_hash` values verifiable on `testnet.arcscan.app`.
 
 | Where it lives | What it is |
 |---|---|
@@ -255,7 +255,7 @@ Beyond just *having* primitives:
 3. **The primitives compose.** Strategy Passport + Rigor Gate + Trace Anchor form a complete provenance chain for any AI-decision product. You can fork them individually OR as a stack.
 4. **The codebase is fully reviewed at the architecture level.** [`docs/chuan-architecture-survey.md`](docs/chuan-architecture-survey.md) walks every file in `backend/archimedes/` with author signal + gap notes — a forker can see exactly what's load-bearing vs scaffolded.
 5. **License is the most permissive possible.** Unlicense is more permissive than MIT, BSD, or Apache — no attribution, no notice file required, no warranty disclaimer to copy. Forkers don't need to think about it.
-6. **The substrate is real, not aspirational.** 806+ backend tests + 16 analytics-engine tests pass. Live HTTPS testnet deploy at <https://archimedes-arc.app/>. 10 contracts on Arc testnet. 22 years of real SPY backtest data. 2 Tier-1 strategies that actually pass the rigor gate. **The autonomous agent is writing real on-chain rebalance traces against `ReasoningTraceRegistry` right now** — `curl https://archimedes-arc.app/api/traces/?limit=10` and you'll see real `arc_tx_hash` values verifiable on `testnet.arcscan.app`. Nothing on this list is mocked.
+6. **The substrate is real, not aspirational.** 806+ backend tests + 16 analytics-engine tests pass. Live HTTPS testnet deploy at <https://archimedes-arc.com/>. 10 contracts on Arc testnet. 22 years of real SPY backtest data. 2 Tier-1 strategies that actually pass the rigor gate. **The autonomous agent is writing real on-chain rebalance traces against `ReasoningTraceRegistry` right now** — `curl https://archimedes-arc.com/api/traces/?limit=10` and you'll see real `arc_tx_hash` values verifiable on `testnet.arcscan.app`. Nothing on this list is mocked.
 
 ## What we add beyond the existing Arc reference implementations
 

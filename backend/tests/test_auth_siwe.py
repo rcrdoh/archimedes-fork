@@ -205,7 +205,7 @@ async def test_verify_rejects_unknown_nonce():
 
     # Full bindings (domain/chain/issued-at) present so we reach the nonce check.
     message = (
-        "archimedes-arc.app wants you to sign in\n"
+        "archimedes-arc.com wants you to sign in\n"
         "0xabcdef1234567890abcdef1234567890abcdef12\n"
         f"Chain ID: 5042002\nNonce: nonexistentnonce12345678\nIssued At: {_now_iso()}"
     )
@@ -224,7 +224,7 @@ async def test_verify_rejects_expired_nonce():
     _pending_nonces[nonce] = time.time() - 1  # already expired
 
     message = (
-        "archimedes-arc.app wants you to sign in\n"
+        "archimedes-arc.com wants you to sign in\n"
         "0xabcdef1234567890abcdef1234567890abcdef12\n"
         f"Chain ID: 5042002\nNonce: {nonce}\nIssued At: {_now_iso()}"
     )
@@ -375,7 +375,7 @@ async def test_verify_rejects_wrong_chain_id():
     from archimedes.main import app
 
     message = (
-        "archimedes-arc.app wants you to sign in with your Ethereum account:\n"
+        "archimedes-arc.com wants you to sign in with your Ethereum account:\n"
         "0xabcdef1234567890abcdef1234567890abcdef12\n\n"
         "Chain ID: 1\n"  # Ethereum mainnet, not Arc testnet
         f"Nonce: somenonce123456\nIssued At: {_now_iso()}"
@@ -391,7 +391,7 @@ async def test_verify_rejects_stale_issued_at():
     from archimedes.main import app
 
     message = (
-        "archimedes-arc.app wants you to sign in with your Ethereum account:\n"
+        "archimedes-arc.com wants you to sign in with your Ethereum account:\n"
         "0xabcdef1234567890abcdef1234567890abcdef12\n\n"
         "Chain ID: 5042002\n"
         "Nonce: somenonce123456\nIssued At: 2020-01-01T00:00:00+00:00"  # ancient
@@ -409,7 +409,7 @@ async def test_verify_rejects_message_missing_chain_id():
     from archimedes.main import app
 
     message = (
-        "archimedes-arc.app wants you to sign in\n"
+        "archimedes-arc.com wants you to sign in\n"
         "0xabcdef1234567890abcdef1234567890abcdef12\n"
         f"Nonce: somenonce123456\nIssued At: {_now_iso()}"
     )
@@ -601,7 +601,7 @@ async def test_verify_redis_down_unknown_nonce_rejected():
         patch("archimedes.services.redis_state.AgentStateStore.close", AsyncMock(return_value=None)),
     ):
         message = (
-            "archimedes-arc.app wants you to sign in\n"
+            "archimedes-arc.com wants you to sign in\n"
             "0xabcdef1234567890abcdef1234567890abcdef12\n"
             f"Chain ID: 5042002\nNonce: nonexistentnonce_redisdown\nIssued At: {_now_iso()}"
         )

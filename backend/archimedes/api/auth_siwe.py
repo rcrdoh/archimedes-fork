@@ -51,7 +51,7 @@ _CLOCK_SKEW_SECONDS = 120  # tolerate small client/server clock drift on Issued 
 # SIWE message binding — a valid signature must be for THIS site and chain, not
 # merely carry a live nonce. Must match what GET /api/auth/nonce advertises and
 # what the UI puts in the message (see ui/src/siwe.js).
-_EXPECTED_DOMAIN = os.getenv("PUBLIC_DOMAIN", "https://archimedes-arc.app")
+_EXPECTED_DOMAIN = os.getenv("PUBLIC_DOMAIN", "https://archimedes-arc.com")
 _EXPECTED_CHAIN_ID = int(os.getenv("ARC_CHAIN_ID", "5042002"))
 
 # Pending-nonce store: Redis-backed (via AgentStateStore) so /nonce and /verify
@@ -168,7 +168,7 @@ async def get_nonce():
 
     return {
         "nonce": nonce,
-        "domain": os.getenv("PUBLIC_DOMAIN", "https://archimedes-arc.app")
+        "domain": os.getenv("PUBLIC_DOMAIN", "https://archimedes-arc.com")
         .replace("https://", "")
         .replace("http://", ""),
         "issued_at": int(now),
@@ -222,8 +222,8 @@ async def verify_signature(request: Request, response: Response):
 
     # Domain binding — a signature for another dApp's domain must not authenticate
     # here, even if it happens to carry a live Archimedes nonce. Compare on the
-    # bare authority (scheme/trailing-slash stripped) so "archimedes-arc.app" and
-    # "https://archimedes-arc.app/" are treated as the same site.
+    # bare authority (scheme/trailing-slash stripped) so "archimedes-arc.com" and
+    # "https://archimedes-arc.com/" are treated as the same site.
     if domain_from_message is None:
         raise HTTPException(status_code=400, detail="SIWE message is missing the domain line")
     if _normalize_domain(domain_from_message) != _normalize_domain(_EXPECTED_DOMAIN):

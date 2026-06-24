@@ -1,13 +1,13 @@
 # Sunday-night handoff — 2026-05-24 (post-HTTPS, pre-compact)
 
 > **Status:** Durable artifact for the next post-compact session. Reflects state
-> as of HTTPS landing on `archimedes-arc.app`. Authored by Maestro (Claude
+> as of HTTPS landing on `archimedes-arc.com`. Authored by Maestro (Claude
 > Opus 4.7) under Dan's steering. Compact-handoff prompt at the bottom is
 > paste-ready.
 
 ## TL;DR — where we are right now
 
-- **HTTPS landed** at `https://archimedes-arc.app` (PR #240, moonshot/Chuan). DNS
+- **HTTPS landed** at `https://archimedes-arc.com` (PR #240, moonshot/Chuan). DNS
   + ACM cert + nginx TLS + certbot. **Wallet thread now unblocked end-to-end.**
 - **My wallet code** (EIP-6963 #225, Circle SDK + passkey deposit #227, build-args
   + Coinbase rdns expansion #237) is all on `main`. The infra fix for the deploy
@@ -24,7 +24,7 @@ Last plan (`evening-execution-plan-2026-05-24.md`) was pre-HTTPS, pre-Circle. No
 
 | | Before | Now |
 |---|---|---|
-| HTTPS | none (raw IP) | `https://archimedes-arc.app` live (PR #240) |
+| HTTPS | none (raw IP) | `https://archimedes-arc.com` live (PR #240) |
 | Wallet detection | legacy `isCoinbaseWallet` only | EIP-6963 + 5 Coinbase rdns variants + name-pattern fallback (PRs #225 + #237) |
 | Circle Modular Wallets | not integrated | full integration: passkey auth + smart account + batched-userop deposit (PR #227) |
 | Circle Console | no Client Key | Client Key created for `localhost`; Gas Station Default Arc Testnet Policy ACTIVE (50 USDC/day) |
@@ -67,9 +67,9 @@ Ordered by impact + effort. Anything not on this list is out of scope this weeke
 
 ### MUST-DO (victory-gating)
 
-1. **Verify HTTPS deploy + wallet stack on `archimedes-arc.app`** — drive Safari MCP through Connect Wallet, expect passkey option present + the trust copy + per-page titles + Coinbase Chrome auto-injection. ~20 min.
+1. **Verify HTTPS deploy + wallet stack on `archimedes-arc.com`** — drive Safari MCP through Connect Wallet, expect passkey option present + the trust copy + per-page titles + Coinbase Chrome auto-injection. ~20 min.
 2. **Operator step: add `VITE_CIRCLE_CLIENT_KEY` to EC2 host `.env`** + rebuild nginx → triggers re-deploy of the JS bundle with the key embedded. Dan or Chuan does this. ~5 min.
-3. **Add `archimedes-arc.app` as Allowed Domain in Circle Console** Client Key. Without this, passkey registration on prod fails with `SecurityError`. Dan does this in Console. ~3 min.
+3. **Add `archimedes-arc.com` as Allowed Domain in Circle Console** Client Key. Without this, passkey registration on prod fails with `SecurityError`. Dan does this in Console. ~3 min.
 4. **Fix v_check 10001 BPS bug** — confirm whether parallel session already shipped this. If not, file or write directly. ~1h.
 5. **Final 3-browser red-team via Safari MCP + Dan on Chrome/Firefox** — only after #1 + #2 + #3 land. Walk every page; flag fake/dead/junk. ~45 min.
 
@@ -135,7 +135,7 @@ When the next-session Maestro resumes, read in EXACTLY this order:
 3. **`docs/specs/evening-execution-plan-2026-05-24.md`** — prior plan + red-team report context
 4. **`gh pr list --state open`** — current PR state
 5. **`git log origin/main --oneline -15`** — what landed while we were compacting
-6. **Drive Safari MCP to `https://archimedes-arc.app/`** — visually verify HTTPS + wallet stack
+6. **Drive Safari MCP to `https://archimedes-arc.com/`** — visually verify HTTPS + wallet stack
 7. **Read `backend/archimedes/chain/executor.py`** if + only if v_check 10001 BPS bug is still unfixed (check `ReasoningTraceRegistry` traces first via the live site's Reasoning page)
 
 Don't re-derive what's already in the doc. Don't re-read the morning + afternoon plans unless the doc points you back to them.
@@ -144,7 +144,7 @@ Don't re-derive what's already in the doc. Don't re-read the morning + afternoon
 
 ```
 Resuming Archimedes Sunday-night push after compact. HTTPS just landed at
-https://archimedes-arc.app. Wallet thread is end-to-end ready to verify on
+https://archimedes-arc.com. Wallet thread is end-to-end ready to verify on
 the live site. Submission deadline is Sunday midnight CDT (~12-24h from now).
 
 READ FIRST:
@@ -160,7 +160,7 @@ DO NOT TOUCH:
 - HTTPS / domain / infra (Chuan's lane; already done)
 
 PRIORITIES IN ORDER:
-1. Drive Safari MCP to https://archimedes-arc.app/ — verify HTTPS,
+1. Drive Safari MCP to https://archimedes-arc.com/ — verify HTTPS,
    trust copy renders, passkey option appears in modal (if not, the
    VITE_CIRCLE_CLIENT_KEY env-var step on EC2 hasn't been done yet —
    ping Dan).

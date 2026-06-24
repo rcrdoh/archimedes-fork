@@ -91,7 +91,7 @@ Linus orient (validates K=1 + externally-verifiable-hashes choices):
 | # filed | t2o2 assigned? | Spec | Notes |
 |---|---|---|---|
 | #147 | yes | T3.1 — S3 + DynamoDB + IAM foundation | Filed verbatim from plan; precedent verified (infra/main.tf exists) |
-| #148 | yes | TS.1 — Route 53 + HTTPS for archimedes-arc.app | **Path drift caught**: spec said `infra/nginx/nginx.conf`; actual is `nginx/nginx.conf` (top-level). Correction posted as comment before assigning t2o2 |
+| #148 | yes | TS.1 — Route 53 + HTTPS for archimedes-arc.com | **Path drift caught**: spec said `infra/nginx/nginx.conf`; actual is `nginx/nginx.conf` (top-level). Correction posted as comment before assigning t2o2 |
 | #149 | yes | T-PE.1 — StrategyRegistry.sol + strategy_publisher.py | **BIG spec — audit subagent ran first**. 3 corrections folded into body: (1) tests are flat (`backend/tests/test_strategy_publisher.py`), not in a `chain/` subdir; (2) Tier-1 promotion hook lives in `models/strategy_store.py` line ~147, NOT `agent_runner.py` — spec corrected; (3) `on_chain_registration_tx` does NOT exist on `StrategyRecord` today — bundled the schema migration into this issue (idempotent ALTER TABLE). All other paths verified |
 | #150 | yes | T1.3 — DepositFlow stepper modal | Config.js drift corrected in body: export is `USDC` (not `USDC_ADDRESS`); no `USDC_ABI` exists today (bot adds minimal fragment); VAULT_ABI exists at line 294 (verify includes deposit + setTargetAllocations) |
 | #151 | yes | T3.2 — GPU EC2 + KB pipeline run | Long-pole (4-6h cold start) — file early per plan |
@@ -137,7 +137,7 @@ Linus orient (validates K=1 + externally-verifiable-hashes choices):
 | M.11 | **partial-done** (product side) | 8 `arc-canteen update-product` calls submitted covering: launch plan + 36-issue execution kickoff, Phase 4+5 scaffolding (PR #142/#143), Track E Strategy Passport architecture spec, DevOps quality bar (PR #146), Linus + KB submodule pins + audit fold-in, Phase 8+9 UI ships, 10-contract Arc testnet deploy retrospective, Daniel R UI fixes (PR #144), KB pipeline integration Day-11 with corpus seed breakdown. **One stray test entry exists in history** (`TEST: Maestro telemetry probe`) — pushed off the visible 5-entry recent-updates window by the 8 real entries above; no delete CLI exists, but no longer surface-visible. **Traction backfill skipped** — needs Dan's first-hand knowledge of which users/judges he's talked to (the M.11 plan target is ≥10 traction events; Dan should backfill in AM). |
 | M.4 | pending | docs refresh | |
 | M.5 | **audit-done; AM execution pending** | docs/archive/ sweep punch list captured below | Mechanical `git mv` job — left for Dan AM so the `docs/README.md` index update happens in the same commit (avoid link breakage on `main`) |
-| M.9 | **deferred to Dan AM** | visual review report | Marten already shipped demo video v1 + early submission; M.9 is polish-tier; live HTTPS site (`archimedes-arc.app`) doesn't exist yet (TS.1 #148 still queued); recommend Dan AM runs visual review against localhost OR after TS.1 lands so screenshots reflect the production URL bar |
+| M.9 | **deferred to Dan AM** | visual review report | Marten already shipped demo video v1 + early submission; M.9 is polish-tier; live HTTPS site (`archimedes-arc.com`) doesn't exist yet (TS.1 #148 still queued); recommend Dan AM runs visual review against localhost OR after TS.1 lands so screenshots reflect the production URL bar |
 
 ### Decisions made overnight (Dan reads in AM)
 
@@ -176,7 +176,7 @@ Subagent summary: 17 KEEP / 9 UPDATE / 14 ARCHIVE / 2 DELETE / 42 total audited.
 - `docs/specs/ecosystem-architecture.html` — May-13; superseded by `docs/specs/ecosystem-design-spec.md`
 
 **UPDATE (9 files — content refresh per launch plan § 8 M.4; defer to M.4 refresh pass):**
-- `README.md` — top-fold + `archimedes-arc.app` URL + Cited-literature + RFB-04 statement
+- `README.md` — top-fold + `archimedes-arc.com` URL + Cited-literature + RFB-04 statement
 - `CLAUDE.md` — pitch frame § 3.1 + HTTPS domain + K=1+rigor as 5th primitive
 - `ARC-OSS-SHOWCASE.md` — TS + T3.6 + T3.7 + T3.9 + T-PE.8 forkable primitives
 - `docs/README.md` — index trim after archive sweep

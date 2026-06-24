@@ -102,7 +102,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):  # noqa:
 import os as _os
 
 _cors_env_origins = _os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:80")
-_public_domain = _os.getenv("PUBLIC_DOMAIN", "https://archimedes-arc.app")
+_public_domain = _os.getenv("PUBLIC_DOMAIN", "https://archimedes-arc.com")
 _cors_origins = [o.strip() for o in _cors_env_origins.split(",") if o.strip()]
 # In production (when PUBLIC_DOMAIN is set), restrict to that domain.
 # Local dev keeps the CORS_ORIGINS list (localhost).
