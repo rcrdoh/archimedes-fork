@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { StrategyArchitect } from './Strategies'
 import GenerationStream from './GenerationStream'
 import GenerationStatus from './GenerationStatus'
 import FusionResult from './FusionResult'
 import PortfolioAdvisor from './PortfolioAdvisor'
 import ModelCostPanel from './ModelCostPanel'
+import { PROMPT_LIBRARY } from '../data/promptLibrary'
+import { ASSET_GROUPS, SUPPORTED_ASSETS } from '../data/assetUniverse'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -22,17 +24,9 @@ const RISK_PROFILES = [
   { id: 'aggressive', label: 'Aggressive' },
   { id: 'hyper_risky', label: 'Hyper-risky' },
 ]
-const ASSET_CLASSES = ['equities', 'bonds', 'commodities', 'crypto', 'fx']
-
-// Hand-picked briefs that route cleanly through the auto-router and produce
-// a strategy a user can deploy without further coaching. Click fills the
-// textarea so the user can edit before submitting.
-const EXAMPLE_BRIEFS = [
-  'A 13-week treasury alternative with low volatility and crypto upside on Fridays',
-  'Trend-following momentum on liquid US equity ETFs, rebalanced monthly, regime-aware',
-  'Defensive equity strategy that rotates into bonds when realized volatility spikes',
-  'Long-only large-cap value with a quality screen and a max-drawdown circuit breaker',
-]
+// Asset picker + starter prompt library are sourced from data files so they
+// stay in sync with the backend universe SSOT (assetUniverse.js mirrors
+// GLOBAL_ASSETS / issue #682) and are easy to extend (promptLibrary.js).
 
 export default function Generate({ onNavigate }) {
   // ── Unified form state ──
@@ -40,6 +34,7 @@ export default function Generate({ onNavigate }) {
   const [helpOpen, setHelpOpen] = useState(false)
   const [riskAppetite, setRiskAppetite] = useState('moderate')
   const [selectedAssets, setSelectedAssets] = useState([])
+  const [assetQuery, setAssetQuery] = useState('')
   const [depth, setDepth] = useState(5)       // replaces max_papers UI
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState('')
@@ -207,6 +202,28 @@ export default function Generate({ onNavigate }) {
     setSelectedAssets(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a])
   }
 
+  const clearAssets = () => setSelectedAssets([])
+
+  // Click a starter prompt: fill the brief and pre-select its suggested assets
+  // (only those still in the supported universe), then collapse the help panel.
+  const applyExample = (example) => {
+    setIntent(example.brief)
+    if (Array.isArray(example.suggestedAssets) && example.suggestedAssets.length) {
+      const valid = example.suggestedAssets.filter(a => SUPPORTED_ASSETS.includes(a))
+      setSelectedAssets(valid)
+    }
+    setHelpOpen(false)
+  }
+
+  // Filter the asset groups by the live search box (matches the display symbol).
+  const filteredAssetGroups = useMemo(() => {
+    const q = assetQuery.trim().toLowerCase()
+    if (!q) return ASSET_GROUPS
+    return ASSET_GROUPS
+      .map(g => ({ ...g, assets: g.assets.filter(a => a.toLowerCase().includes(q)) }))
+      .filter(g => g.assets.length > 0)
+  }, [assetQuery])
+
   // ── Callback: GenerationStream tells us which pipeline was selected ──
   const handlePipelineEvent = (pipelineName) => {
     setPipelineFromEvent(pipelineName)
@@ -304,14 +321,15 @@ export default function Generate({ onNavigate }) {
                 <li>Reference recognizable patterns if it helps — "Kelly-sized momentum", "60/40 with regime overlay".</li>
               </ul>
 
-              <div className="label mb-2">Try an example (click to fill the box)</div>
+              <div className="label mb-2">Prompt library (click to fill the box)</div>
               <div className="flex flex-col gap-2">
-                {EXAMPLE_BRIEFS.map((p) => (
+                {PROMPT_LIBRARY.map((ex) => (
                   <button
-                    key={p}
+                    key={ex.id}
                     type="button"
-                    onClick={() => { setIntent(p); setHelpOpen(false) }}
+                    onClick={() => applyExample(ex)}
                     className="text-left"
+                    title={ex.brief}
                     style={{
                       padding: '8px 12px',
                       background: 'var(--bg-2)',
@@ -324,7 +342,7 @@ export default function Generate({ onNavigate }) {
                     }}
                   >
                     <span style={{ color: 'var(--accent)', marginRight: 8 }}>→</span>
-                    {p}
+                    {ex.label}
                   </button>
                 ))}
               </div>
@@ -346,16 +364,57 @@ export default function Generate({ onNavigate }) {
             disabled={starting}
           />
 
-          <div className="label mb-2">Asset classes (optional)</div>
-          <div className="flex gap-2 flex-wrap mb-4">
-            {ASSET_CLASSES.map(a => (
-              <span
-                key={a}
-                className={`tag ${selectedAssets.includes(a) ? 'tag-accent' : 'tag-muted'} cursor-pointer capitalize`}
-                onClick={() => toggleAsset(a)}
+          <div className="flex items-center justify-between mb-2">
+            <div className="label">
+              Assets (optional){selectedAssets.length > 0 ? ` · ${selectedAssets.length} selected` : ''}
+            </div>
+            {selectedAssets.length > 0 && (
+              <button
+                type="button"
+                onClick={clearAssets}
+                className="caption"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)' }}
               >
-                {a}
-              </span>
+                Clear
+              </button>
+            )}
+          </div>
+          <p className="caption mb-2" style={{ color: 'var(--text-3)' }}>
+            Pick the instruments to steer the strategy toward. Leave empty to let the
+            engine choose from the full supported universe.
+          </p>
+          <input
+            type="text"
+            value={assetQuery}
+            onChange={e => setAssetQuery(e.target.value)}
+            placeholder="Search assets (e.g. SPY, GOLD, BTC)…"
+            className="chat-input w-full mb-2 px-2.5 py-1.5"
+            disabled={starting}
+          />
+          <div
+            className="mb-4"
+            style={{ maxHeight: 220, overflowY: 'auto', paddingRight: 4 }}
+          >
+            {filteredAssetGroups.length === 0 && (
+              <div className="caption" style={{ color: 'var(--text-3)' }}>
+                No assets match “{assetQuery}”.
+              </div>
+            )}
+            {filteredAssetGroups.map(group => (
+              <div key={group.id} className="mb-2.5">
+                <div className="caption mb-1" style={{ color: 'var(--text-3)' }}>{group.label}</div>
+                <div className="flex gap-2 flex-wrap">
+                  {group.assets.map(a => (
+                    <span
+                      key={a}
+                      className={`tag ${selectedAssets.includes(a) ? 'tag-accent' : 'tag-muted'} cursor-pointer`}
+                      onClick={() => toggleAsset(a)}
+                    >
+                      {a}
+                    </span>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
 

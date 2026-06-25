@@ -45,6 +45,7 @@ from typing import Any
 from archimedes.agents.strategy_architect import extract_json
 from archimedes.models.portfolio import RISK_PROFILE_PARAMS, RiskProfile
 from archimedes.services.llm_backend import LLMBackend, make_llm_backend
+from archimedes.services.strategy_signal_evaluator import GLOBAL_ASSETS
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,49 @@ _ASSET_SYNONYMS: dict[str, tuple[str, ...]] = {
     "vol": ("volatil", "variance", "option", "vix", "implied vol"),
     "macro": ("macro", "regime", "business cycle", "monetary", "inflation"),
 }
+
+# ── Investable-universe SSOT (issue #682 derived) ───────────────────────────
+#
+# The fusion strategy_spec's `asset_universe` MUST be steered by the user's
+# selected assets — never a hardcoded `["SPY"]` literal. `GLOBAL_ASSETS`
+# (backend-local, hermetic, importable without the analytics-engine package) is
+# the single source of truth for the supported instruments; its display symbols
+# are the user-facing tickers the UI picker exposes. When the user gives no
+# steer, we fall back to this full SSOT-derived universe rather than to SPY.
+SUPPORTED_UNIVERSE: tuple[str, ...] = tuple(
+    # Display symbol (e.g. "SPY", "QQQ", "GOLD_FUT") — the user-facing label.
+    sorted({display for (_yf, display, _asset_class, _exchange) in GLOBAL_ASSETS.values()})
+)
+# Case-folded membership index: accept either a display symbol ("SPY") or the
+# synth key ("sSPY") the user / UI might send, mapping both to the canonical
+# display symbol used in the strategy_spec.
+_UNIVERSE_LOOKUP: dict[str, str] = {}
+for _synth, (_yf, _display, _ac, _exch) in GLOBAL_ASSETS.items():
+    _UNIVERSE_LOOKUP[_display.casefold()] = _display
+    _UNIVERSE_LOOKUP[_synth.casefold()] = _display
+    _UNIVERSE_LOOKUP[_yf.casefold()] = _display
+
+
+def derive_asset_universe(selected_assets: list[str]) -> list[str]:
+    """Derive the strategy_spec asset_universe from the user's selected assets.
+
+    The universe is the user's chosen instruments (resolved to canonical
+    display symbols via the SSOT), de-duped and order-preserved. Tokens that
+    don't resolve to a supported instrument (e.g. broad-class steers like
+    "equities" the paper filter consumes) are dropped from the *universe* — the
+    universe is a concrete instrument list, not a class filter. When nothing in
+    the steer resolves, fall back to the full supported universe (issue #682) —
+    never a bare `["SPY"]`.
+    """
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for token in selected_assets:
+        canonical = _UNIVERSE_LOOKUP.get(str(token).strip().casefold())
+        if canonical and canonical not in seen:
+            seen.add(canonical)
+            resolved.append(canonical)
+    return resolved if resolved else list(SUPPORTED_UNIVERSE)
+
 
 # ── Regime-biased keyword sets for bull/bear paper retrieval (Issue #163) ──
 _REGIME_BIAS_TERMS: dict[str, tuple[str, ...]] = {
@@ -472,7 +516,7 @@ literature>",
   "risk_notes": "<key risks + the pre-backtest / selection-bias caveat>",
   "strategy_spec": {
     "name": "<same as strategy_name>",
-    "asset_universe": ["SPY"],
+    "asset_universe": ["<ticker>", "<ticker>", ...],
     "rebalance_frequency": "monthly",
     "entry": {"gt": ["close", "sma_200"]},
     "exit": {"lt": ["close", "sma_200"]},
@@ -485,7 +529,10 @@ literature>",
 }
 
 The strategy_spec field is REQUIRED. It is a machine-readable strategy definition \
-using the Archimedes DSL (closed-enum vocabulary). Valid rebalance_frequency values: \
+using the Archimedes DSL (closed-enum vocabulary). For asset_universe, list the \
+tickers the mechanism trades from the user's selected assets (in user_steer); the \
+platform overrides this with the user's chosen universe, so do not default to a \
+single broad-market proxy. Valid rebalance_frequency values: \
 daily, weekly, monthly. Valid indicators: sma_N, ema_N, rsi_N, momentum_N (replace \
 N with an integer period). Entry/exit conditions use comparison ops (gt, lt, gte, lte) \
 or logic ops (and, or, not). Position sizing types: full_invested_when_in_market, \
@@ -648,6 +695,12 @@ class StrategyFusion:
         strategy_spec = parsed.get("strategy_spec")
         if not isinstance(strategy_spec, dict):
             strategy_spec = None
+        else:
+            # Steer the asset universe from the user's selected assets (falling
+            # back to the SSOT-derived supported universe), overriding whatever
+            # the model emitted. The universe is the user's lever — never a
+            # hardcoded `["SPY"]` default and never silently the model's guess.
+            strategy_spec["asset_universe"] = derive_asset_universe(brief.asset_classes)
 
         return FusionProposal(
             status="ok",
