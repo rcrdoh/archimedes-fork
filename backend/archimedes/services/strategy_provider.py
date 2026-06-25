@@ -142,16 +142,115 @@ def _infer_risk_profiles(methodology_summary: str) -> list[str]:
     return matched or ["moderate"]
 
 
-def _load_fixtures(strategies_dir: Path) -> dict[str, Any]:
-    """Load backtest_fixtures.json from the strategies directory, if present."""
+# Env vars selecting a dynamic fixture source (issue #465). When neither is
+# set, the loader reads the bundled ``backtest_fixtures.json`` exactly as
+# before — the bundled file IS the fallback, so served (gate-sensitive)
+# values are unchanged when nothing is configured.
+_FIXTURES_PATH_ENV = "ARCHIMEDES_FIXTURES_PATH"  # filesystem override
+_FIXTURES_URL_ENV = "ARCHIMEDES_FIXTURES_URL"  # http(s) source
+
+
+def _parse_fixtures_payload(text: str, source: str) -> dict[str, Any]:
+    """Parse fixture JSON text into the keyed dict shape, validating type.
+
+    Returns ``{}`` (so the caller can fall back) when the payload is empty.
+    Raises on malformed JSON or a non-object top level so the caller treats it
+    as a failed source. ``source`` is for log/error context only.
+    """
+    if not text.strip():
+        return {}
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError(f"{source}: expected a JSON object, got {type(data).__name__}")
+    return data
+
+
+def _load_fixtures_from_path(path: Path) -> dict[str, Any]:
+    """Load + parse a fixtures JSON file. Raises on missing/invalid file."""
+    return _parse_fixtures_payload(path.read_text(encoding="utf-8"), str(path))
+
+
+def _load_fixtures_from_url(url: str) -> dict[str, Any]:
+    """Fetch + parse fixtures JSON over HTTP. Raises on any failure.
+
+    ``httpx`` is the established HTTP client in this package (corpus_service,
+    llm_backend); imported lazily so the API process doesn't pay for it unless
+    a URL source is actually configured.
+    """
+    import httpx  # lazy — only when a URL source is configured
+
+    resp = httpx.get(url, timeout=10.0)
+    resp.raise_for_status()
+    return _parse_fixtures_payload(resp.text, url)
+
+
+def _load_dynamic_fixtures() -> dict[str, Any] | None:
+    """Try the env-configured dynamic source (path, then URL).
+
+    Returns the loaded dict on success, or ``None`` when no dynamic source is
+    configured OR the configured source fails / yields nothing — signalling the
+    caller to fall back to the bundled file. A configured-but-failing source is
+    deliberately non-fatal: a transient remote outage must never take down the
+    served strategy library, it just reverts to the bundled fallback.
+    """
+    path_override = os.getenv(_FIXTURES_PATH_ENV)
+    if path_override:
+        try:
+            loaded = _load_fixtures_from_path(Path(path_override))
+            if loaded:
+                logger.info("loaded backtest fixtures from %s=%s", _FIXTURES_PATH_ENV, path_override)
+                return loaded
+            logger.warning("%s=%s yielded no fixtures; falling back to bundled", _FIXTURES_PATH_ENV, path_override)
+        except Exception as exc:
+            logger.warning("dynamic fixtures path %s failed (%s); falling back to bundled", path_override, exc)
+
+    url_override = os.getenv(_FIXTURES_URL_ENV)
+    if url_override:
+        try:
+            loaded = _load_fixtures_from_url(url_override)
+            if loaded:
+                logger.info("loaded backtest fixtures from %s=%s", _FIXTURES_URL_ENV, url_override)
+                return loaded
+            logger.warning("%s=%s yielded no fixtures; falling back to bundled", _FIXTURES_URL_ENV, url_override)
+        except Exception as exc:
+            logger.warning("dynamic fixtures url %s failed (%s); falling back to bundled", url_override, exc)
+
+    return None
+
+
+def _load_bundled_fixtures(strategies_dir: Path) -> dict[str, Any]:
+    """Load the bundled backtest_fixtures.json from the strategies directory.
+
+    This is the fallback (and the historical default). Identical behavior to
+    the original loader: missing/invalid file → ``{}``.
+    """
     fixture_path = strategies_dir / "backtest_fixtures.json"
     if not fixture_path.exists():
         return {}
     try:
-        return json.loads(fixture_path.read_text(encoding="utf-8"))
+        return _load_fixtures_from_path(fixture_path)
     except Exception as exc:
         logger.warning("could not load backtest_fixtures.json: %s", exc)
         return {}
+
+
+def _load_fixtures(strategies_dir: Path) -> dict[str, Any]:
+    """Load backtest fixtures, preferring a dynamic source over the bundle.
+
+    Resolution order (issue #465):
+      1. ``ARCHIMEDES_FIXTURES_PATH`` — a filesystem path override.
+      2. ``ARCHIMEDES_FIXTURES_URL`` — an http(s) source.
+      3. The bundled ``backtest_fixtures.json`` in ``strategies_dir``.
+
+    The dynamic source is *preferred* only when configured and it loads
+    successfully with non-empty content; otherwise the bundled file is used.
+    When neither env var is set the behavior is byte-identical to the original
+    loader, so served gate-sensitive metrics do not move.
+    """
+    dynamic = _load_dynamic_fixtures()
+    if dynamic is not None:
+        return dynamic
+    return _load_bundled_fixtures(strategies_dir)
 
 
 def _to_strategy(

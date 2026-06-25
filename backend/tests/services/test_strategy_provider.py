@@ -338,6 +338,134 @@ class TestLoadFixtures:
         assert result["test_strategy"]["sharpe_ratio"] == 0.85
 
 
+# ── _load_fixtures: dynamic source vs bundled fallback (issue #465) ──
+
+
+class TestDynamicFixtureLoading:
+    """Hermetic coverage of the env-configured dynamic fixture source.
+
+    No network: the URL branch is mocked at the ``httpx.get`` boundary per the
+    testing conventions (mock at boundaries, not internals).
+    """
+
+    def _bundled(self, tmp_path):
+        """Write a bundled fixture file marked so we can tell it apart."""
+        import json
+
+        (tmp_path / "backtest_fixtures.json").write_text(json.dumps({"bundled_strategy": {"sharpe_ratio": 0.1}}))
+
+    # (a) fallback used when no dynamic source is configured
+
+    def test_falls_back_to_bundled_when_nothing_configured(self, tmp_path, monkeypatch):
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        monkeypatch.delenv("ARCHIMEDES_FIXTURES_PATH", raising=False)
+        monkeypatch.delenv("ARCHIMEDES_FIXTURES_URL", raising=False)
+        self._bundled(tmp_path)
+
+        result = _load_fixtures(tmp_path)
+        assert result == {"bundled_strategy": {"sharpe_ratio": 0.1}}
+
+    def test_empty_when_nothing_configured_and_no_bundle(self, tmp_path, monkeypatch):
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        monkeypatch.delenv("ARCHIMEDES_FIXTURES_PATH", raising=False)
+        monkeypatch.delenv("ARCHIMEDES_FIXTURES_URL", raising=False)
+
+        assert _load_fixtures(tmp_path) == {}
+
+    # (b) dynamic source preferred when present — filesystem path override
+
+    def test_dynamic_path_preferred_over_bundle(self, tmp_path, monkeypatch):
+        import json
+
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        self._bundled(tmp_path)
+        dynamic_file = tmp_path / "dynamic_fixtures.json"
+        dynamic_file.write_text(json.dumps({"dynamic_strategy": {"sharpe_ratio": 0.99}}))
+        monkeypatch.setenv("ARCHIMEDES_FIXTURES_PATH", str(dynamic_file))
+        monkeypatch.delenv("ARCHIMEDES_FIXTURES_URL", raising=False)
+
+        result = _load_fixtures(tmp_path)
+        assert result == {"dynamic_strategy": {"sharpe_ratio": 0.99}}
+        assert "bundled_strategy" not in result
+
+    # (b) dynamic source preferred when present — URL override (mocked httpx)
+
+    def test_dynamic_url_preferred_over_bundle(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        self._bundled(tmp_path)
+        monkeypatch.delenv("ARCHIMEDES_FIXTURES_PATH", raising=False)
+        monkeypatch.setenv("ARCHIMEDES_FIXTURES_URL", "https://fixtures.example/backtest.json")
+
+        fake_resp = MagicMock()
+        fake_resp.text = '{"url_strategy": {"sharpe_ratio": 1.23}}'
+        fake_resp.raise_for_status = MagicMock()
+        with patch("httpx.get", return_value=fake_resp) as mock_get:
+            result = _load_fixtures(tmp_path)
+
+        mock_get.assert_called_once()
+        assert result == {"url_strategy": {"sharpe_ratio": 1.23}}
+        assert "bundled_strategy" not in result
+
+    # Resilience: a configured-but-failing dynamic source reverts to bundled
+
+    def test_dynamic_path_failure_falls_back_to_bundle(self, tmp_path, monkeypatch):
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        self._bundled(tmp_path)
+        monkeypatch.setenv("ARCHIMEDES_FIXTURES_PATH", str(tmp_path / "does_not_exist.json"))
+        monkeypatch.delenv("ARCHIMEDES_FIXTURES_URL", raising=False)
+
+        result = _load_fixtures(tmp_path)
+        assert result == {"bundled_strategy": {"sharpe_ratio": 0.1}}
+
+    def test_dynamic_url_failure_falls_back_to_bundle(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        self._bundled(tmp_path)
+        monkeypatch.delenv("ARCHIMEDES_FIXTURES_PATH", raising=False)
+        monkeypatch.setenv("ARCHIMEDES_FIXTURES_URL", "https://fixtures.example/backtest.json")
+
+        with patch("httpx.get", side_effect=ConnectionError("network down")):
+            result = _load_fixtures(tmp_path)
+        assert result == {"bundled_strategy": {"sharpe_ratio": 0.1}}
+
+    def test_path_takes_precedence_over_url(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        dynamic_file = tmp_path / "dynamic_fixtures.json"
+        dynamic_file.write_text(json.dumps({"path_strategy": {"sharpe_ratio": 0.5}}))
+        monkeypatch.setenv("ARCHIMEDES_FIXTURES_PATH", str(dynamic_file))
+        monkeypatch.setenv("ARCHIMEDES_FIXTURES_URL", "https://fixtures.example/backtest.json")
+
+        # URL must never be consulted when the path source succeeds.
+        with patch("httpx.get", side_effect=AssertionError("URL should not be fetched")):
+            result = _load_fixtures(tmp_path)
+        assert result == {"path_strategy": {"sharpe_ratio": 0.5}}
+
+    def test_empty_dynamic_payload_falls_back_to_bundle(self, tmp_path, monkeypatch):
+        from archimedes.services.strategy_provider import _load_fixtures
+
+        self._bundled(tmp_path)
+        empty_file = tmp_path / "empty.json"
+        empty_file.write_text("   ")  # whitespace-only → no fixtures
+        monkeypatch.setenv("ARCHIMEDES_FIXTURES_PATH", str(empty_file))
+        monkeypatch.delenv("ARCHIMEDES_FIXTURES_URL", raising=False)
+
+        result = _load_fixtures(tmp_path)
+        assert result == {"bundled_strategy": {"sharpe_ratio": 0.1}}
+
+
 # ── default_provider resolution ─────────────────────────────
 
 
