@@ -4,6 +4,7 @@ import {
   publicClient,
   TRACE_REGISTRY_ABI, NEW_CONTRACTS,
 } from '../config'
+import { regimeMeta } from '../regime'
 
 
 
@@ -242,8 +243,9 @@ function OnChainTraces({ onNavigate, highlightTraceId }) {
                     {t.regime_at_decision && (
                       <div style={{ marginBottom: 8 }}>
                         <span className="caption">Regime: </span>
-                        <span className={`tag ${t.regime_at_decision === 'risk_on' ? 'tag-positive' : t.regime_at_decision === 'risk_off' ? 'tag-muted' : 'tag-accent'}`}>
-                          {t.regime_at_decision}
+                        <span className={`tag ${regimeMeta(t.regime_at_decision).tag}`}
+                          title={regimeMeta(t.regime_at_decision).definition}>
+                          {regimeMeta(t.regime_at_decision).label}
                         </span>
                       </div>
                     )}

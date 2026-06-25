@@ -1,5 +1,6 @@
 import { apiGet } from '../api'
 import { useState, useEffect, useCallback } from 'react'
+import { regimeMeta, regimeLabel, REGIME_ORDER } from '../regime'
 
 
 
@@ -11,23 +12,14 @@ function fmt(v, d = 1) {
   return v != null ? v.toFixed(d) : '—'
 }
 
-function regimeColor(regime) {
-  if (regime === 'risk_on') return 'var(--positive)'
-  if (regime === 'crisis') return 'var(--negative)'
-  if (regime === 'risk_off') return 'var(--negative)'
-  return '#f59e0b'
-}
-
+// Presentation pulled from the shared regime map (src/regime.js) so the
+// labels, colors, and definitions stay consistent across every surface.
 function regimeBg(regime) {
-  if (regime === 'risk_on') return 'rgba(16,185,129,0.08)'
-  if (regime === 'crisis' || regime === 'risk_off') return 'rgba(239,68,68,0.08)'
-  return 'rgba(245,158,11,0.08)'
+  return regimeMeta(regime).bg
 }
 
 function regimeBorder(regime) {
-  if (regime === 'risk_on') return 'rgba(16,185,129,0.25)'
-  if (regime === 'crisis' || regime === 'risk_off') return 'rgba(239,68,68,0.25)'
-  return 'rgba(245,158,11,0.25)'
+  return regimeMeta(regime).border
 }
 
 function MiniBar({ value, max, color }) {
@@ -44,16 +36,14 @@ function MiniBar({ value, max, color }) {
 // on /learnings.
 function CompactRegimePill({ regime }) {
   const r = regime.regime
-  const rColor = regimeColor(r)
-  const rLabel = r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const meta = regimeMeta(r)
+  const rColor = meta.color
+  const rLabel = meta.label
   const conf = regime.confidence ?? 0
   return (
     <span
       title={
-        `The agent's current read of market conditions. Drives which library ` +
-        `strategies it leans into for new generates + rebalances. ` +
-        `risk_on → momentum/TSMOM. transition → vol-managed. ` +
-        `risk_off → t-bill alternatives. crisis → capital preservation.`
+        `${meta.label} — ${meta.definition} ${meta.exposure}.`
       }
       style={{
         display: 'inline-flex',
@@ -79,11 +69,10 @@ function CompactRegimePill({ regime }) {
 }
 
 function TransitionRow({ from, to, prob }) {
-  const arrow = from === to ? 'stay' : `→ ${to.replace(/_/g, ' ')}`
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
       <span className="caption" style={{ width: 100, color: 'var(--text-3)', fontSize: '0.75rem' }}>
-        {from === to ? `Stay ${from.replace(/_/g, ' ')}` : arrow}
+        {from === to ? `Stay ${regimeLabel(from)}` : `→ ${regimeLabel(to)}`}
       </span>
       <MiniBar value={prob} max={1} color={from === to ? 'var(--accent)' : 'rgba(255,255,255,0.25)'} />
       <span className="mono" style={{ fontSize: '0.75rem', width: 36, textAlign: 'right' }}>
@@ -155,8 +144,9 @@ export default function RegimePanel({ regime: regimeProp = null, compact = false
   }
 
   const r = regime.regime
-  const rColor = regimeColor(r)
-  const rLabel = r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const meta = regimeMeta(r)
+  const rColor = meta.color
+  const rLabel = meta.label
   const confidencePct = regime.confidence ?? 0
   const signals = regime.signals || {}
   const transitions = regime.transition_probabilities
@@ -207,6 +197,12 @@ export default function RegimePanel({ regime: regimeProp = null, compact = false
           </span>
         )}
       </div>
+
+      {/* Plain-language meaning of the current regime */}
+      <p className="body" style={{ margin: '0 0 14px', color: 'var(--text-3)', fontSize: '0.86rem', lineHeight: 1.5 }}>
+        {meta.definition}{' '}
+        <span style={{ color: 'var(--text-4)' }}>{meta.exposure}.</span>
+      </p>
 
       {/* Confidence bar */}
       <div style={{ marginBottom: 18 }}>
@@ -322,6 +318,36 @@ export default function RegimePanel({ regime: regimeProp = null, compact = false
           })}
         </div>
       )}
+
+      {/* Findable definitions — every regime explained inline, so the labels
+          above are never a black box. The current regime is highlighted. */}
+      <details style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <summary className="caption" style={{ cursor: 'pointer', color: 'var(--text-3)' }}>
+          What do these regimes mean?
+        </summary>
+        <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+          {REGIME_ORDER.map(key => {
+            const m = regimeMeta(key)
+            const active = key === r
+            return (
+              <div key={key} style={{
+                padding: '8px 10px', borderRadius: 6,
+                background: active ? m.bg : 'rgba(255,255,255,0.02)',
+                border: `1px solid ${active ? m.border : 'var(--glass-border)'}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color, display: 'inline-block' }} />
+                  <span style={{ fontWeight: 700, fontSize: '0.84rem', color: m.color }}>{m.label}</span>
+                  {active && <span className="caption" style={{ color: 'var(--text-4)' }}>· current</span>}
+                </div>
+                <div className="caption" style={{ color: 'var(--text-3)', lineHeight: 1.45 }}>
+                  {m.definition} <span style={{ color: 'var(--text-4)' }}>{m.exposure}.</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </details>
     </div>
   )
 }

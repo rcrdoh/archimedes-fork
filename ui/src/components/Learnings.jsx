@@ -64,8 +64,9 @@ export default function Learnings({ onNavigate }) {
         <p className="body mb-4 text-[var(--text-3)]">
           The regime is the agent's read of market conditions, derived from VIX +
           SPX moving-average cross signals. It biases strategy selection —
-          <em>risk_on</em> leans into momentum + TSMOM,
-          <em> crisis</em> leans into t-bill alternatives + capital preservation.
+          <em>Calm</em> leans into momentum + TSMOM,
+          <em> Crisis</em> leans into t-bill alternatives + capital preservation.
+          The four regimes are defined in full below.
         </p>
         <RegimePanel />
       </div>

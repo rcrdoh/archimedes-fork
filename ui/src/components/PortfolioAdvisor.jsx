@@ -1,5 +1,6 @@
 import { apiGet } from '../api'
 import { useState, useEffect } from 'react'
+import { regimeMeta } from '../regime'
 
 
 
@@ -19,12 +20,6 @@ function fmtPct(v) {
 
 function fmt(v, d = 2) {
   return (v != null && Number.isFinite(v)) ? v.toFixed(d) : '—'
-}
-
-function regimeColor(regime) {
-  if (regime === 'risk_on') return 'var(--positive)'
-  if (regime === 'crisis' || regime === 'risk_off') return 'var(--negative)'
-  return '#f59e0b'
 }
 
 function AllocationBar({ label, weight, isUsdc, kelly, rigorPassed, isCandidate }) {
@@ -105,8 +100,9 @@ export default function PortfolioAdvisor({ initialRiskProfile = 'moderate' } = {
   }, [selectedProfile])
 
   const regime = data?.regime ?? 'unknown'
-  const regimeLabel = regime.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-  const rColor = regimeColor(regime)
+  const regimeInfo = regimeMeta(regime)
+  const regimeLabel = regimeInfo.label
+  const rColor = regimeInfo.color
 
   return (
     <div>
@@ -165,12 +161,11 @@ export default function PortfolioAdvisor({ initialRiskProfile = 'moderate' } = {
                 </span>
               </div>
               <span className="caption">confidence {fmtPct(data.regime_confidence)}</span>
+              <span className="caption" style={{ color: 'var(--text-4)' }}>· {regimeInfo.exposure}</span>
             </div>
-            {data.regime_narrative && (
-              <p className="body" style={{ margin: 0, color: 'var(--text-3)', lineHeight: 1.5 }}>
-                {data.regime_narrative}
-              </p>
-            )}
+            <p className="body" style={{ margin: 0, color: 'var(--text-3)', lineHeight: 1.5 }}>
+              {data.regime_narrative || regimeInfo.definition}
+            </p>
           </div>
 
           {/* Allocation breakdown */}
