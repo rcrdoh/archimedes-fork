@@ -22,9 +22,11 @@ import json
 import pytest
 from archimedes.agents.strategy_fusion import (
     MIN_PAPERS,
+    SUPPORTED_UNIVERSE,
     FusionBrief,
     FusionCannedBackend,
     StrategyFusion,
+    derive_asset_universe,
     fusion_enabled,
     load_corpus,
     select_candidates,
@@ -374,3 +376,100 @@ def test_unparseable_model_output_declines(monkeypatch, corpus):
     assert proposal.status == "unparseable"
     assert proposal.model == "glm-4.7"  # still records the served model
     assert proposal.requested_model == "claude-sonnet-4-20250514"
+
+
+# ── Asset-universe derivation (T1.6 — no hardcoded SPY) ──────────
+
+
+class _SpecBackend:
+    """A mock that emits a strategy_spec whose universe defaults to ["SPY"].
+
+    This is the worst case the derivation must defend against: a model that
+    parrots the old single-proxy default. The service must override it with
+    the user's selected assets (or the SSOT fallback) so the universe is the
+    user's lever, never a hardcoded literal.
+    """
+
+    model_id = "claude-sonnet-4-20250514"
+    served_model = "glm-4.7"
+
+    def complete(self, system: str, user: str) -> str:
+        payload = json.loads(user)
+        ids = [p["arxiv_id"] for p in payload["candidate_papers"][:2]]
+        return json.dumps(
+            {
+                "strategy_name": "Universe-steer test fusion",
+                "thesis": "Pre-backtest hypothesis.",
+                "source_arxiv_ids": ids,
+                "fusion_reasoning": "Paper A + paper B.",
+                "novelty_rationale": "Joint combination unpublished.",
+                "risk_notes": "Pre-backtest; rigor gate pending.",
+                "strategy_spec": {
+                    "name": "Universe-steer test fusion",
+                    "asset_universe": ["SPY"],  # the model's stale default
+                    "rebalance_frequency": "monthly",
+                    "entry": {"gt": ["close", "sma_200"]},
+                    "exit": {"lt": ["close", "sma_200"]},
+                    "position_sizing": {"type": "full_invested_when_in_market"},
+                    "source_arxiv_ids": ids,
+                    "look_ahead_safe": True,
+                    "indicators": ["sma_200"],
+                },
+            }
+        )
+
+
+def test_universe_derived_from_user_selected_assets(monkeypatch, corpus):
+    """The user's selected instruments steer the spec universe, overriding the model.
+
+    Realistic steer: a broad class ("equities") drives paper retrieval, while the
+    specific instruments the user picked drive the concrete universe.
+    """
+    monkeypatch.setenv("ARCHIMEDES_FUSION_ENABLED", "1")
+    svc = StrategyFusion(backend=_SpecBackend(), corpus=corpus)
+    proposal = svc.propose(FusionBrief(asset_classes=["equities", "QQQ", "IWM"]))
+    assert proposal.status == "ok"
+    assert proposal.strategy_spec is not None
+    # The model emitted ["SPY"]; the service replaced it with the user's picks.
+    assert proposal.strategy_spec["asset_universe"] == ["QQQ", "IWM"]
+    assert proposal.strategy_spec["asset_universe"] != ["SPY"]
+
+
+def test_universe_falls_back_to_ssot_when_no_instrument_steer(monkeypatch, corpus):
+    """No concrete instrument in the steer → the full SSOT universe, never ["SPY"]."""
+    monkeypatch.setenv("ARCHIMEDES_FUSION_ENABLED", "1")
+    svc = StrategyFusion(backend=_SpecBackend(), corpus=corpus)
+    # Broad-class steer ("equities") drives the paper filter but resolves to no
+    # single instrument, so the universe falls back to the SSOT.
+    proposal = svc.propose(FusionBrief(asset_classes=["equities", "rates"]))
+    assert proposal.status == "ok"
+    assert proposal.strategy_spec is not None
+    universe = proposal.strategy_spec["asset_universe"]
+    assert universe != ["SPY"]  # never the bare hardcoded literal
+    assert universe == list(SUPPORTED_UNIVERSE)
+    assert len(universe) > 1  # a real multi-instrument universe
+
+
+def test_derive_asset_universe_resolves_synth_and_yfinance_aliases():
+    """The derivation accepts display symbols, synth keys, and yfinance tickers."""
+    assert derive_asset_universe(["SPY"]) == ["SPY"]
+    assert derive_asset_universe(["sSPY"]) == ["SPY"]  # synth key
+    assert derive_asset_universe(["spy"]) == ["SPY"]  # case-insensitive
+    # De-dupe + order-preserve across alias forms.
+    assert derive_asset_universe(["QQQ", "sQQQ", "QQQ"]) == ["QQQ"]
+
+
+def test_derive_asset_universe_empty_is_full_ssot_not_spy():
+    """Empty steer → the full supported universe, never a bare ["SPY"]."""
+    universe = derive_asset_universe([])
+    assert universe == list(SUPPORTED_UNIVERSE)
+    assert universe != ["SPY"]
+    assert "SPY" in universe  # SPY is *in* the universe, just not the whole of it
+
+
+def test_supported_universe_is_ssot_derived_and_nontrivial():
+    """The supported universe is derived from the GLOBAL_ASSETS SSOT, not a literal."""
+    assert "SPY" in SUPPORTED_UNIVERSE
+    assert "QQQ" in SUPPORTED_UNIVERSE
+    assert len(SUPPORTED_UNIVERSE) > 50  # the expanded multi-asset universe
+    assert tuple(sorted(SUPPORTED_UNIVERSE)) == SUPPORTED_UNIVERSE  # stable order
