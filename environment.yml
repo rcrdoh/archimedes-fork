@@ -26,7 +26,7 @@ dependencies:
   - pip:
       # --- Web backend ---
       - fastapi>=0.115
-      - "starlette>=1.0.1"            # Pinned directly to close PYSEC-2026-161 (Host-header validation bypass); FastAPI's range can resolve to vulnerable 1.0.0 without this floor.
+      - "starlette>=1.3.1"            # Pinned directly to close PYSEC-2026-161 (Host-header validation bypass); FastAPI's range can resolve to vulnerable 1.0.0 without this floor. Floor raised to 1.3.1 to close CVE-2026-54282 / CVE-2026-54283 (CVE bump 2026-06-25); FastAPI's requires-dist is starlette>=0.46.0 with no upper bound, so this resolves cleanly.
       - "uvicorn[standard]>=0.49.0"
       - sqlalchemy>=2.0
       - psycopg2-binary>=2.9.12       # PostgreSQL driver (binary wheel; no system pq needed). Floor aligned with backend/requirements.txt via dependabot PR #247.
@@ -49,6 +49,7 @@ dependencies:
       - requests>=2.32,<2.34          # arxiv pins requests<2.34; keep aligned with backend/requirements.txt (Dependabot #702 broke the deploy 2026-06-25)
       - aiohttp>=3.14.1                # Bumped from 3.13.5 to close CVE-2026-34993 / CVE-2026-47265 (HTTP parser DoS/smuggling). Floor aligned with backend/requirements.txt.
       - httpx>=0.27                   # Directly imported by services/corpus_service.py (arXiv intake) and services/llm_backend.py (OpenAI-compatible + Ollama). Pinned so we don't rely on transitive resolution.
+      - urllib3>=2.7.0                # Transitive (requests / boto3 / arxiv). Pinned directly to close PYSEC-2026-141 / PYSEC-2026-142 so a fresh resolve can't regress (CVE bump 2026-06-25). Aligned with backend/requirements.txt.
 
       # --- Backtesting (per backtrader-vs-vectorbt decision memo) ---
       - backtrader>=1.9.78.123        # Decision: v1 default. See docs/specs/backtrader-vs-vectorbt-decision-memo.md. Floor aligned with backend/requirements.txt via dependabot PR #249.
@@ -71,7 +72,7 @@ dependencies:
 
       # --- Paper ingestion (Q-fin corpus) ---
       - arxiv>=2.1                    # arxiv API client
-      - pypdf>=6.13.2                 # PDF text extraction
+      - pypdf>=6.13.3                 # PDF text extraction. Floor raised to 6.13.3 to close 8 CVEs incl GHSA-jm82-fx9c-mx94 (CVE bump 2026-06-25). Aligned with backend/requirements.txt.
 
       # --- Quality + tests ---
       - ruff>=0.6                     # Linter + formatter; configured at line length 120
@@ -84,4 +85,4 @@ dependencies:
       # --- Dev convenience ---
       - ipython>=8.27
       - jupyter>=1.1                  # For exploratory strategy work
-      - tornado>=6.5.6                # Pinned directly to close CVE-2026-49854 (WebSocket frame-length overflow) in jupyter's transitive tornado dep. environment.yml-only: tornado is a dev/notebook dependency, not imported by backend runtime code (not in backend/requirements.txt).
+      - tornado>=6.5.7                # Pinned directly to close CVE-2026-49854 (WebSocket frame-length overflow) in jupyter's transitive tornado dep; floor raised to 6.5.7 (CVE bump 2026-06-25). environment.yml-only: tornado is a dev/notebook dependency, not imported by backend runtime code (not in backend/requirements.txt).
