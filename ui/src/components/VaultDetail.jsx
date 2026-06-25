@@ -1,6 +1,6 @@
 import { apiGet } from '../api'
 import { useState, useEffect, useCallback } from 'react'
-import { isAddress, parseUnits } from 'viem'
+import { isAddress, parseUnits, formatUnits } from 'viem'
 import {
   publicClient, getWalletClient, getAddress,
   USDC, TOKEN_ABI, VAULT_ABI,
@@ -93,6 +93,12 @@ export default function VaultDetail({ address, onBack }) {
   const [depositAmt, setDepositAmt] = useState('')
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
+  // Withdraw / redeem state (Issue #466). `withdrawShares` is the user's input
+  // in vault-share units; `shareBalance` is their on-chain balanceOf; `previewOut`
+  // is the previewRedeem(shares) USDC quote the user confirms before signing.
+  const [withdrawShares, setWithdrawShares] = useState('')
+  const [shareBalance, setShareBalance] = useState(null)
+  const [previewOut, setPreviewOut] = useState(null)
   const [chatOpen, setChatOpen] = useState(true)
   const wallet = getAddress()
 
@@ -183,6 +189,126 @@ export default function VaultDetail({ address, onBack }) {
 
   useEffect(() => { loadOnChain() }, [loadOnChain])
 
+  // ── Withdraw / redeem (Issue #466) ───────────────────────────
+  // Vault shares are 18-decimal ERC20 tokens, but the vault preserves a strict
+  // 1:1 raw share:asset scale (see Vault.sol — "dead shares" inflation guard),
+  // so 1 USDC deposited (1e6 raw) mints 1e6 raw shares. We therefore display +
+  // parse shares in the same 6-decimal "USDC-equivalent" unit the user deposited
+  // in, which keeps the numbers legible and exact. The ground truth for USDC out
+  // is always previewRedeem(shares), read fresh from chain before the user signs.
+  const SHARE_DECIMALS = USDC_DECIMALS
+
+  // Read the connected wallet's vault-share balance (balanceOf).
+  const loadShareBalance = useCallback(async () => {
+    if (!address || !isAddress(address)) return
+    let owner
+    try {
+      owner = getAddress()
+    } catch {
+      // Wallet hook not ready — leave shareBalance null; the UI shows a connect prompt.
+      return
+    }
+    if (!owner) return
+    try {
+      const bal = await publicClient.readContract({
+        address, abi: VAULT_ABI, functionName: 'balanceOf', args: [owner],
+      })
+      setShareBalance(bal)
+    } catch {
+      // balanceOf revert (RPC down / bad address) — leave prior value; don't crash the panel.
+    }
+  }, [address])
+
+  useEffect(() => { loadShareBalance() }, [loadShareBalance])
+
+  // Quote USDC out for the entered share amount via previewRedeem. Debounced so we
+  // don't hammer the RPC on every keystroke. previewRedeem returns USDC (6-dec).
+  useEffect(() => {
+    if (!address || !isAddress(address) || !withdrawShares) {
+      setPreviewOut(null)
+      return
+    }
+    let cancelled = false
+    const t = setTimeout(async () => {
+      let shares
+      try {
+        shares = parseUnits(withdrawShares, SHARE_DECIMALS)
+      } catch {
+        if (!cancelled) setPreviewOut(null)
+        return
+      }
+      if (shares <= 0n) { if (!cancelled) setPreviewOut(null); return }
+      try {
+        const out = await publicClient.readContract({
+          address, abi: VAULT_ABI, functionName: 'previewRedeem', args: [shares],
+        })
+        if (!cancelled) setPreviewOut(out)
+      } catch {
+        if (!cancelled) setPreviewOut(null)
+      }
+    }, 300)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [address, withdrawShares, SHARE_DECIMALS])
+
+  const setMaxShares = () => {
+    if (shareBalance == null) return
+    setWithdrawShares(formatUnits(shareBalance, SHARE_DECIMALS))
+  }
+
+  const withdraw = async () => {
+    if (!address || !withdrawShares) return
+    // Same anti-phishing guard as deposit: never route a redeem to an
+    // unvalidated address from a deep-link.
+    if (!isAddress(address)) {
+      setStatus('Invalid vault address — refusing to redeem.')
+      return
+    }
+    let shares
+    try {
+      shares = parseUnits(withdrawShares, SHARE_DECIMALS)
+    } catch {
+      setStatus('Invalid share amount.')
+      return
+    }
+    if (shares <= 0n) { setStatus('Enter a share amount greater than zero.'); return }
+    if (shareBalance != null && shares > shareBalance) {
+      setStatus('Amount exceeds your share balance.')
+      return
+    }
+    setBusy(true); setStatus('')
+    try {
+      const w = await getWalletClient()
+      const owner = getAddress()
+      // Non-custodial: the USER signs redeem(shares, receiver, owner). The backend
+      // never holds keys for this — receiver and owner are both the connected wallet,
+      // so funds can only flow back to the signer. redeem burns `shares` and returns
+      // the previewed USDC.
+      setStatus('Redeeming…')
+      const hash = await w.writeContract({
+        address, abi: VAULT_ABI, functionName: 'redeem', args: [shares, owner, owner],
+      })
+      setStatus(
+        <span>
+          Withdrawn! TX:{' '}
+          <a
+            href={`https://testnet.arcscan.app/tx/${hash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mono"
+            style={{ color: 'var(--accent)' }}
+          >
+            {hash.slice(0, 10)}…{hash.slice(-6)} ↗
+          </a>
+        </span>
+      )
+      setWithdrawShares('')
+      setPreviewOut(null)
+      loadOnChain()
+      loadShareBalance()
+    } catch (err) { setStatus(err.shortMessage || err.message) }
+    setBusy(false)
+  }
+
   const deposit = async () => {
     if (!address || !depositAmt) return
     // The vault address comes from the URL (deep-link); never route a USDC
@@ -221,6 +347,7 @@ export default function VaultDetail({ address, onBack }) {
       )
       setDepositAmt('')
       loadOnChain()
+      loadShareBalance()
     } catch (err) { setStatus(err.shortMessage || err.message) }
     setBusy(false)
   }
@@ -399,8 +526,60 @@ export default function VaultDetail({ address, onBack }) {
             {busy ? 'Waiting…' : 'Deposit'}
           </button>
         </div>
-        {status && <div className="status-msg">{status}</div>}
       </div>
+
+      {/* Withdraw (Issue #466 — non-custodial redeem) */}
+      <div className="vault-section">
+        <h3>Withdraw</h3>
+        <div className="vault-deposit-row">
+          <input
+            type="number"
+            value={withdrawShares}
+            onChange={e => setWithdrawShares(e.target.value)}
+            placeholder="Shares to redeem"
+            className="vault-deposit-input"
+          />
+          <button
+            className="btn"
+            onClick={setMaxShares}
+            disabled={busy || !wallet || shareBalance == null || shareBalance === 0n}
+            title="Redeem your full share balance"
+          >
+            Max
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={withdraw}
+            disabled={busy || !wallet || !withdrawShares}
+          >
+            {busy ? 'Waiting…' : 'Withdraw'}
+          </button>
+        </div>
+        {/* Share balance + previewRedeem confirmation — the user sees the exact USDC
+            they'll receive before signing. */}
+        <div className="caption" style={{ marginTop: 8, color: 'var(--text-3)' }}>
+          {shareBalance != null && (
+            <span>
+              Your shares: <span className="mono">{formatUnits(shareBalance, SHARE_DECIMALS)}</span>
+            </span>
+          )}
+          {previewOut != null && (
+            <span style={{ marginLeft: shareBalance != null ? 12 : 0 }}>
+              You receive ≈{' '}
+              <span className="mono" style={{ color: 'var(--text-1)' }}>
+                ${Number(formatUnits(previewOut, USDC_DECIMALS)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Shared deposit/withdraw status (last action's result + TX link) */}
+      {status && (
+        <div className="vault-section">
+          <div className="status-msg">{status}</div>
+        </div>
+      )}
 
       {/* Chat */}
       <div className="vault-section">

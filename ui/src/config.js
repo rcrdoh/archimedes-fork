@@ -543,6 +543,13 @@ export const ASSET_REGISTRY_ABI = [
 export const VAULT_ABI = [
   { name: 'deposit',             type: 'function', stateMutability: 'nonpayable', inputs: [{ type: 'uint256' }, { type: 'address' }], outputs: [{ type: 'uint256' }] },
   { name: 'withdraw',            type: 'function', stateMutability: 'nonpayable', inputs: [{ type: 'uint256' }, { type: 'address' }, { type: 'address' }], outputs: [{ type: 'uint256' }] },
+  // ERC-4626 share-based redemption (Issue #466 — non-custodial withdraw).
+  // redeem(shares, receiver, owner) burns `shares` from `owner` and sends the
+  // resulting USDC to `receiver`; previewRedeem(shares) quotes the USDC out
+  // off-chain so the user can confirm before signing. Both exist on the deployed
+  // Vault.json ABI (verified Issue #466) — this just surfaces them to the UI.
+  { name: 'redeem',              type: 'function', stateMutability: 'nonpayable', inputs: [{ type: 'uint256' }, { type: 'address' }, { type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { name: 'previewRedeem',       type: 'function', stateMutability: 'view', inputs: [{ type: 'uint256' }], outputs: [{ type: 'uint256' }] },
   { name: 'totalAssets',         type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { name: 'totalSupply',         type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { name: 'balanceOf',           type: 'function', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
