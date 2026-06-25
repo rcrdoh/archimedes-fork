@@ -221,6 +221,20 @@ docker compose up -d --build
 Then <http://localhost> for the UI mockups and <http://localhost:8000/docs> for the
 backend API. See README § "Run Archimedes locally" for the full walkthrough.
 
+**The whole toolchain lives in the `archimedes` conda env — including Node.**
+`python` / `pytest` / `ruff` **and** `node` / `npm` / the `ui/` ESLint all come
+from the `archimedes` env; **none are on the base shell PATH.** A bare
+`command -v node` returning nothing does *not* mean Node is missing — it means
+the env isn't on PATH. Activate the env, or use its binaries directly. For a
+non-interactive shell (CI, or an agent's Bash tool), prepend the env's bin so
+the ESLint shebang can resolve Node:
+
+```bash
+export PATH="$(conda info --base)/envs/archimedes/bin:$PATH"
+node --version            # v26.x ; npm 11.x
+cd ui && npm run lint     # or scoped: ./node_modules/.bin/eslint src/<file>
+```
+
 **Tests:** from the repo root in the `archimedes` conda env, just `pytest` —
 `pytest.ini` sets `pythonpath`/`testpaths` and a verbose default (~1400 backend
 `def test_` cases on `main` as of 2026-06-13; suite is still growing). Coverage:
