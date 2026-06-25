@@ -572,6 +572,137 @@ class TestCreateVault:
         assert any("no VaultCreated event found" in r.message for r in caplog.records)
 
 
+# ── T0.2: non-custodial owner≠agent handoff ──────────────────
+
+
+class TestNonCustodialOwnership:
+    """create_vault must make the vault non-custodial after creation: owner =
+    user (or governance), agent = backend signer. Re-lands reverted PR #646's
+    intent WITHOUT changing the live 5-arg createVault selector — it uses the
+    setAgent/transferOwnership functions already in the deployed Vault ABI.
+
+    Hermetic: Circle execute_contract + receipt waits are mocked; no network.
+    """
+
+    def _circle_create_with_owner(self, executor, mock_loader, *, owner_wallet, env):
+        """Run create_vault on the Circle path and return the list of
+        (abi_function, abi_params) tuples submitted via circle_signer."""
+        calls: list[tuple[str, list]] = []
+
+        async def _exec(*, contract_address, abi_function, abi_params, **_):
+            calls.append((abi_function, abi_params))
+            return "0xtxhash"
+
+        with (
+            patch.object(executor, "_parse_vault_created", return_value="0xNewVault"),
+            patch("archimedes.chain.executor.circle_signer") as mock_signer,
+            patch.dict("os.environ", env, clear=False),
+        ):
+            mock_signer.is_configured = True
+            mock_signer.execute_contract = AsyncMock(side_effect=_exec)
+            result = asyncio.run(
+                executor.create_vault("Momentum Alpha", "vMOM", 150, 2000, True, owner_wallet=owner_wallet)
+            )
+        assert result == "0xNewVault"
+        return calls
+
+    def test_user_wallet_becomes_owner_agent_is_backend(self, executor, mock_loader):
+        """User-facing path: owner_wallet is passed → setAgent(backend) then
+        transferOwnership(user). owner != agent."""
+        user = "0x00000000000000000000000000000000000A11cE"
+        agent = "0x00000000000000000000000000000000000aBcDe"
+        calls = self._circle_create_with_owner(executor, mock_loader, owner_wallet=user, env={"WALLET_ADDRESS": agent})
+        sigs = [c[0] for c in calls]
+        assert "createVault(string,string,uint16,uint16,bool)" in sigs
+        assert "setAgent(address)" in sigs
+        assert "transferOwnership(address)" in sigs
+        # The agent is pinned to the backend signer; ownership goes to the user.
+        set_agent = next(c for c in calls if c[0] == "setAgent(address)")
+        transfer = next(c for c in calls if c[0] == "transferOwnership(address)")
+        assert set_agent[1] == [agent]
+        assert transfer[1] == [user]
+        assert transfer[1] != set_agent[1]  # owner != agent — the whole point
+
+    def test_no_user_uses_governance_address(self, executor, mock_loader):
+        """Bootstrap/auto-create: no owner_wallet but ARC_VAULT_GOVERNANCE_ADDRESS
+        set → ownership transfers to governance (distinct from the agent)."""
+        gov = "0x000000000000000000000000000000000060A111"  # governance/cold key
+        agent = "0x00000000000000000000000000000000000aBcDe"
+        calls = self._circle_create_with_owner(
+            executor,
+            mock_loader,
+            owner_wallet=None,
+            env={"WALLET_ADDRESS": agent, "ARC_VAULT_GOVERNANCE_ADDRESS": gov},
+        )
+        transfer = next(c for c in calls if c[0] == "transferOwnership(address)")
+        assert transfer[1] == [gov]
+
+    def test_no_owner_no_governance_warns_and_skips_transfer(self, executor, mock_loader, caplog):
+        """No user AND no governance → DON'T transfer (no regression), but log a
+        loud warning. Crucially: never silently transfer ownership to the agent."""
+        agent = "0x00000000000000000000000000000000000aBcDe"
+        with caplog.at_level("WARNING", logger="archimedes.chain.executor"):
+            calls = self._circle_create_with_owner(
+                executor,
+                mock_loader,
+                owner_wallet=None,
+                env={"WALLET_ADDRESS": agent, "ARC_VAULT_GOVERNANCE_ADDRESS": ""},
+            )
+        sigs = [c[0] for c in calls]
+        assert "transferOwnership(address)" not in sigs
+        assert "setAgent(address)" not in sigs  # handoff skipped entirely
+        assert any("without an owner≠agent handoff" in r.message.lower() for r in caplog.records)
+
+    def test_refuses_to_transfer_ownership_to_agent(self, executor, mock_loader, caplog):
+        """Defensive: if the resolved owner equals the agent address, refuse the
+        transfer (owner == agent would be custodial) and warn."""
+        agent = "0x00000000000000000000000000000000000aBcDe"
+        with caplog.at_level("WARNING", logger="archimedes.chain.executor"):
+            calls = self._circle_create_with_owner(
+                executor,
+                mock_loader,
+                owner_wallet=agent,  # owner == agent
+                env={"WALLET_ADDRESS": agent},
+            )
+        sigs = [c[0] for c in calls]
+        assert "transferOwnership(address)" not in sigs
+        assert any("owner would equal agent" in r.message.lower() for r in caplog.records)
+
+    def test_handoff_failure_is_non_fatal(self, executor, mock_loader, caplog):
+        """A failed setAgent/transferOwnership must NOT fail the create call — the
+        vault exists and holds no funds yet. It logs an exception for the operator."""
+        user = "0x00000000000000000000000000000000000A11cE"
+        agent = "0x00000000000000000000000000000000000aBcDe"
+
+        async def _exec(*, contract_address, abi_function, abi_params, **_):
+            if abi_function == "createVault(string,string,uint16,uint16,bool)":
+                return "0xtxhash"
+            raise RuntimeError("handoff tx failed")
+
+        with (
+            patch.object(executor, "_parse_vault_created", return_value="0xNewVault"),
+            patch("archimedes.chain.executor.circle_signer") as mock_signer,
+            patch.dict("os.environ", {"WALLET_ADDRESS": agent}, clear=False),
+            caplog.at_level("ERROR", logger="archimedes.chain.executor"),
+        ):
+            mock_signer.is_configured = True
+            mock_signer.execute_contract = AsyncMock(side_effect=_exec)
+            # Must still return the vault address despite the handoff failure.
+            result = asyncio.run(executor.create_vault("M", "vM", 0, 0, True, owner_wallet=user))
+        assert result == "0xNewVault"
+        assert any("handoff failed" in r.message.lower() for r in caplog.records)
+
+    def test_resolve_vault_owner_priority(self, executor):
+        """Unit: owner_wallet wins over governance; governance is the fallback;
+        None when neither is set — NEVER the agent by default."""
+        with patch.dict("os.environ", {"ARC_VAULT_GOVERNANCE_ADDRESS": "0xGov"}, clear=False):
+            assert executor._resolve_vault_owner("0xUser") == "0xUser"  # user wins
+            assert executor._resolve_vault_owner(None) == "0xGov"  # governance fallback
+            assert executor._resolve_vault_owner("   ") == "0xGov"  # blank → fallback
+        with patch.dict("os.environ", {"ARC_VAULT_GOVERNANCE_ADDRESS": ""}, clear=False):
+            assert executor._resolve_vault_owner(None) is None  # neither → None (not agent)
+
+
 # ── _usdc_value_to_token_raw ─────────────────────────────────
 
 

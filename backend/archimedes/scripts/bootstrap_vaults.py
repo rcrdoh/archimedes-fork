@@ -391,9 +391,9 @@ async def fund_and_allocate_vaults(vaults: list[dict], minted: dict[str, float])
         except Exception as e:
             print(f"  ⚠️  {vault_info['symbol']}: setTargetAllocations failed — {e}")
 
-        # Set agent address so the Circle wallet can call rebalance()
-        # Since the Circle wallet IS the creator, this is redundant but ensures
-        # the agent field is set for display purposes
+        # Set agent address so the Circle wallet can call rebalance().
+        # The Circle wallet IS the creator/owner here; setAgent pins the
+        # rebalance-only authority to that wallet (the backend agent).
         try:
             await circle_signer.execute_contract(
                 contract_address=vault_addr,
@@ -403,6 +403,38 @@ async def fund_and_allocate_vaults(vaults: list[dict], minted: dict[str, float])
             print(f"  🤖 {vault_info['symbol']}: agent set")
         except Exception as e:
             print(f"  ⚠️  {vault_info['symbol']}: setAgent failed — {e}")
+
+        # T0.2 — make the demo vault NON-CUSTODIAL (owner != agent).
+        # These bootstrap vaults have no end user, so we hand ownership to an
+        # explicit governance/cold key (ARC_VAULT_GOVERNANCE_ADDRESS) that is
+        # DISTINCT from the hot Circle agent wallet. Without this the Circle
+        # wallet would be BOTH owner and agent — a compromised key could
+        # re-point oracles / pause / drain. We refuse to transfer ownership to
+        # the agent address itself; if governance is unset or equals the agent,
+        # we skip with a loud warning rather than mint an agent-owned vault.
+        governance = os.getenv("ARC_VAULT_GOVERNANCE_ADDRESS", "").strip()
+        agent_wallet = os.getenv("WALLET_ADDRESS", "").strip()
+        if not governance:
+            print(
+                f"  ⚠️  {vault_info['symbol']}: ARC_VAULT_GOVERNANCE_ADDRESS unset — "
+                f"vault left owned by the agent wallet (CUSTODIAL). Set a cold "
+                f"governance key distinct from WALLET_ADDRESS to fix."
+            )
+        elif governance.lower() == agent_wallet.lower():
+            print(
+                f"  ⚠️  {vault_info['symbol']}: ARC_VAULT_GOVERNANCE_ADDRESS equals the "
+                f"agent wallet — refusing transfer (owner would == agent, CUSTODIAL)."
+            )
+        else:
+            try:
+                await circle_signer.execute_contract(
+                    contract_address=vault_addr,
+                    abi_function="transferOwnership(address)",
+                    abi_params=[chain_client.to_checksum(governance)],
+                )
+                print(f"  🔐 {vault_info['symbol']}: ownership → governance {governance} (owner≠agent)")
+            except Exception as e:
+                print(f"  ⚠️  {vault_info['symbol']}: transferOwnership failed — {e}")
 
 
 async def add_amm_liquidity(minted: dict[str, float]) -> None:

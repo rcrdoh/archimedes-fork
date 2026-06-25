@@ -83,13 +83,21 @@ async def create_vault(
     req: VaultCreateRequest,
     request: Request,  # noqa: ARG001 — slowapi @limiter.limit inspects param name
     response: Response,  # noqa: ARG001 — slowapi @limiter.limit inspects param name
-    wallet: str = Depends(require_verified_wallet),  # noqa: ARG001 — SIWE gate; raises 401 if unauthenticated
+    wallet: str = Depends(require_verified_wallet),
 ):
     """Deploy a new vault on Arc via VaultFactory.
 
     SIWE-gated: vault creation spends the backend signer's gas on-chain, so it
     must require an authenticated wallet (rate-limiting alone left it open to an
     unauthenticated gas-drain).
+
+    Non-custodial (T0.2): the SIWE-verified ``wallet`` is passed as the vault's
+    owner. ``create_vault`` creates the vault with the backend signer, then
+    transfers Ownable ownership to this user and pins the backend as the
+    rebalance-only agent — so ``owner == user`` and ``agent == backend``. A
+    compromised backend/agent key can rebalance but can NOT re-point the oracle,
+    widen slippage, pause, or otherwise drain the vault. This re-lands the intent
+    of reverted PR #646 without changing the live 5-arg createVault selector.
     """
     try:
         vault_address = await chain_executor.create_vault(
@@ -98,6 +106,7 @@ async def create_vault(
             management_fee_bps=req.management_fee_bps,
             performance_fee_bps=req.performance_fee_bps,
             agent_assisted=req.agent_assisted,
+            owner_wallet=wallet,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

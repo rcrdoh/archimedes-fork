@@ -7,6 +7,7 @@ Handles reading portfolio state, executing rebalance trades, and vault creation.
 from __future__ import annotations
 
 import logging
+import os
 
 from web3.contract import AsyncContract
 
@@ -283,10 +284,39 @@ class ChainExecutor:
         management_fee_bps: int,
         performance_fee_bps: int,
         agent_assisted: bool,
+        owner_wallet: str | None = None,
     ) -> str:
-        """Deploy a new vault via VaultFactory.
+        """Deploy a new vault via VaultFactory, then make it NON-CUSTODIAL.
 
         Uses Circle dev-controlled wallet if configured, falls back to raw private key.
+
+        Non-custodial ownership (T0.2 — re-lands the intent of reverted PR #646):
+            The deployed ``VaultFactory.createVault`` has a 5-arg selector and
+            constructs the Vault with ``Ownable(msg.sender)`` — i.e. the BACKEND
+            SIGNER becomes the vault's owner AND (implicitly) its rebalance
+            authority. That is custodial: a single compromised backend key could
+            re-point the NAV/slippage oracle and bleed the vault.
+
+            #646 tried to fix this by adding a 6th ``address _vaultOwner`` arg to
+            ``createVault``, but the on-chain bytecode only has the 5-arg selector,
+            so every call reverted and #646 was reverted in full by #650.
+
+            We re-land the SAME non-custodial outcome WITHOUT touching the deployed
+            selector or the Vault constructor: right after creation (while the
+            backend signer is still owner) we call ``setAgent(backendAgent)`` and
+            then ``transferOwnership(owner_wallet)``. Both functions already exist
+            in the live Vault ABI, so nothing can mismatch the deployed bytecode.
+            The result is ``owner == depositing user`` and ``agent == backend
+            signer`` — the agent keeps rebalance-only authority and can never touch
+            the owner-only setters (oracles, slippage cap, pause). See
+            ``_apply_non_custodial_ownership`` for the owner-resolution policy
+            (user wallet → governance address → fail-loud; NEVER silently the agent).
+
+        Args:
+            owner_wallet: The depositing user's wallet, which becomes the vault's
+                Ownable owner. Pass the SIWE-verified caller for user-facing
+                creation. ``None`` is only valid for backend bootstrap/auto-create,
+                where an explicit governance owner is resolved instead (see helper).
         """
         factory = self.loader.vault_factory
 
@@ -320,6 +350,9 @@ class ChainExecutor:
                 all_vaults = await factory.functions.getVaults().call()
                 vault_address = all_vaults[-1]
             logger.info(f"Vault created at {vault_address}")
+
+            # Make the vault non-custodial: owner = user (or governance), agent = backend.
+            await self._apply_non_custodial_ownership(vault_address, owner_wallet)
             return vault_address
 
         # Fallback: raw private key
@@ -350,7 +383,175 @@ class ChainExecutor:
             raise RuntimeError("Failed to extract vault address from deployment receipt")
 
         logger.info(f"Vault created at {vault_address} in tx {tx_hash.hex()}")
+
+        # Make the vault non-custodial: owner = user (or governance), agent = backend.
+        await self._apply_non_custodial_ownership(vault_address, owner_wallet)
         return vault_address
+
+    def _backend_signer_address(self) -> str | None:
+        """The EVM address the backend uses to sign vault txs (the agent/creator).
+
+        Circle path: the managed wallet's EVM address, surfaced via WALLET_ADDRESS
+        (same env var the bootstrap script already reads for setAgent). Raw-key
+        path: the address derived from ARC_AGENT_PRIVATE_KEY. Returns None if it
+        can't be determined (Circle configured but WALLET_ADDRESS unset).
+        """
+        if circle_signer.is_configured:
+            addr = os.getenv("WALLET_ADDRESS", "").strip()
+            return addr or None
+        account = chain_client.settings.agent_account
+        return account.address if account else None
+
+    def _resolve_vault_owner(self, owner_wallet: str | None) -> str | None:
+        """Decide who should own the vault — and refuse to default to the agent.
+
+        Priority:
+          1. ``owner_wallet`` — the depositing user (user-facing creation). Always
+             preferred; this is the whole point of non-custodial vaults.
+          2. ``ARC_VAULT_GOVERNANCE_ADDRESS`` — an explicit cold/governance key for
+             backend bootstrap/auto-create where no user wallet exists. Documented
+             in .env.example; intended to be a key DISTINCT from the hot agent
+             signer.
+          3. ``None`` — neither is available. The caller MUST NOT silently leave the
+             vault owned by the agent (that re-creates the custodial drain vector).
+             We return None and the helper logs a loud warning + skips the transfer
+             rather than mint an agent-owned vault behind the operator's back.
+        """
+        if owner_wallet and owner_wallet.strip():
+            return owner_wallet.strip()
+        gov = os.getenv("ARC_VAULT_GOVERNANCE_ADDRESS", "").strip()
+        return gov or None
+
+    async def _apply_non_custodial_ownership(self, vault_address: str, owner_wallet: str | None) -> None:
+        """Separate the vault's owner from its agent so a compromised agent key
+        cannot drain it (T0.2).
+
+        After ``createVault`` the backend signer is the vault's Ownable owner AND
+        the de-facto rebalancer. This method, run by that same signer while it is
+        still owner:
+
+          1. ``setAgent(backendAgent)`` — pin the rebalance-only authority to the
+             backend signer explicitly (it stays the agent after the handoff).
+          2. ``transferOwnership(resolvedOwner)`` — hand the owner role (oracles,
+             slippage cap, pause, setAgent) to the depositing user, or to an
+             explicit governance key for bootstrap. After this, ``owner != agent``.
+
+        Fail-safe: if no non-agent owner can be resolved (no user wallet AND no
+        governance address), we DO NOT transfer ownership — but we log a prominent
+        warning. Leaving the freshly-created vault owned by the backend signer is
+        the status quo (no regression), and refusing to invent an owner avoids
+        bricking a vault by transferring it to a wrong address. Operators see the
+        warning and set ARC_VAULT_GOVERNANCE_ADDRESS to close the gap.
+
+        On-chain failures here are logged but NOT raised: the vault already exists
+        and is usable; a failed ownership handoff is an operational alert, not a
+        reason to 500 the create call (and never a reason to leave funds at risk —
+        no user funds are in the vault yet at creation time).
+        """
+        agent_addr = self._backend_signer_address()
+        resolved_owner = self._resolve_vault_owner(owner_wallet)
+
+        if not resolved_owner:
+            logger.warning(
+                "Vault %s created WITHOUT an owner≠agent handoff: no user wallet was "
+                "supplied and ARC_VAULT_GOVERNANCE_ADDRESS is unset. The vault is "
+                "owned by the backend signer (custodial). Set "
+                "ARC_VAULT_GOVERNANCE_ADDRESS (a cold key distinct from the agent) "
+                "to make bootstrap/auto-created vaults non-custodial.",
+                vault_address,
+            )
+            return
+
+        if resolved_owner.lower() == (agent_addr or "").lower():
+            # Defensive: never hand ownership to the agent address — that is the
+            # exact custodial configuration we are removing.
+            logger.warning(
+                "Refusing to transferOwnership of vault %s to the agent address %s "
+                "(owner would equal agent — custodial). Configure a distinct "
+                "ARC_VAULT_GOVERNANCE_ADDRESS or pass a user wallet.",
+                vault_address,
+                resolved_owner,
+            )
+            return
+
+        try:
+            # 1) Pin the agent (rebalance-only authority) to the backend signer.
+            if agent_addr:
+                await self._send_vault_admin_tx(
+                    vault_address,
+                    raw_fn_name="setAgent",
+                    raw_fn_args=(chain_client.to_checksum(agent_addr),),
+                    circle_sig="setAgent(address)",
+                    circle_params=[chain_client.to_checksum(agent_addr)],
+                )
+
+            # 2) Hand ownership to the user/governance — owner != agent after this.
+            await self._send_vault_admin_tx(
+                vault_address,
+                raw_fn_name="transferOwnership",
+                raw_fn_args=(chain_client.to_checksum(resolved_owner),),
+                circle_sig="transferOwnership(address)",
+                circle_params=[chain_client.to_checksum(resolved_owner)],
+            )
+            logger.info(
+                "Vault %s is now non-custodial: owner=%s, agent=%s",
+                vault_address,
+                resolved_owner,
+                agent_addr,
+            )
+        except Exception:
+            # Non-fatal: the vault exists and holds no funds yet. Surface loudly so
+            # an operator can re-run the handoff, but don't fail the create call.
+            logger.exception(
+                "owner≠agent handoff failed for vault %s (vault created but still "
+                "backend-owned — re-run the handoff before users deposit)",
+                vault_address,
+            )
+
+    async def _send_vault_admin_tx(
+        self,
+        vault_address: str,
+        *,
+        raw_fn_name: str,
+        raw_fn_args: tuple,
+        circle_sig: str,
+        circle_params: list,
+    ) -> None:
+        """Submit a single owner-only admin tx to a vault via whichever signer is
+        configured (Circle managed wallet, else raw key), confirming it on-chain.
+
+        Used by the non-custodial ownership handoff for setAgent /
+        transferOwnership. Raises (TradeRevertedError) on an on-chain revert so the
+        caller can surface a failed handoff.
+        """
+        if circle_signer.is_configured:
+            tx_hash = await circle_signer.execute_contract(
+                contract_address=vault_address,
+                abi_function=circle_sig,
+                abi_params=circle_params,
+            )
+            await self._confirm_receipt(tx_hash)
+            return
+
+        account = chain_client.settings.agent_account
+        if not account:
+            raise RuntimeError("No agent account configured for vault admin tx")
+
+        vault = self.loader.vault(vault_address)
+        nonce = await chain_client.w3.eth.get_transaction_count(account.address, "pending")
+        fn = getattr(vault.functions, raw_fn_name)(*raw_fn_args)
+        tx = await fn.build_transaction(
+            {
+                "from": account.address,
+                "nonce": nonce,
+                "chainId": chain_client.settings.chain_id,
+                "gas": 200_000,
+                "gasPrice": await chain_client.w3.eth.gas_price,
+            }
+        )
+        signed = account.sign_transaction(tx)
+        tx_hash = await chain_client.w3.eth.send_raw_transaction(signed.raw_transaction)
+        await self._confirm_receipt(tx_hash)
 
     async def get_vault_metrics(self, vault_address: str) -> dict:
         """Read vault metrics from on-chain state."""
