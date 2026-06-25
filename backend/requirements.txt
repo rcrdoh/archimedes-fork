@@ -23,7 +23,11 @@ scikit-learn>=1.5  # GaussianMixture + StandardScaler for the data-driven GmmReg
 
 # Market data
 yfinance>=1.4.1
-requests>=2.34.2
+# Do NOT bump to >=2.34: arxiv (incl. 4.0.0) pins requests<2.34, so a fresh
+# `pip install -r requirements.txt` resolve fails and the Docker deploy breaks
+# (regression from Dependabot #702, caught on deploy 2026-06-25). Keep <2.34
+# until arxiv relaxes its pin. environment.yml uses the same floor.
+requests>=2.32,<2.34
 # Bumped from 3.13.5 to close CVE-2026-34993 / CVE-2026-47265 (HTTP parser
 # DoS/smuggling).
 aiohttp>=3.14.1
