@@ -286,6 +286,34 @@ async def health():
     except Exception:
         paper_rag_reason = "import failed"
 
+    # GMM regime-detector health (T0.5 — loud fallback telemetry).
+    # "degraded" => no fitted artifact, rule-based VixRegimeDetector fallback
+    # active. Surfaced so rule-based regime calls aren't presented as data-driven.
+    regime_detector_status = "unknown"
+    regime_detector_reason = ""
+    try:
+        from archimedes.services.gmm_regime_detector import gmm_regime_health
+
+        _gmm_diag = gmm_regime_health()
+        regime_detector_status = _gmm_diag.status
+        regime_detector_reason = _gmm_diag.reason
+    except Exception:
+        regime_detector_reason = "import failed"
+
+    # Risk-analysis data health (T0.5 — loud fallback telemetry).
+    # "mock" => no persisted backtest equity curves, so the Risk UI renders
+    # placeholder mockReturns. Surfaced so mock tail-risk isn't presented as real.
+    risk_data_status = "unknown"
+    risk_data_reason = ""
+    try:
+        from archimedes.api.risk_routes import risk_data_health
+
+        _risk_diag = risk_data_health()
+        risk_data_status = _risk_diag.status
+        risk_data_reason = _risk_diag.reason
+    except Exception:
+        risk_data_reason = "import failed"
+
     return {
         "status": "ok" if connected else "degraded",
         "service": "archimedes-backend",
@@ -305,6 +333,10 @@ async def health():
         "llm_has_base_url": bool(os.getenv("LLM_BASE_URL") or os.getenv("ANTHROPIC_BASE_URL")),
         "paper_rag": paper_rag_status,
         "paper_rag_reason": paper_rag_reason,
+        "regime_detector": regime_detector_status,
+        "regime_detector_reason": regime_detector_reason,
+        "risk_data": risk_data_status,
+        "risk_data_reason": risk_data_reason,
     }
 
 

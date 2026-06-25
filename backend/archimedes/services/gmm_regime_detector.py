@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import logging
 import pickle
+import weakref
 from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -119,6 +120,56 @@ class FittedGmm:
     scaler: StandardScaler
     gmm: GaussianMixture
     component_to_regime: dict[int, Regime]
+
+
+@dataclass(frozen=True)
+class GmmRegimeHealth:
+    """Health diagnostic for the GMM regime detector subsystem (T0.5).
+
+    Mirrors ``PaperRAGHealth`` so ``/health`` can surface GMM degradation the
+    same way it surfaces the paper-RAG TF-IDF fallback.
+    """
+
+    status: str  # live | degraded
+    reason: str = ""
+
+
+# Weak reference to the most-recently-constructed detector, so the module-level
+# ``gmm_regime_health()`` probe used by ``/health`` can report the live
+# instance's state without the request handler needing a handle on the agent
+# runner. A weakref avoids pinning a detector alive past its natural lifetime.
+_LAST_DETECTOR: weakref.ReferenceType[GmmRegimeDetector] | None = None
+
+
+def _register_detector(detector: GmmRegimeDetector) -> None:
+    """Record the newest detector instance for the health probe."""
+    global _LAST_DETECTOR
+    _LAST_DETECTOR = weakref.ref(detector)
+
+
+def gmm_regime_health() -> GmmRegimeHealth:
+    """Report GMM regime-detector health for ``/health`` (T0.5).
+
+    - ``live``: a fitted GMM artifact is loaded → data-driven regime calls.
+    - ``degraded``: no fitted artifact → every classify delegates to the
+      rule-based ``VixRegimeDetector`` fallback. This is the expected steady
+      state until ``scripts/fit_gmm_regime.py`` produces an artifact, but it
+      MUST be visible rather than silent: rule-based calls would otherwise be
+      presented as if the data-driven model were live.
+
+    Probes the most-recently-constructed detector if one exists; otherwise
+    checks the default artifact path directly so the flag is meaningful even
+    before any detector is instantiated (e.g. a cold ``/health`` hit).
+    """
+    detector = _LAST_DETECTOR() if _LAST_DETECTOR is not None else None
+    if detector is not None:
+        return detector.health()
+    if DEFAULT_GMM_MODEL_PATH.exists():
+        return GmmRegimeHealth(status="live", reason="data-driven GMM regime model present")
+    return GmmRegimeHealth(
+        status="degraded",
+        reason=f"no fitted GMM model at {DEFAULT_GMM_MODEL_PATH} — rule-based fallback active",
+    )
 
 
 def _label_components(scaler: StandardScaler, gmm: GaussianMixture) -> dict[int, Regime]:
@@ -243,6 +294,7 @@ class GmmRegimeDetector:
         seed_history: list[tuple[float, float]] | None = None,
     ) -> None:
         self._model: FittedGmm | None = load_gmm_model(model_path)
+        self._model_path = Path(model_path)
         self._fallback: IRegimeDetector = fallback or VixRegimeDetector()
         # Rolling (vix, spy_price) buffer, optionally pre-seeded for tests / warm
         # starts. maxlen caps memory; we only ever read the trailing window.
@@ -254,6 +306,62 @@ class GmmRegimeDetector:
         self._pending_regime: Regime | None = None
         self._pending_count: int = 0
         self._last: RegimeClassification | None = None
+        # ── Loud-fallback telemetry (T0.5) ───────────────────────────
+        # The detector silently delegating to the rule-based fallback is a
+        # claim-integrity issue: the product would present rule-based regime
+        # calls as if the data-driven GMM were live. We track the degradation
+        # explicitly so /health can surface it, and we WARN once-per-reason so
+        # the log carries the structured signal without spamming on every tick.
+        self._fallback_warned: set[str] = set()
+        if self._model is None:
+            self._warn_fallback(
+                "no_fitted_model",
+                f"GMM regime model artifact absent at {self._model_path} — "
+                "delegating to rule-based VixRegimeDetector fallback",
+            )
+        # Register as the most-recently-constructed detector so the module-level
+        # gmm_regime_health() probe (used by /health) can report live state.
+        _register_detector(self)
+
+    def _warn_fallback(self, reason: str, detail: str) -> None:
+        """Emit a structured WARN for a fallback/degradation, once per reason.
+
+        ``reason`` is a stable machine key (logged as ``fallback_reason``) so
+        downstream log search can pivot on it; ``detail`` is the human message.
+        Deduped per detector instance so a per-tick fallback path warns once,
+        not on every ``classify`` call.
+        """
+        if reason in self._fallback_warned:
+            return
+        self._fallback_warned.add(reason)
+        logger.warning(
+            "GMM regime detector degraded — silent fallback averted: %s",
+            detail,
+            extra={
+                "event": "gmm_regime_fallback",
+                "fallback_reason": reason,
+                "detector": "GmmRegimeDetector",
+            },
+        )
+
+    @property
+    def is_degraded(self) -> bool:
+        """True when no fitted GMM model is loaded (rule-based fallback active).
+
+        This is the steady-state degradation signal: with no offline-fitted
+        artifact present, *every* ``classify`` call delegates to the rule-based
+        fallback, so the data-driven detector is not actually live.
+        """
+        return self._model is None
+
+    def health(self) -> GmmRegimeHealth:
+        """Per-instance health diagnostic (live | degraded)."""
+        if self._model is None:
+            return GmmRegimeHealth(
+                status="degraded",
+                reason=f"no fitted GMM model at {self._model_path} — rule-based fallback active",
+            )
+        return GmmRegimeHealth(status="live", reason="data-driven GMM regime model loaded")
 
     # ─── IRegimeDetector ─────────────────────────────────────────────
 
@@ -275,6 +383,12 @@ class GmmRegimeDetector:
 
         # ── Fallback conditions ──────────────────────────────────────
         if self._model is None or vix is None or spy_price is None or len(self._buffer) < _MIN_HISTORY:
+            self._warn_fallback(
+                self._fallback_reason(vix, spy_price),
+                "classify() delegated to rule-based VixRegimeDetector "
+                f"(model_loaded={self._model is not None}, vix={vix is not None}, "
+                f"spy_price={spy_price is not None}, history={len(self._buffer)}/{_MIN_HISTORY})",
+            )
             result = self._fallback.classify(snapshot)
             self._last = result
             return result
@@ -350,6 +464,14 @@ class GmmRegimeDetector:
         realized_vol_21d = float(np.std(daily_returns) * np.sqrt(_TRADING_DAYS_PER_YEAR))
 
         return np.array([vix_now, vix_21d_chg, realized_vol_21d, return_21d], dtype=float)
+
+    def _fallback_reason(self, vix: float | None, spy_price: float | None) -> str:
+        """Stable machine key naming WHY the GMM path was skipped this tick."""
+        if self._model is None:
+            return "no_fitted_model"
+        if vix is None or spy_price is None:
+            return "missing_market_data"
+        return "insufficient_history"
 
     @staticmethod
     def _spy_price(snapshot: MarketSnapshot) -> float | None:

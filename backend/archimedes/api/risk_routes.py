@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import dataclass
 
 import numpy as np
 import scipy.stats
@@ -30,6 +31,68 @@ logger = logging.getLogger(__name__)
 risk_router = APIRouter(prefix="/api/risk", tags=["risk"])
 
 _strategy_provider = default_provider()
+
+
+# ── Loud-fallback telemetry (T0.5) ───────────────────────────
+# The Risk Analysis UI renders correlation, drawdown and rolling-Sharpe panels
+# from client-side ``mockReturns`` whenever no live source backs them, and the
+# CVaR/Greeks endpoints return empty/zero levels when no persisted backtest has
+# an equity curve. That mock data must NOT be silently presented as real. This
+# probe reports whether the risk surface is backed by live persisted backtests
+# or is falling back to mock/placeholder data, so ``/health`` can surface it.
+
+
+@dataclass(frozen=True)
+class RiskDataHealth:
+    """Health diagnostic for the risk-analysis data surface (T0.5)."""
+
+    status: str  # live | mock
+    reason: str = ""
+
+
+def risk_data_health() -> RiskDataHealth:
+    """Report whether the risk surface is backed by live data or mock fallback.
+
+    - ``live``: at least one persisted backtest carries an equity curve, so the
+      CVaR/series surface is derived from real strategy history.
+    - ``mock``: no persisted equity data exists, so the risk UI renders from
+      client-side ``mockReturns`` placeholders. Visible-not-silent: the product
+      would otherwise present placeholder tail-risk numbers as if they were real.
+
+    Never raises — a provider/DB hiccup degrades to ``mock`` (the honest
+    conservative default) with the exception surfaced in the reason.
+    """
+    try:
+        strategies = _strategy_provider.list_strategies()
+        live_curves = sum(
+            1
+            for s in strategies
+            if (bt := _strategy_provider.get_backtest_result(s.id)) is not None and len(bt.equity_curve) >= 2
+        )
+    except Exception as exc:  # provider/DB unavailable → honest mock fallback
+        logger.warning(
+            "Risk data probe failed — assuming mock surface: %s",
+            exc,
+            extra={"event": "risk_data_mock", "reason": "probe_failed", "surface": "risk_analysis"},
+        )
+        return RiskDataHealth(status="mock", reason=f"risk data probe failed ({exc})")
+
+    if live_curves > 0:
+        return RiskDataHealth(
+            status="live",
+            reason=f"{live_curves} persisted backtest(s) with equity curves",
+        )
+
+    logger.warning(
+        "Risk surface degraded to mock data — no persisted backtest equity curves; "
+        "UI correlation/drawdown/rolling-Sharpe panels render placeholder mockReturns",
+        extra={"event": "risk_data_mock", "reason": "no_equity_curves", "surface": "risk_analysis"},
+    )
+    return RiskDataHealth(
+        status="mock",
+        reason="no persisted backtest equity curves — risk UI renders placeholder mock data",
+    )
+
 
 # ── Risk Profile Bands ───────────────────────────────────────
 # Thresholds used to classify a portfolio into one of five tiers.
