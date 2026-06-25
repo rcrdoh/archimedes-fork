@@ -833,8 +833,18 @@ Hard-won (2026-05-16); ignore at your peril:
   `.claude/settings.json`.
 - Parallel agents get **isolated git worktrees**, base-SHA-pinned to a recorded
   commit; do not commit to the base branch between dispatches.
-- Dismantle worktrees at end of session; retain their branches until the PRs
-  merge.
+- **Clean up worktrees + branches AS YOU GO, not just at session end (added
+  2026-06-25).** Parallel worktree-isolated agents accumulate fast — one session
+  left **14 stale `.claude/worktrees/agent-*` dirs + ~24 branches**. Discipline:
+  (1) when an agent finishes, remove its worktree (`git worktree remove --force
+  <path>` — **never a locked / still-running one**) + its local
+  `worktree-agent-*` branch, then `git worktree prune`; (2) when a PR merges,
+  delete its branch (`gh pr merge --delete-branch`, or `git push origin --delete
+  <branch>` + `git branch -D`); (3) keep branches for **open PRs** and
+  **in-flight agents**. Turn on the repo's "auto-delete head branches on merge"
+  to halve the remote side. Always verify before bulk-deleting: cross-check
+  `git worktree list` + `gh pr list --state open` so you never drop a running
+  agent's or an open PR's branch.
 - **Structure subagent responses to preserve parent context (added 2026-05-27).**
   When dispatching review-style subagents (PR review, audit, multi-file scan),
   specify both a structured response format (`Verdict / What it does / Concerns
