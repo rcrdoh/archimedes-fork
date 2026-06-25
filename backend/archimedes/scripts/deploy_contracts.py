@@ -30,20 +30,22 @@ from web3.middleware import ExtraDataToPOAMiddleware
 
 from archimedes.chain.circle_signer import circle_signer
 
+# The on-chain synthetic universe is derived from the SSOT
+# (backend/archimedes/data/synthetic_universe.json). Do NOT hardcode the list
+# here — the parity invariant in backend/tests/test_universe_parity.py asserts
+# this set equals the backtestable universe (GLOBAL_ASSETS) so the two can never
+# silently diverge (T1.5).
+from archimedes.universe import synthetics_for_deploy
+
 # ─── Config ──────────────────────────────────────────────────
 
 WALLET = os.getenv("WALLET_ADDRESS", "")
 USDC_ARC = "0x3600000000000000000000000000000000000000"
 
-SYNTHETICS = [
-    ("Synthetic TSLA", "sTSLA", 285_500_000),  # $285.50
-    ("Synthetic NVDA", "sNVDA", 135_200_000),  # $135.20
-    ("Synthetic SPY", "sSPY", 592_400_000),  # $592.40
-    ("Synthetic BTC", "sBTC", 104_500_000_000),  # $104,500
-    ("Synthetic GOLD", "sGOLD", 3_250_000_000),  # $3,250.00
-    ("Synthetic OIL", "sOIL", 62_800_000),  # $62.80
-    ("Synthetic NKY", "sNKY", 38_500_000_000),  # $38,500.00
-]
+# (name, symbol, price_int_6dp) tuples — same shape as the old literal, now
+# sourced from the SSOT. Single-stock synths (sTSLA, sNVDA, ...) are
+# intentionally absent: they are backtest-only pending compliance review.
+SYNTHETICS = synthetics_for_deploy()
 
 ABI_DIR = Path(__file__).resolve().parents[3] / "contracts" / "abis"
 ARTIFACTS_DIR = Path(__file__).resolve().parents[3] / "contracts" / "out"

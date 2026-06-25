@@ -1,0 +1,88 @@
+{
+  "_comment": "Single source of truth (SSOT) for the on-chain synthetic universe. T1.5 — backtest==on-chain parity invariant. Each entry under `synthetics` is one tradable synth that lives on BOTH the on-chain path (deploy_contracts.py SYNTHETICS is derived from here) AND the backtest path (every symbol here is present in strategy_signal_evaluator.GLOBAL_ASSETS and so is backtestable). The parity invariant in backend/tests/test_universe_parity.py fails CI if the two ever diverge. Add-only by convention; do not rename or repurpose existing symbols. Single-stock synths are NOT live here — see `_compliance_review` below.",
+  "_chainlink_note": "`chainlink_covered: true` means the underlying has a Chainlink data feed (Data Feeds / Data Streams) on a major network suitable for backing an on-chain oracle. Expansion priority order: major crypto > FX majors > broad index/sector ETFs > commodities > broad fixed income. We deliberately exclude individual single-name equities from the live on-chain set (compliance).",
+  "_compliance_review": {
+    "status": "FLAGGED — DO NOT add to the live on-chain path without compliance sign-off",
+    "reason": "Single-stock synthetics (sTSLA, sNVDA, sAAPL, sMSFT, ... and the EU/Asian/Turkish single names in GLOBAL_ASSETS) reference individual securities. Minting an on-chain synthetic that tracks a single registered security raises securities-law / derivatives-registration questions that broad-index, FX, crypto, and commodity synths do not. These remain backtest-only (present in GLOBAL_ASSETS) until legal review. The two single-stock names that were on the legacy live list (sTSLA, sNVDA) are intentionally REMOVED from the live on-chain universe by this SSOT.",
+    "single_stock_synths_backtest_only": [
+      "sTSLA", "sNVDA", "sAAPL", "sMSFT", "sGOOGL", "sAMZN", "sMETA", "sAMD",
+      "sAVGO", "sORCL", "sCRM", "sNFLX", "sJPM", "sBAC", "sGS", "sV", "sMA",
+      "sBRK-B", "sLLY", "sUNH", "sJNJ", "sMRK", "sPFE", "sXOM", "sCVX", "sCOP",
+      "sWMT", "sCOST", "sHD", "sPG", "sCOIN", "sMSTR", "sPLTR",
+      "sASML", "sSAP", "sNESN", "sNOVO", "sAZN", "sSHEL", "sBP", "sHSBC",
+      "sTTE", "sRHM", "sLVMH", "sSIE",
+      "sTSM", "sBABA", "sTM", "sSONY", "sSE", "sTCEHY",
+      "sTHYAO", "sKCHOL", "sGARAN", "sASELS", "sAKBNK", "sSAHOL", "sBIMAS", "sEREGL"
+    ]
+  },
+  "synthetics": {
+    "sBTC":    {"name": "Synthetic BTC",            "price_usd": 104500.00, "decimals": 6, "asset_class": "crypto",        "chainlink_covered": true},
+    "sETH":    {"name": "Synthetic ETH",            "price_usd": 3850.00,   "decimals": 6, "asset_class": "crypto",        "chainlink_covered": true},
+    "sSOL":    {"name": "Synthetic SOL",            "price_usd": 215.00,    "decimals": 6, "asset_class": "crypto",        "chainlink_covered": true},
+
+    "sEURUSD": {"name": "Synthetic EUR/USD",        "price_usd": 1.0850,    "decimals": 6, "asset_class": "fx",            "chainlink_covered": true},
+    "sGBPUSD": {"name": "Synthetic GBP/USD",        "price_usd": 1.2700,    "decimals": 6, "asset_class": "fx",            "chainlink_covered": true},
+    "sUSDJPY": {"name": "Synthetic USD/JPY",        "price_usd": 157.20,    "decimals": 6, "asset_class": "fx",            "chainlink_covered": true},
+    "sUSDTRY": {"name": "Synthetic USD/TRY",        "price_usd": 39.10,     "decimals": 6, "asset_class": "fx",            "chainlink_covered": true},
+
+    "sSPY":    {"name": "Synthetic SPY",            "price_usd": 592.40,    "decimals": 6, "asset_class": "us_equity_etf", "chainlink_covered": true},
+    "sQQQ":    {"name": "Synthetic QQQ",            "price_usd": 512.30,    "decimals": 6, "asset_class": "us_equity_etf", "chainlink_covered": true},
+    "sIWM":    {"name": "Synthetic IWM",            "price_usd": 228.70,    "decimals": 6, "asset_class": "us_equity_etf", "chainlink_covered": true},
+    "sDIA":    {"name": "Synthetic DIA",            "price_usd": 437.10,    "decimals": 6, "asset_class": "us_equity_etf", "chainlink_covered": true},
+
+    "sXLE":    {"name": "Synthetic XLE",            "price_usd": 91.80,     "decimals": 6, "asset_class": "us_sector_etf", "chainlink_covered": true},
+    "sXLF":    {"name": "Synthetic XLF",            "price_usd": 49.60,     "decimals": 6, "asset_class": "us_sector_etf", "chainlink_covered": true},
+    "sXLK":    {"name": "Synthetic XLK",            "price_usd": 235.40,    "decimals": 6, "asset_class": "us_sector_etf", "chainlink_covered": true},
+    "sXLV":    {"name": "Synthetic XLV",            "price_usd": 146.20,    "decimals": 6, "asset_class": "us_sector_etf", "chainlink_covered": true},
+    "sXLI":    {"name": "Synthetic XLI",            "price_usd": 138.90,    "decimals": 6, "asset_class": "us_sector_etf", "chainlink_covered": true},
+    "sXLU":    {"name": "Synthetic XLU",            "price_usd": 78.40,     "decimals": 6, "asset_class": "us_sector_etf", "chainlink_covered": true},
+
+    "sEEM":    {"name": "Synthetic EEM",            "price_usd": 44.10,     "decimals": 6, "asset_class": "em_equity_etf", "chainlink_covered": true},
+    "sEZU":    {"name": "Synthetic EZU",            "price_usd": 53.70,     "decimals": 6, "asset_class": "eu_equity_etf", "chainlink_covered": false},
+    "sEWG":    {"name": "Synthetic EWG (Germany)",  "price_usd": 35.40,     "decimals": 6, "asset_class": "eu_equity_etf", "chainlink_covered": false},
+    "sEWU":    {"name": "Synthetic EWU (UK)",       "price_usd": 38.20,     "decimals": 6, "asset_class": "eu_equity_etf", "chainlink_covered": false},
+    "sEWQ":    {"name": "Synthetic EWQ (France)",   "price_usd": 43.90,     "decimals": 6, "asset_class": "eu_equity_etf", "chainlink_covered": false},
+    "sEWJ":    {"name": "Synthetic EWJ",            "price_usd": 73.20,     "decimals": 6, "asset_class": "asia_equity_etf","chainlink_covered": false},
+    "sMCHI":   {"name": "Synthetic MCHI",           "price_usd": 51.40,     "decimals": 6, "asset_class": "asia_equity_etf","chainlink_covered": false},
+    "sINDA":   {"name": "Synthetic INDA",           "price_usd": 55.80,     "decimals": 6, "asset_class": "asia_equity_etf","chainlink_covered": false},
+    "sEWY":    {"name": "Synthetic EWY (Korea)",    "price_usd": 58.30,     "decimals": 6, "asset_class": "asia_equity_etf","chainlink_covered": false},
+    "sTUR":    {"name": "Synthetic TUR (Turkey)",   "price_usd": 28.70,     "decimals": 6, "asset_class": "tr_equity_etf", "chainlink_covered": false},
+
+    "sNKY":    {"name": "Synthetic NKY",            "price_usd": 38500.00,  "decimals": 6, "asset_class": "asia_index",    "chainlink_covered": true},
+    "sFTSE":   {"name": "Synthetic FTSE 100",       "price_usd": 8200.00,   "decimals": 6, "asset_class": "eu_index",      "chainlink_covered": true},
+    "sDAX":    {"name": "Synthetic DAX 40",         "price_usd": 18400.00,  "decimals": 6, "asset_class": "eu_index",      "chainlink_covered": true},
+    "sCAC":    {"name": "Synthetic CAC 40",         "price_usd": 7600.00,   "decimals": 6, "asset_class": "eu_index",      "chainlink_covered": true},
+    "sBIST":   {"name": "Synthetic BIST 100",       "price_usd": 10300.00,  "decimals": 6, "asset_class": "tr_index",      "chainlink_covered": false},
+
+    "sGOLD":   {"name": "Synthetic GOLD",           "price_usd": 3250.00,   "decimals": 6, "asset_class": "metal_fut",     "chainlink_covered": true},
+    "sGLD":    {"name": "Synthetic GLD",            "price_usd": 300.50,    "decimals": 6, "asset_class": "metal_etf",     "chainlink_covered": true},
+    "sSLV":    {"name": "Synthetic SLV",            "price_usd": 30.20,     "decimals": 6, "asset_class": "metal_etf",     "chainlink_covered": true},
+    "sSI":     {"name": "Synthetic Silver",         "price_usd": 32.40,     "decimals": 6, "asset_class": "metal_fut",     "chainlink_covered": true},
+    "sPPLT":   {"name": "Synthetic Platinum",       "price_usd": 96.30,     "decimals": 6, "asset_class": "metal_etf",     "chainlink_covered": true},
+    "sPALL":   {"name": "Synthetic Palladium",      "price_usd": 92.10,     "decimals": 6, "asset_class": "metal_etf",     "chainlink_covered": true},
+    "sHG":     {"name": "Synthetic Copper",         "price_usd": 4.30,      "decimals": 6, "asset_class": "metal_fut",     "chainlink_covered": false},
+    "sGDX":    {"name": "Synthetic GDX",            "price_usd": 40.80,     "decimals": 6, "asset_class": "metal_eq_etf",  "chainlink_covered": false},
+    "sGDXJ":   {"name": "Synthetic GDXJ",           "price_usd": 51.60,     "decimals": 6, "asset_class": "metal_eq_etf",  "chainlink_covered": false},
+
+    "sOIL":    {"name": "Synthetic OIL",            "price_usd": 62.80,     "decimals": 6, "asset_class": "energy_fut",    "chainlink_covered": true},
+    "sBRENT":  {"name": "Synthetic Brent",          "price_usd": 66.40,     "decimals": 6, "asset_class": "energy_fut",    "chainlink_covered": false},
+    "sUSO":    {"name": "Synthetic USO",            "price_usd": 78.50,     "decimals": 6, "asset_class": "energy_etf",    "chainlink_covered": false},
+    "sUNG":    {"name": "Synthetic UNG",            "price_usd": 14.20,     "decimals": 6, "asset_class": "energy_etf",    "chainlink_covered": false},
+    "sNG":     {"name": "Synthetic Natural Gas",    "price_usd": 3.10,      "decimals": 6, "asset_class": "energy_fut",    "chainlink_covered": false},
+
+    "sCORN":   {"name": "Synthetic Corn",           "price_usd": 4.45,      "decimals": 6, "asset_class": "agri_fut",      "chainlink_covered": false},
+    "sWHEAT":  {"name": "Synthetic Wheat",          "price_usd": 5.70,      "decimals": 6, "asset_class": "agri_fut",      "chainlink_covered": false},
+    "sSOY":    {"name": "Synthetic Soybeans",       "price_usd": 10.40,     "decimals": 6, "asset_class": "agri_fut",      "chainlink_covered": false},
+
+    "sTLT":    {"name": "Synthetic TLT (20+yr)",    "price_usd": 92.30,     "decimals": 6, "asset_class": "us_bond_long",  "chainlink_covered": true},
+    "sIEF":    {"name": "Synthetic IEF (7-10yr)",   "price_usd": 95.10,     "decimals": 6, "asset_class": "us_bond_mid",   "chainlink_covered": true},
+    "sSHY":    {"name": "Synthetic SHY (1-3yr)",    "price_usd": 82.40,     "decimals": 6, "asset_class": "us_bond_short", "chainlink_covered": false},
+    "sBIL":    {"name": "Synthetic BIL (T-Bills)",  "price_usd": 91.60,     "decimals": 6, "asset_class": "us_bond_tbill", "chainlink_covered": false},
+    "sTIP":    {"name": "Synthetic TIP (TIPS)",     "price_usd": 108.70,    "decimals": 6, "asset_class": "us_bond_tips",  "chainlink_covered": false},
+    "sAGG":    {"name": "Synthetic AGG (Aggregate)","price_usd": 98.20,     "decimals": 6, "asset_class": "us_bond_agg",   "chainlink_covered": true},
+    "sHYG":    {"name": "Synthetic HYG (HY credit)","price_usd": 79.40,     "decimals": 6, "asset_class": "credit_hy",     "chainlink_covered": false},
+    "sLQD":    {"name": "Synthetic LQD (IG credit)","price_usd": 110.30,    "decimals": 6, "asset_class": "credit_ig",     "chainlink_covered": false},
+    "sEMB":    {"name": "Synthetic EMB (EM bond)",  "price_usd": 91.80,     "decimals": 6, "asset_class": "em_bond",       "chainlink_covered": false},
+    "sMUB":    {"name": "Synthetic MUB (US muni)",  "price_usd": 106.50,    "decimals": 6, "asset_class": "us_muni",       "chainlink_covered": false}
+  }
+}
