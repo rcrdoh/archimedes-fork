@@ -47,9 +47,11 @@ strategies_router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 def _to_strategy_response(s: Strategy) -> StrategyResponse:
     """Map StrategyPassport + persisted BacktestResult to API schema."""
     from archimedes.api.schemas import PaperRefResponse
+    from archimedes.services.return_source_classifier import classify_strategy
 
     bt = strategy_provider.get_backtest_result(s.id)
     has_real = s.real_sharpe is not None
+    return_source, return_source_note = classify_strategy(s)
 
     # Build papers list from passport
     papers_list = [
@@ -117,6 +119,8 @@ def _to_strategy_response(s: Strategy) -> StrategyResponse:
             else (bt.backtest_end.isoformat() if bt and bt.backtest_end else None)
         ),
         regime_tag=s.regime_tag,
+        return_source=return_source,
+        return_source_note=return_source_note,
     )
 
 
@@ -1090,6 +1094,10 @@ def _passport_to_strategy_response(record) -> StrategyResponse:
     strategies still flow through LocalStrategyProvider above; this is the
     fallback that makes generated strategies clickable from Library."""
     from archimedes.api.schemas import PaperRefResponse
+    from archimedes.services.return_source_classifier import (
+        StrategyView,
+        classify_return_source,
+    )
 
     refs = list(record.paper_refs or [])
     first = refs[0] if refs else None
@@ -1109,6 +1117,17 @@ def _passport_to_strategy_response(record) -> StrategyResponse:
     ]
 
     asset_universe = json.loads(record.asset_universe) if record.asset_universe else []
+
+    return_source_enum, return_source_note = classify_return_source(
+        StrategyView(
+            paper_title=(first.title if first else "") or "",
+            methodology_summary=record.methodology_summary or "",
+            asset_universe=tuple(asset_universe),
+            deflated_sharpe_ratio=record.deflated_sharpe_ratio,
+            dsr_p_value=record.dsr_p_value,
+            passes_rigor_gate=bool(record.passes_rigor_gate),
+        )
+    )
 
     return StrategyResponse(
         id=record.id,
@@ -1152,6 +1171,8 @@ def _passport_to_strategy_response(record) -> StrategyResponse:
         backtest_start=record.backtest_start,
         backtest_end=record.backtest_end,
         regime_tag=record.regime_tag,
+        return_source=return_source_enum.value,
+        return_source_note=return_source_note,
     )
 
 

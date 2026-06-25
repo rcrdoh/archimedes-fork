@@ -65,6 +65,21 @@ function regimeChip(tag) {
   return null
 }
 
+// Return-source classification (T2.5) — the dominant economic source of the
+// strategy's return. Maps the backend enum to a human label + tag colour. A
+// durable, compensated source (risk_premium / productive_growth) reads neutral;
+// mispricing reads accent (decays as it crowds); noise reads muted (no source).
+const RETURN_SOURCE_META = {
+  risk_premium: { label: 'Risk premium', cls: 'tag-accent' },
+  mispricing: { label: 'Mispricing', cls: 'tag-accent' },
+  productive_growth: { label: 'Productive growth', cls: 'tag-positive' },
+  noise: { label: 'Noise', cls: 'tag-muted' },
+}
+
+function returnSourceChip(src) {
+  return RETURN_SOURCE_META[src] || RETURN_SOURCE_META.noise
+}
+
 export default function StrategyPassport({ strategyId, onNavigate, walletAddr }) {
   const [strategy, setStrategy] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -312,6 +327,22 @@ export default function StrategyPassport({ strategyId, onNavigate, walletAddr })
           chronological out-of-sample number. A strategy passes the rigor gate only
           when all three signals align.
         </p>
+
+        {/* Return source (T2.5) — the rigor gate says whether the edge survives;
+            this says WHY it exists, and how durable that source is. */}
+        {s.return_source && (
+          <div className="mt-4 pt-4 border-t border-[var(--border,rgba(255,255,255,0.08))]">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="caption text-[var(--text-4)]">Dominant return source</span>
+              <span className={`tag ${returnSourceChip(s.return_source).cls}`}>
+                {returnSourceChip(s.return_source).label}
+              </span>
+            </div>
+            {s.return_source_note && (
+              <p className="caption leading-relaxed text-[var(--text-3)]">{s.return_source_note}</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Provenance */}

@@ -215,6 +215,12 @@ class StrategyResponse(BaseModel):
     # Regime suitability
     regime_tag: str = "regime_neutral"  # "bull" | "bear" | "regime_neutral"
 
+    # Return-source classification (T2.5) — the dominant economic source of the
+    # strategy's return, plus a one-sentence durability note. Computed by the
+    # deterministic heuristic in services/return_source_classifier.py.
+    return_source: str = "noise"  # "risk_premium" | "mispricing" | "productive_growth" | "noise"
+    return_source_note: str = ""
+
 
 class StrategyListResponse(BaseModel):
     strategies: list[StrategyResponse]
