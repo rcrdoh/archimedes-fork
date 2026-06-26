@@ -1,0 +1,73 @@
+"""Server-side model allowlist gate on POST /api/generate/start (P1).
+
+The Generate page may send an optional ``model``. The server honors it ONLY
+when it is an allowlisted free-tier id (defense in depth — the UI also disables
+premium rows). A non-allowlisted or absent model is dropped and the pipeline
+falls back to the env default → behavior UNCHANGED.
+
+Hermetic: the Redis-backed job store is mocked at the boundary, and the
+fire-and-forget pipeline task is patched out so no LLM/network call happens.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from fastapi.testclient import TestClient
+
+
+def _client() -> TestClient:
+    from archimedes.main import app
+
+    return TestClient(app)
+
+
+def _mock_store() -> MagicMock:
+    store = MagicMock()
+    store.enqueue = AsyncMock(return_value="job-abc")
+    return store
+
+
+def _start(model_value):
+    """POST /start with the given model field; return (status, captured_payload)."""
+    store = _mock_store()
+    body = {
+        "brief": {"intent": "low-vol treasury alternative with crypto upside", "risk_appetite": "moderate"},
+    }
+    if model_value is not None:
+        body["model"] = model_value
+
+    with (
+        patch("archimedes.api.generate_routes.get_job_store", return_value=store),
+        # Patch the background task factory so the pipeline never actually runs.
+        patch("archimedes.api.generate_routes.asyncio.create_task", return_value=MagicMock()),
+    ):
+        resp = _client().post("/api/generate/start", json=body)
+    captured = store.enqueue.call_args.kwargs["payload"] if store.enqueue.call_args else {}
+    return resp, captured
+
+
+def test_allowlisted_model_is_honored() -> None:
+    resp, payload = _start("zai.glm-4.7-flash")
+    assert resp.status_code == 202, resp.text
+    assert payload.get("model") == "zai.glm-4.7-flash"
+
+
+def test_premium_model_is_dropped() -> None:
+    """A premium (gated) id must be ignored → model None → env default."""
+    resp, payload = _start("us.anthropic.claude-sonnet-4-6")
+    assert resp.status_code == 202, resp.text
+    assert payload.get("model") is None
+
+
+def test_junk_model_is_dropped() -> None:
+    resp, payload = _start("not-a-real-model")
+    assert resp.status_code == 202, resp.text
+    assert payload.get("model") is None
+
+
+def test_absent_model_unchanged_behavior() -> None:
+    """No model field → model None in payload → pipeline uses env default."""
+    resp, payload = _start(None)
+    assert resp.status_code == 202, resp.text
+    assert payload.get("model") is None

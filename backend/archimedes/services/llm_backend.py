@@ -32,6 +32,42 @@ DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 DEFAULT_CONVERSE_MODEL = "amazon.nova-micro-v1:0"
 MAX_TOKENS = 4096
 
+# ── Free-tier model allowlist (server-side defense-in-depth) ─────────────
+# The Generate page exposes a model picker, but only FREE/default-tier models
+# may actually be selected. This set is the server-side enforcement of that
+# UI restriction: a user-supplied ``model`` is honored ONLY if it appears here.
+# Anything else (premium Anthropic-on-Bedrock ids, junk, etc.) is ignored and
+# the request falls back to the env default — so the picker can never route a
+# free user onto a premium model before the #723 HTTP-402 entitlement gate
+# lands. Mirrors the ``works_now: true`` rows in ui/src/data/modelPricing.json;
+# keep the two in sync. Premium ids (Claude Haiku/Sonnet on Bedrock) are
+# deliberately ABSENT.
+FREE_TIER_MODELS: frozenset[str] = frozenset(
+    {
+        "amazon.nova-micro-v1:0",
+        "amazon.nova-lite-v1:0",
+        "amazon.nova-pro-v1:0",
+        "openai.gpt-oss-20b-1:0",
+        "zai.glm-4.7-flash",
+        "zai.glm-4.7",
+        "qwen.qwen3-32b-v1:0",
+        "us.meta.llama4-scout-17b-instruct-v1:0",
+        "us.meta.llama3-3-70b-instruct-v1:0",
+        "deepseek.v3.2",
+        "moonshotai.kimi-k2.5",
+        "mistral.mistral-small-2402-v1:0",
+    }
+)
+
+
+def is_allowed_model(model: str | None) -> bool:
+    """True iff ``model`` is a non-empty, allowlisted free-tier model id.
+
+    Defense-in-depth: the UI already disables premium rows, but the server
+    re-checks so a hand-crafted request can't bypass the gate.
+    """
+    return bool(model) and model in FREE_TIER_MODELS
+
 
 class LLMBackend(Protocol):
     """Minimal text-completion seam consumed by architect + fusion."""
@@ -405,7 +441,9 @@ class CannedBackend:
 # ── Factory ──────────────────────────────────────────────────────────
 
 
-def make_llm_backend() -> (
+def make_llm_backend(
+    model: str | None = None,
+) -> (
     AnthropicBackend
     | AnthropicCompatibleBackend
     | BedrockBackend
@@ -425,23 +463,36 @@ def make_llm_backend() -> (
       - ``openai``: httpx to OpenAI-compatible endpoint (``LLM_BASE_URL`` + ``LLM_API_KEY``)
       - ``ollama``: httpx to Ollama (``LLM_BASE_URL``, no key)
 
+    ``model`` is an optional per-call override (e.g. a user's pick from the
+    Generate page's model picker). When ``None`` (the default), the model is
+    resolved from env exactly as before — behavior is UNCHANGED. When supplied,
+    it overrides the resolved model for this backend instance only. Callers are
+    responsible for allowlisting untrusted input via :func:`is_allowed_model`
+    BEFORE passing it here; this factory does not re-validate the string.
+
     Back-compat: if ``LLM_PROVIDER`` is unset, falls back to ``ANTHROPIC_*``
     env vars (deprecated, emits WARN).
     """
-    model = os.getenv("LLM_MODEL", DEFAULT_MODEL)
+    resolved_model = model or os.getenv("LLM_MODEL", DEFAULT_MODEL)
     provider = os.getenv("LLM_PROVIDER", "").strip().lower()
 
     # Back-compat: auto-detect from ANTHROPIC_* if LLM_PROVIDER not set
     if not provider:
-        return _legacy_backend(model)
+        return _legacy_backend(resolved_model)
 
+    # The Bedrock paths resolve their own (Bedrock-specific) model id from
+    # LLM_BEDROCK_MODEL and ignore the generic LLM_MODEL. A caller-supplied
+    # override IS a Bedrock model id (the picker lists Bedrock ids), so thread
+    # it through to those ctors too — otherwise the picker would be inert on the
+    # live bedrock_converse path. When `model` is None, ctor(None) preserves the
+    # exact env-resolution behavior.
     builders = {
-        "anthropic": lambda: AnthropicBackend(model=model),
-        "anthropic_compatible": lambda: AnthropicCompatibleBackend(model=model),
-        "bedrock": BedrockBackend,  # Anthropic-SDK path; resolves its own Bedrock model id
-        "bedrock_converse": BedrockConverseBackend,  # Converse API — any provider; resolves its own model id
-        "openai": lambda: OpenAIBackend(model=model),
-        "ollama": lambda: OllamaBackend(model=model),
+        "anthropic": lambda: AnthropicBackend(model=resolved_model),
+        "anthropic_compatible": lambda: AnthropicCompatibleBackend(model=resolved_model),
+        "bedrock": lambda: BedrockBackend(model=model),  # Anthropic-SDK path; else resolves its own id
+        "bedrock_converse": lambda: BedrockConverseBackend(model=model),  # Converse API — any provider
+        "openai": lambda: OpenAIBackend(model=resolved_model),
+        "ollama": lambda: OllamaBackend(model=resolved_model),
     }
     builder = builders.get(provider)
     if builder is None:
@@ -455,7 +506,7 @@ def make_llm_backend() -> (
             provider,
         )
         return CannedBackend()
-    logger.info("llm: using provider=%s model=%s", provider, model)
+    logger.info("llm: using provider=%s model=%s", provider, getattr(backend, "model_id", resolved_model))
     return backend
 
 

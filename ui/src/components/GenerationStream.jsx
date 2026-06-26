@@ -99,6 +99,7 @@ export default function GenerationStream({ jobId, onDone, onReset, onPipelineSel
   const [events, setEvents] = useState([])
   const [terminal, setTerminal] = useState(null)  // 'done' | 'error' | null
   const [strategyId, setStrategyId] = useState(null)
+  const [servedModel, setServedModel] = useState(null)  // provenance: model that actually ran
   const [errorMsg, setErrorMsg] = useState('')
   const [showRejected, setShowRejected] = useState(false)
   const [draftedCandidates, setDraftedCandidates] = useState([])  // {candidate_id, strategy_name, regime, strategy_id}
@@ -111,6 +112,7 @@ export default function GenerationStream({ jobId, onDone, onReset, onPipelineSel
     setEvents([])
     setTerminal(null)
     setStrategyId(null)
+    setServedModel(null)
     setErrorMsg('')
 
     const url = `${API_BASE}/api/generate/stream/${encodeURIComponent(jobId)}`
@@ -148,10 +150,12 @@ export default function GenerationStream({ jobId, onDone, onReset, onPipelineSel
       if (name === 'done') {
         setTerminal('done')
         if (data?.strategy_id) setStrategyId(data.strategy_id)
+        if (data?.served_model) setServedModel(data.served_model)
         es.close()
         onDone?.({
           strategy_id: data?.strategy_id,
           all_strategy_ids: data?.all_strategy_ids,
+          served_model: data?.served_model,
         })
       }
       if (name === 'error') {
@@ -190,6 +194,9 @@ export default function GenerationStream({ jobId, onDone, onReset, onPipelineSel
           {terminal === 'done' && (
             <div className="positive caption" style={{ marginTop: 4 }}>
               <span className="i-lucide-check w-3.5 h-3.5 mr-1" /> Strategy persisted{strategyId ? ` as ${strategyId}` : ''}
+              {servedModel && servedModel !== 'fixture' && (
+                <span style={{ color: 'var(--text-3)' }}> · served by <strong>{servedModel}</strong></span>
+              )}
             </div>
           )}
           {terminal === 'error' && (

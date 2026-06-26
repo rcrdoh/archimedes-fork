@@ -422,7 +422,12 @@ class _Emitter:
 
 
 async def _run_fixture_candidate(
-    *, candidate_id: str, brief: GenerateBrief, emit: _Emitter, regime: str = "neutral"
+    *,
+    candidate_id: str,
+    brief: GenerateBrief,
+    emit: _Emitter,
+    regime: str = "neutral",
+    agent: Any = None,  # noqa: ARG001 — signature parity with _run_live_candidate; fixture path ignores it
 ) -> _CandidateResult:
     """Synthetic generation that exercises every event the live agent emits.
 
@@ -526,13 +531,17 @@ _REGIME_PROMPT_SUFFIX = {
 
 
 async def _run_live_candidate(
-    *, candidate_id: str, brief: GenerateBrief, emit: _Emitter, regime: str = "neutral"
+    *, candidate_id: str, brief: GenerateBrief, emit: _Emitter, regime: str = "neutral", agent: Any = None
 ) -> _CandidateResult:
     """Drive the real ``portfolio_agent`` with per-iteration event emission.
 
     The agent's iteration loop is sync and runs in a thread. The thread uses
     a sync emit shim that schedules the async ``Emitter.emit`` back onto the
     main event loop — this keeps the agent unchanged while still streaming.
+
+    ``agent`` is an optional pre-built ``PortfolioAgent`` (e.g. bound to the
+    user's free-tier model pick). When ``None`` the shared process singleton is
+    used — the default, unchanged behavior.
     """
     from archimedes.agents.portfolio_agent import get_portfolio_agent
     from archimedes.services.strategy_provider import default_provider
@@ -565,7 +574,7 @@ async def _run_live_candidate(
     agent_regime = {"bull": "expansion", "bear": "contraction"}.get(regime, "transition")
     agent_confidence = 0.80 if regime in ("bull", "bear") else 0.65
 
-    agent = get_portfolio_agent()
+    agent = agent or get_portfolio_agent()
     # Inject regime suffix into the agent's system prompt via the risk_appetite
     # string (the agent reads it as context). The suffix is appended to the
     # user-visible risk profile so the agent sees the regime steer.
@@ -674,6 +683,29 @@ async def _run_live_candidate(
 # ── Pipeline entry point ──────────────────────────────────────────────────
 
 
+def _served_model_for(job_agent: Any, use_live: bool) -> str:
+    """Resolve the model id that actually served this job, for provenance.
+
+    Prefers the per-job agent's backend (when the user picked a model), else the
+    shared singleton. Reads ``served_model`` (post-call truth, e.g. response.model)
+    when present, falling back to ``model_id``. Returns the fixture marker on the
+    non-live path so the UI never claims a real model ran when it didn't.
+    """
+    if not use_live:
+        return "fixture"
+    try:
+        from archimedes.agents.portfolio_agent import get_portfolio_agent
+
+        agent = job_agent or get_portfolio_agent()
+        backend = getattr(agent, "_backend", None)
+        served = getattr(backend, "served_model", None) or getattr(backend, "model_id", None)
+        if served:
+            return str(served)
+        return getattr(agent, "model_id", "unknown")
+    except Exception:
+        return "unknown"
+
+
 async def run_generation(
     *,
     job_id: str,
@@ -681,6 +713,7 @@ async def run_generation(
     n_candidates: int = 1,
     store: JobStore | None = None,
     mode: str | None = None,
+    model: str | None = None,
     dual_regime: bool = True,
 ) -> None:
     """Run the full streaming generation pipeline for one job.
@@ -689,6 +722,11 @@ async def run_generation(
     generates BOTH a bull-tilted AND a bear-tilted candidate. Each regime
     run uses biased paper retrieval + regime-specific reasoning. The user
     sees both candidates with regime tags and can deploy one, both, or neither.
+
+    ``model`` is the user's optional free-tier model pick (already allowlisted
+    by the route). When set, the live path constructs a per-job LLM backend on
+    that model; when ``None`` it uses the shared singleton on the env default —
+    behavior UNCHANGED.
 
     Designed to be called as a fire-and-forget asyncio task from the route
     handler. Exceptions are caught + emitted as ``error`` events so the SSE
@@ -760,6 +798,21 @@ async def run_generation(
         use_live = _llm_available()
         runner: Callable[..., Awaitable[_CandidateResult]] = _run_live_candidate if use_live else _run_fixture_candidate
 
+        # If the user picked an allowlisted free-tier model, build a per-job
+        # portfolio agent bound to that model; otherwise reuse the shared
+        # singleton on the env default (behavior unchanged). Constructed once and
+        # shared across both regime candidates so we don't rebuild a client twice.
+        job_agent = None
+        if use_live and model:
+            try:
+                from archimedes.agents.portfolio_agent import PortfolioAgent
+                from archimedes.services.llm_backend import make_llm_backend
+
+                job_agent = PortfolioAgent(backend=make_llm_backend(model=model))
+            except Exception as exc:
+                logger.warning("could not build per-job agent for model %r (%s); using default", model, exc)
+                job_agent = None
+
         # Library is the candidate pool the agent reasons over; surface it so
         # the UI can show "agent is considering N papers". Its size also feeds
         # the DSR multiple-testing correction below (selection-bias-corrections-
@@ -790,6 +843,7 @@ async def run_generation(
                     brief=brief,
                     emit=emit,
                     regime=regime,
+                    agent=job_agent,
                 )
             except Exception as exc:
                 logger.exception("candidate %s (%s) failed: %s", candidate_id, regime, exc)
@@ -923,7 +977,17 @@ async def run_generation(
                 ],
             },
         )
-        await emit.emit("done", strategy_id=strategy_id, all_strategy_ids=strategy_ids)
+        # Provenance: surface the model that actually served this job so the UI
+        # can show what really ran (vs. what was requested). `served_model` is
+        # the post-call value when available (e.g. response.model), else the
+        # configured id; falls back to the fixture marker on the non-live path.
+        served_model = _served_model_for(job_agent, use_live)
+        await emit.emit(
+            "done",
+            strategy_id=strategy_id,
+            all_strategy_ids=strategy_ids,
+            served_model=served_model,
+        )
 
     except asyncio.CancelledError:
         await emit.emit("error", message="job cancelled", recoverable=False, code="CANCELLED")

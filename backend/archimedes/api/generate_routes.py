@@ -35,6 +35,7 @@ from archimedes.api.generate_schemas import (
 )
 from archimedes.api.limiter import limiter
 from archimedes.services.job_queue import EVENT_LOG_TTL, get_job_store
+from archimedes.services.llm_backend import is_allowed_model
 from archimedes.services.log_scrubber import sanitize_log_value
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,15 @@ async def start_generation(
 ) -> GenerateStartResponse:
     """Create a generation job and start the pipeline in the background."""
     store = get_job_store()
+    # Server-side model gate (defense in depth — the UI also restricts this).
+    # Only an allowlisted free-tier model id is honored; anything else (premium
+    # ids, junk, None) is dropped and the pipeline falls back to the env default,
+    # so behavior is UNCHANGED when no valid model is selected. This enforces the
+    # free-tier restriction on the server even if the UI is bypassed, and keeps
+    # premium models gated until the #723 HTTP-402 entitlement lands.
+    selected_model = req.model if is_allowed_model(req.model) else None
+    if req.model and selected_model is None:
+        logger.info("generate: ignoring non-allowlisted model %r; using env default", sanitize_log_value(req.model))
     # Tag the job with its creator (audit 2026-06-14) so cancel can be scoped to
     # the owner. When no SIWE session exists (flag off / anonymous), owner_wallet
     # is None and the job stays cancellable by anyone — preserving today's open
@@ -77,12 +87,13 @@ async def start_generation(
             "brief": req.brief.model_dump(),
             "n_candidates": req.n_candidates,
             "owner_wallet": _wallet,
+            "model": selected_model,
         },
     )
 
     # Fire-and-forget the pipeline. The route doesn't await it; the SSE stream
     # below tails the event log written by the pipeline as it runs.
-    task = asyncio.create_task(_run_with_cleanup(job_id, req.brief, req.n_candidates, req.mode))
+    task = asyncio.create_task(_run_with_cleanup(job_id, req.brief, req.n_candidates, req.mode, selected_model))
     _register_task(job_id, task)
 
     return GenerateStartResponse(
@@ -92,9 +103,15 @@ async def start_generation(
     )
 
 
-async def _run_with_cleanup(job_id: str, brief: GenerateBrief, n_candidates: int, mode: str | None = None) -> None:
+async def _run_with_cleanup(
+    job_id: str,
+    brief: GenerateBrief,
+    n_candidates: int,
+    mode: str | None = None,
+    model: str | None = None,
+) -> None:
     try:
-        await run_generation(job_id=job_id, brief=brief, n_candidates=n_candidates, mode=mode)
+        await run_generation(job_id=job_id, brief=brief, n_candidates=n_candidates, mode=mode, model=model)
     except asyncio.CancelledError:
         raise
     except Exception:  # safety net — run_generation already emits error events
