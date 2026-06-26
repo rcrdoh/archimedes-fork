@@ -8,6 +8,7 @@ at the end.
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -432,3 +433,237 @@ async def test_pipeline_multi_candidate_picks_best():
     best = next((e for e in store.events if e["event"] == "best_selected"), None)
     assert best is not None
     assert best["data"]["considered_count"] == 3
+
+
+# ── Fusion dispatch wire — hermetic end-to-end (Stack A) ───────────────────
+#
+# Proves the #1 fix: the "fusion" pipeline choice ACTUALLY drives dispatch.
+# Drives run_generation with fusion_enabled=true + a ≥20-paper fixture corpus +
+# a MOCKED LLM backend (no network, no real Anthropic/Bedrock), and asserts the
+# persisted strategy is generation_method=="fusion", cites ≥2 source_arxiv_ids,
+# and carries a non-null rigor verdict (real DSR/PBO/OOS from the DSL backtest).
+
+
+def _fixture_corpus(n: int = 24):
+    """A ≥n-paper fixture corpus the deterministic selector can rank.
+
+    Returns CorpusPaper objects (the type load_corpus yields). Titles/abstracts
+    carry equities+momentum+volatility terms so select_candidates matches them
+    for a generic steer.
+    """
+    from archimedes.agents.strategy_fusion import CorpusPaper
+
+    papers = []
+    for i in range(n):
+        papers.append(
+            CorpusPaper(
+                arxiv_id=f"24{i:02d}.{1000 + i}",
+                title=f"Cross-sectional equity momentum and volatility timing #{i}",
+                abstract=(
+                    "We study momentum, trend-following and volatility-managed "
+                    "portfolios across equities, with risk-on and defensive regimes."
+                ),
+                primary_category="q-fin.PM",
+                categories=("q-fin.PM", "q-fin.ST"),
+                published=f"2024-01-{(i % 27) + 1:02d}",
+            )
+        )
+    return papers
+
+
+class _MockFusionBackend:
+    """Deterministic LLM stand-in that returns a REAL, parseable fusion.
+
+    Mirrors the live LLMBackend Protocol (model_id / served_model / available /
+    complete). ``available`` is True so the fusion path treats it as a live
+    model. ``complete`` echoes back ≥2 of the candidate arxiv_ids it sees in the
+    user prompt (so the engine's anti-hallucination filter keeps them) and emits
+    a real Archimedes DSL strategy_spec the evaluator can backtest + rigor-gate.
+    """
+
+    model_id = "mock-fusion-model"
+    served_model = "mock-fusion-model-served"
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    def complete(self, system: str, user: str) -> str:
+        import json as _json
+        import re as _re
+
+        ids = _re.findall(r'"arxiv_id"\s*:\s*"([^"]+)"', user)[:3]
+        return _json.dumps(
+            {
+                "strategy_name": "Mock Fused SMA+Vol Strategy",
+                "thesis": "Fuses SMA-200 trend timing with vol-managed sizing (pre-backtest).",
+                "source_arxiv_ids": ids,
+                "fusion_reasoning": "Paper A contributes trend timing; paper B vol scaling.",
+                "novelty_rationale": "Combination not published together.",
+                "risk_notes": "Pre-backtest hypothesis; rigor gate applies.",
+                "strategy_spec": {
+                    "name": "Mock Fused SMA+Vol Strategy",
+                    "asset_universe": ["SPY"],
+                    "rebalance_frequency": "monthly",
+                    "entry": {"gt": ["close", "sma_200"]},
+                    "exit": {"lt": ["close", "sma_200"]},
+                    "position_sizing": {"type": "full_invested_when_in_market"},
+                    "source_arxiv_ids": ids,
+                    "look_ahead_safe": True,
+                    "indicators": ["sma_200"],
+                    "parameter_variants": {"sma_200": [150, 200, 250]},
+                },
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_fusion_dispatch_end_to_end_persists_fusion_strategy(tmp_path, monkeypatch):
+    """The fusion choice drives dispatch → a fusion strategy is persisted.
+
+    Hermetic: tmp SQLite DB, fixture corpus, mocked LLM backend — no network.
+    """
+    # Real (temp) DB so _persist_candidate's upsert_strategy lands a row. db.py
+    # binds its engine/SessionLocal at IMPORT time, so an env tweak alone won't
+    # rebind them once another test has imported db — rebind the globals here so
+    # get_session() (used by upsert_strategy) writes to OUR isolated sqlite file.
+    import archimedes.db as _db
+    from archimedes.agents import generation_pipeline as gp
+    from archimedes.agents import strategy_fusion as sf
+    from archimedes.models.strategy_store import StrategyRecord
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    test_engine = create_engine(
+        f"sqlite:///{tmp_path / 'fusion_e2e.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    monkeypatch.setattr(_db, "engine", test_engine)
+    monkeypatch.setattr(_db, "SessionLocal", sessionmaker(bind=test_engine, autocommit=False, autoflush=False))
+    # Register all ORM tables, then create them on the isolated engine.
+    from archimedes.models import kg, strategy_passport_record  # noqa: F401
+
+    _db.Base.metadata.create_all(bind=test_engine)
+
+    # Enable fusion + take the LIVE path (override the file's fixture autouse).
+    monkeypatch.setenv("ARCHIMEDES_FUSION_ENABLED", "1")
+    monkeypatch.delenv("GENERATION_PIPELINE_FIXTURE", raising=False)
+    # Skip the buy-and-hold backtest network round-trip for any agent fallback.
+    monkeypatch.setenv("GENERATION_PIPELINE_SKIP_BACKTEST", "1")
+
+    # Live LLM available (validator + fusion gating both read this).
+    monkeypatch.setattr(gp, "_llm_available", lambda: True)
+
+    async def _permissive_validate(brief):
+        return {
+            "is_valid": True,
+            "intent_summary": brief.intent[:140],
+            "asset_classes_inferred": brief.asset_classes or [],
+            "time_horizon_inferred": "unknown",
+            "risk_appetite_adjusted": brief.risk_appetite,
+        }
+
+    monkeypatch.setattr(gp, "_validate_brief", _permissive_validate)
+
+    # ≥20-paper fixture corpus, injected at the engine's load_corpus seam (both
+    # the no-LLM precheck and StrategyFusion read through this).
+    corpus = _fixture_corpus(24)
+    monkeypatch.setattr(sf, "load_corpus", lambda *a, **k: corpus)
+
+    # MOCKED LLM backend — inject via a StrategyFusion built with our backend +
+    # corpus so propose() does no network call. Patch on the agents module
+    # (the canonical home; services.strategy_fusion is the same object via
+    # the services/__init__ re-export).
+    monkeypatch.setattr(
+        sf,
+        "default_fusion",
+        lambda: sf.StrategyFusion(backend=_MockFusionBackend(), corpus=corpus),
+    )
+
+    store = _FakeStore()
+    brief = GenerateBrief(
+        intent="equity momentum with a volatility overlay",
+        risk_appetite="moderate",
+        asset_classes=["equities"],
+    )
+
+    await run_generation(job_id="job_fusion_e2e", brief=brief, store=store, dual_regime=False, n_candidates=1)
+
+    # ── pipeline_selected announced fusion (and it actually ran) ──
+    ps = [e for e in store.events if e["event"] == "pipeline_selected"]
+    assert ps, "no pipeline_selected event emitted"
+    assert ps[0]["data"]["pipeline"] == "fusion", (
+        f"fusion was not dispatched; got {ps[0]['data']['pipeline']!r} (reason={ps[0]['data'].get('reason')!r})"
+    )
+
+    # ── Same streaming events the agent path emits surfaced the fusion run ──
+    names = [e["event"] for e in store.events]
+    for required in ("candidate_drafted", "candidate_evaluated", "persisted", "done"):
+        assert required in names, f"fusion run did not emit {required!r} (events={names})"
+
+    # ── The persisted strategy is a real fusion with provenance + rigor ──
+    # Filter on the mock's exact name (not just generation_method) so a fusion
+    # row left by another test in the same session can't be mistaken for ours.
+    with _db.get_session() as session:
+        record = (
+            session.query(StrategyRecord)
+            .filter(
+                StrategyRecord.generation_method == "fusion",
+                StrategyRecord.strategy_name == "Mock Fused SMA+Vol Strategy",
+            )
+            .first()
+        )
+
+    assert record is not None, "no fusion StrategyRecord was persisted"
+    assert record.generation_method == "fusion"
+
+    source_papers = json.loads(record.source_papers)
+    arxiv_ids = [p.get("arxiv_id") for p in source_papers if p.get("arxiv_id")]
+    assert len(arxiv_ids) >= 2, f"fusion must cite ≥2 source_arxiv_ids; got {arxiv_ids}"
+
+    assert record.rigor_verdict is not None, "fusion strategy persisted without a rigor verdict"
+    verdict = json.loads(record.rigor_verdict)
+    # Real DSL backtest verdict: the four admission primitives + a passing bool.
+    for key in ("dsr", "pbo", "oos_sharpe", "passing"):
+        assert key in verdict, f"rigor verdict missing {key!r}: {verdict}"
+    assert isinstance(verdict["passing"], bool)
+    # A non-null rigor verdict (real DSR/PBO/OOS) — at least one numeric metric
+    # populated, proving evaluate_fusion_spec actually ran a backtest.
+    assert any(verdict.get(k) is not None for k in ("dsr", "pbo", "oos_sharpe")), (
+        f"rigor verdict has no populated numeric metric (backtest didn't run?): {verdict}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fusion_falls_back_to_agent_when_no_llm(monkeypatch):
+    """Fusion selected but no LLM → relabel to agent + run the fixture path.
+
+    Confirms the agent FALLBACK still works when fusion can't run, and that the
+    pipeline_selected event is HONEST (says "agent", not "fusion").
+    """
+    from archimedes.agents import generation_pipeline as gp
+
+    monkeypatch.setenv("ARCHIMEDES_FUSION_ENABLED", "1")
+    # Fixture path (no LLM) is forced by the file's autouse fixture; _pick_pipeline
+    # may still select fusion via the flag, but use_live=False must relabel.
+    monkeypatch.setattr(gp, "_pick_pipeline", lambda brief, mode_override=None: ("fusion", "forced fusion for test"))
+
+    store = _FakeStore()
+    brief = GenerateBrief(intent="balanced macro", risk_appetite="moderate")
+
+    with patch(
+        "archimedes.agents.generation_pipeline._persist_candidate",
+        new=AsyncMock(return_value=("strat_fallback_001", "0xfb")),
+    ):
+        await run_generation(job_id="job_fusion_fallback", brief=brief, store=store, dual_regime=False, n_candidates=1)
+
+    ps = next(e for e in store.events if e["event"] == "pipeline_selected")
+    # No LLM (fixture path) → fusion is NOT runnable → honest relabel to agent.
+    assert ps["data"]["pipeline"] == "agent", (
+        f"fusion with no LLM must relabel to agent, got {ps['data']['pipeline']!r}"
+    )
+    # And the agent fallback still produced + persisted a candidate.
+    names = [e["event"] for e in store.events]
+    assert "candidate_drafted" in names
+    assert "persisted" in names
+    assert names[-1] == "done"

@@ -31,7 +31,7 @@ import logging
 import math
 import os
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -108,6 +108,40 @@ def _pick_pipeline(
 
     # ── Agent (fallback) ──
     return "agent", "streaming agent — general-purpose fallback"
+
+
+def _fusion_can_run(brief: GenerateBrief) -> bool:
+    """No-LLM viability precheck for the fusion path.
+
+    Returns True iff the fusion flag is on AND the deterministic candidate
+    selection yields ≥ ``MIN_PAPERS`` papers for this brief's steer — i.e. the
+    engine would not immediately return ``insufficient_corpus``. Used to keep
+    ``pipeline_selected`` honest: we only announce "fusion" if it can actually
+    produce a ≥2-paper synthesis. Never raises — any failure degrades to False
+    so the caller falls back to the agent path.
+    """
+    try:
+        from archimedes.agents.strategy_fusion import (
+            MIN_PAPERS,
+            FusionBrief,
+            fusion_enabled,
+            load_corpus,
+            select_candidates,
+        )
+
+        if not fusion_enabled():
+            return False
+        fusion_brief = FusionBrief(
+            asset_classes=list(brief.asset_classes or []),
+            risk_appetite=brief.risk_appetite,
+            strategic_direction=brief.intent or "",
+            max_papers=brief.max_papers,
+        )
+        candidates = select_candidates(fusion_brief, load_corpus())
+        return len(candidates) >= MIN_PAPERS
+    except Exception:
+        logger.debug("fusion viability precheck failed; treating as not runnable", exc_info=True)
+        return False
 
 
 # ── Brief validation (real LLM step on the live path) ─────────────────────
@@ -221,6 +255,20 @@ class _CandidateResult:
     # live path from the agent's price_histories; the fixture path leaves it
     # empty and supplies a hardcoded verdict.
     return_series: list[float] = None  # type: ignore[assignment]
+    # Provenance method this candidate was produced by — persisted verbatim into
+    # the StrategyRecord. The agent/fixture path leaves the default; the fusion
+    # runner sets ``"fusion"`` so the library distinguishes multi-paper synthesis
+    # from single-agent allocation. (Fusion dispatch wire, Stack A.)
+    generation_method: str = "portfolio_agent_streaming"
+    # The ≥2 arXiv ids fused into this candidate (fusion path only). Empty on the
+    # agent path; the fusion runner populates it from the FusionProposal so the
+    # passport renders real cross-paper provenance, not a placeholder.
+    source_arxiv_ids: list[str] = field(default_factory=list)
+    # Backtest verdict already carries DSR/PBO/OOS when the fusion evaluator ran;
+    # ``has_real_rigor`` flags that the verdict is a real DSL backtest (so the
+    # downstream buy-and-hold backtest step is skipped — it would clobber the
+    # already-computed fusion metrics with a different, weight-less read).
+    has_real_rigor: bool = False
 
 
 # ── Rigor adapter (Önder's rigor_evaluator on agent output) ───────────────
@@ -380,16 +428,25 @@ def _lookahead_for_candidate(referenced_strategies: list[Any]) -> bool:
 
 
 def _patch_pbo(candidates: list[_CandidateResult]) -> None:
-    """Compute library-level PBO across the candidate set; patch each verdict."""
-    series_map: dict[str, list[float]] = {c.candidate_id: c.return_series for c in candidates if c.return_series}
+    """Compute library-level PBO across the agent/fixture candidate set; patch each verdict.
+
+    Fusion candidates are SKIPPED: they carry a real PBO already computed by the
+    fusion evaluator's CSCV over the strategy's own parameter-variant grid
+    (``has_real_rigor=True``). Overwriting that with a buy-and-hold cross-candidate
+    PBO — or with the 0.0 N<2 default — would clobber the correct value and
+    silently relax the gate. Only the buy-and-hold (agent/fixture) candidates,
+    which have a ``return_series`` and no real rigor, participate here.
+    """
+    agent_cands = [c for c in candidates if not c.has_real_rigor]
+    series_map: dict[str, list[float]] = {c.candidate_id: c.return_series for c in agent_cands if c.return_series}
     if len(series_map) < 2:
-        for c in candidates:
+        for c in agent_cands:
             c.rigor_verdict["pbo"] = 0.0  # PBO undefined for N<2
         return
     from archimedes.services.rigor_evaluator import compute_pbo
 
     pbo_by_id = compute_pbo(series_map)
-    for c in candidates:
+    for c in agent_cands:
         pbo = pbo_by_id.get(c.candidate_id, 0.0)
         c.rigor_verdict["pbo"] = round(float(pbo), 4)
         # PBO ≥ 0.5 means the library overfits the in-sample winner; tighten
@@ -680,6 +737,197 @@ async def _run_live_candidate(
     )
 
 
+# ── Fusion path (multi-paper synthesis folded into the live stream) ───────
+#
+# Stack A previously computed a "fusion" LABEL via _pick_pipeline() and emitted
+# a cosmetic pipeline_selected event, then ALWAYS dispatched to the single-agent
+# portfolio path — the choice was thrown away. This runner makes the choice
+# actually drive dispatch: it REUSES the existing, unit-tested fusion engine
+# (StrategyFusion.propose → evaluate_fusion_spec, the same path Stack B's
+# _run_fusion_job wires) and emits the SAME streaming SSE events the agent path
+# emits, so the UI surfaces fusion transparently with real DSR/PBO/OOS.
+
+
+class FusionUnavailable(Exception):
+    """Fusion was selected but couldn't actually run (disabled / <2 papers /
+    LLM declined). The caller falls back to the agent path and relabels the
+    pipeline honestly rather than silently mislabeling an agent run as fusion."""
+
+
+async def _run_fusion_candidate(
+    *,
+    candidate_id: str,
+    brief: GenerateBrief,
+    emit: _Emitter,
+    regime: str = "neutral",
+    agent: Any = None,  # noqa: ARG001 — signature parity with _run_live_candidate; fusion path builds its own client
+) -> _CandidateResult:
+    """Drive the existing fusion engine with per-step streaming event emission.
+
+    Builds a ``FusionBrief`` from the incoming ``GenerateBrief``, calls the
+    EXISTING engine (``StrategyFusion.propose()`` → ``evaluate_fusion_spec()`` —
+    reuse, no duplication), and returns a ``_CandidateResult`` carrying the real
+    rigor verdict (DSR/PBO/OOS/look-ahead) computed by the DSL backtest.
+
+    Raises ``FusionUnavailable`` when the engine can't produce an actionable,
+    ≥2-paper fusion (disabled, insufficient corpus, unparseable, or fewer than
+    ``MIN_PAPERS`` fused) so the caller can fall back to the agent path and
+    relabel honestly — fusion never silently degrades into a single-paper or
+    mislabeled result.
+    """
+    from archimedes.agents.strategy_fusion import (
+        MIN_PAPERS,
+        FusionBrief,
+        default_fusion,
+    )
+
+    # Surface the same "agent is thinking" cadence the agent path emits so the
+    # SSE stream renders progress rather than dumping the result on connect.
+    await emit.emit("agent_iteration", candidate_id=candidate_id, iteration_n=1, max_iterations=3)
+    await emit.emit(
+        "tool_called",
+        candidate_id=candidate_id,
+        tool_name="select_candidates",
+        args_summary=f"asset_classes={brief.asset_classes or '(any)'}, regime={regime}",
+    )
+
+    # Map the GenerateBrief → FusionBrief (the engine's steer). asset_classes
+    # carries the user's universe steer; strategic_direction carries the intent.
+    fusion_brief = FusionBrief(
+        asset_classes=list(brief.asset_classes or []),
+        risk_appetite=brief.risk_appetite,
+        strategic_direction=brief.intent or "",
+        max_papers=brief.max_papers,
+    )
+
+    fusion = default_fusion()
+    proposal = await asyncio.wait_for(
+        asyncio.to_thread(fusion.propose, fusion_brief),
+        timeout=120.0,
+    )
+
+    await emit.emit(
+        "tool_result",
+        candidate_id=candidate_id,
+        tool_name="select_candidates",
+        result_summary=(f"fusion status={proposal.status}, papers={len(proposal.source_arxiv_ids)}"),
+    )
+
+    if not proposal.is_actionable:
+        # status in {disabled, insufficient_corpus, unparseable} OR <2 papers.
+        # Don't fabricate a fusion — bubble up so the caller falls back honestly.
+        raise FusionUnavailable(
+            f"fusion not actionable (status={proposal.status}, "
+            f"papers={len(proposal.source_arxiv_ids)}): {proposal.thesis[:160]}"
+        )
+
+    # ── Run the fusion evaluator pipeline (validate → backtest → rigor gate) ──
+    # Same call Stack B's _run_fusion_job makes. Produces the real DSR/PBO/OOS
+    # verdict on a DSL-interpreted backtest. Degrade gracefully (text-only
+    # fusion) if no machine-readable strategy_spec was emitted.
+    rigor_verdict: dict[str, Any]
+    has_real_rigor = False
+    asset_universe: list[str] = []
+    if proposal.strategy_spec is not None:
+        await emit.emit("agent_iteration", candidate_id=candidate_id, iteration_n=2, max_iterations=3)
+        await emit.emit(
+            "tool_called",
+            candidate_id=candidate_id,
+            tool_name="evaluate_fusion_spec",
+            args_summary="backtest + DSR/PBO/OOS rigor gate",
+        )
+        from archimedes.services.fusion_evaluator import evaluate_fusion_spec
+
+        eval_result = await asyncio.wait_for(
+            asyncio.to_thread(evaluate_fusion_spec, proposal.strategy_spec),
+            timeout=120.0,
+        )
+        asset_universe = list(proposal.strategy_spec.get("asset_universe", []) or [])
+        if eval_result.success and eval_result.rigor is not None:
+            r = eval_result.rigor
+            bt = eval_result.backtest
+            rigor_verdict = {
+                "dsr": r.dsr,
+                "dsr_p_value": r.dsr_p_value,
+                "pbo": r.pbo_score,
+                "oos_sharpe": r.oos_sharpe,
+                "in_sample_sharpe": r.in_sample_sharpe,
+                "lookahead_audit_passed": bool(r.look_ahead_clean),
+                "look_ahead_label": r.look_ahead_label,
+                "num_trials": int(r.num_trials),
+                "passing": bool(r.passing),
+                "data_source": r.data_source,
+                "admissible": bool(r.admissible),
+                # Backtest headline metrics — surfaced alongside so the passport
+                # renders without denormalizing from a separate field (parity
+                # with Stack B's rigor_verdict_dict).
+                "sharpe_ratio": bt.sharpe_ratio,
+                "sortino_ratio": bt.sortino_ratio,
+                "max_drawdown": bt.max_drawdown,
+                "cagr": bt.cagr,
+                "calmar_ratio": bt.calmar_ratio,
+                "win_rate": bt.win_rate,
+                "total_trades": bt.total_trades,
+            }
+            has_real_rigor = True
+            await emit.emit(
+                "tool_result",
+                candidate_id=candidate_id,
+                tool_name="evaluate_fusion_spec",
+                result_summary=(
+                    f"DSR={r.dsr} p={r.dsr_p_value} PBO={r.pbo_score} OOS={r.oos_sharpe} passing={r.passing}"
+                ),
+            )
+        else:
+            rigor_verdict = {
+                "dsr": None,
+                "pbo": None,
+                "oos_sharpe": None,
+                "in_sample_sharpe": None,
+                "lookahead_audit_passed": False,
+                "passing": False,
+                "reason": (eval_result.error or "fusion backtest produced no metrics"),
+            }
+            await emit.emit(
+                "tool_result",
+                candidate_id=candidate_id,
+                tool_name="evaluate_fusion_spec",
+                result_summary=f"evaluation failed: {(eval_result.error or 'no metrics')[:120]}",
+            )
+    else:
+        # Text-only fusion (no DSL spec) — honest pre-backtest verdict, not a
+        # fabricated pass. The proposal is still actionable (≥2 papers fused).
+        rigor_verdict = {
+            "dsr": None,
+            "pbo": None,
+            "oos_sharpe": None,
+            "in_sample_sharpe": None,
+            "lookahead_audit_passed": False,
+            "passing": False,
+            "reason": "fusion produced no machine-readable strategy_spec — rigor gate not run",
+        }
+
+    source_papers = [{"arxiv_id": aid, "title": ""} for aid in proposal.source_arxiv_ids]
+    # Defensive: the engine already guarantees ≥ MIN_PAPERS via is_actionable.
+    assert len(proposal.source_arxiv_ids) >= MIN_PAPERS  # invariant guard (engine guarantees via is_actionable)
+
+    return _CandidateResult(
+        candidate_id=candidate_id,
+        strategy_name=proposal.strategy_name or f"Fusion — {brief.intent[:50].strip()}",
+        thesis=proposal.thesis,
+        asset_universe=asset_universe,
+        source_papers=source_papers,
+        weights={},  # fusion emits a DSL spec, not a static weight vector
+        reasoning=proposal.fusion_reasoning or proposal.novelty_rationale or "",
+        rigor_verdict=rigor_verdict,
+        passes_rigor=bool(rigor_verdict.get("passing", False)),
+        regime=regime,
+        generation_method="fusion",
+        source_arxiv_ids=list(proposal.source_arxiv_ids),
+        has_real_rigor=has_real_rigor,
+    )
+
+
 # ── Pipeline entry point ──────────────────────────────────────────────────
 
 
@@ -787,6 +1035,36 @@ async def run_generation(
             regimes: list[str] = ["bull", "bear"]
         else:
             regimes = ["neutral"] * n_candidates
+
+        # ── Resolve the ACTUAL runner that will drive dispatch ──
+        # _pick_pipeline computes a label; before this fix that label was thrown
+        # away and the agent path always ran. Now the choice DRIVES dispatch:
+        # when "fusion" is selected, dispatch to the real (unit-tested) fusion
+        # engine via _run_fusion_candidate. A lightweight, no-LLM viability
+        # precheck (fusion flag on + ≥2 candidate papers for the steer) keeps
+        # pipeline_selected honest — we only announce "fusion" if it can run.
+        # The single-agent path remains the FALLBACK (fusion not selected / no
+        # LLM / corpus <2 papers).
+        use_live = _llm_available()
+        agent_runner: Callable[..., Awaitable[_CandidateResult]] = (
+            _run_live_candidate if use_live else _run_fixture_candidate
+        )
+        runner = agent_runner
+        if pipeline_name == "fusion":
+            if use_live and _fusion_can_run(brief):
+                runner = _run_fusion_candidate
+            else:
+                # Selected fusion but it can't actually run (no LLM, or the steer
+                # yields <2 papers). Relabel honestly rather than mislabeling an
+                # agent run as fusion (claim integrity).
+                pipeline_name = "agent"
+                pipeline_reason = (
+                    "fusion selected but not runnable "
+                    f"({'no LLM backend' if not use_live else 'corpus yielded <2 papers for the steer'})"
+                    " — falling back to streaming agent"
+                )
+                runner = agent_runner
+
         await emit.emit(
             "pipeline_selected",
             pipeline=pipeline_name,
@@ -794,14 +1072,16 @@ async def run_generation(
             regimes=regimes,
         )
 
-        # Decide path: live agent vs fixture
-        use_live = _llm_available()
-        runner: Callable[..., Awaitable[_CandidateResult]] = _run_live_candidate if use_live else _run_fixture_candidate
-
         # If the user picked an allowlisted free-tier model, build a per-job
         # portfolio agent bound to that model; otherwise reuse the shared
         # singleton on the env default (behavior unchanged). Constructed once and
         # shared across both regime candidates so we don't rebuild a client twice.
+        #
+        # NOTE: `use_live` and `runner` are already resolved ABOVE, where the
+        # fusion-vs-agent dispatch decision is made. Do NOT redefine `runner`
+        # here — a second `runner = _run_live_candidate ...` would clobber the
+        # fusion runner selected for a "fusion" pipeline and silently revert to
+        # the agent path (the bug this rebase had to reconcile).
         job_agent = None
         if use_live and model:
             try:
@@ -812,7 +1092,6 @@ async def run_generation(
             except Exception as exc:
                 logger.warning("could not build per-job agent for model %r (%s); using default", model, exc)
                 job_agent = None
-
         # Library is the candidate pool the agent reasons over; surface it so
         # the UI can show "agent is considering N papers". Its size also feeds
         # the DSR multiple-testing correction below (selection-bias-corrections-
@@ -845,6 +1124,36 @@ async def run_generation(
                     regime=regime,
                     agent=job_agent,
                 )
+            except FusionUnavailable as exc:
+                # Fusion was selected + precheck passed, but at runtime the
+                # engine declined (e.g. the LLM fused <2 valid papers). Fall
+                # back to the agent path for THIS candidate rather than failing
+                # — and surface the relabel so the stream stays honest.
+                logger.info("fusion declined for %s (%s); falling back to agent: %s", candidate_id, regime, exc)
+                await emit.emit(
+                    "pipeline_selected",
+                    pipeline="agent",
+                    reason=f"fusion declined at runtime ({exc}); using streaming agent",
+                    regimes=regimes,
+                )
+                try:
+                    cand = await agent_runner(
+                        candidate_id=candidate_id,
+                        brief=brief,
+                        emit=emit,
+                        regime=regime,
+                        agent=job_agent,  # preserve the user's free-tier model pick on fallback (#748)
+                    )
+                except Exception as exc2:
+                    logger.exception("agent fallback %s (%s) failed: %s", candidate_id, regime, exc2)
+                    await emit.emit(
+                        "candidate_failed",
+                        candidate_id=candidate_id,
+                        regime=regime,
+                        error=str(exc2),
+                        message=f"No {regime} candidate available — your brief may be structurally one-sided.",
+                    )
+                    continue
             except Exception as exc:
                 logger.exception("candidate %s (%s) failed: %s", candidate_id, regime, exc)
                 await emit.emit(
@@ -930,8 +1239,17 @@ async def run_generation(
         # regime variants in parallel (yfinance + numpy is I/O-bound), then
         # upsert the BacktestResult row + updated passport metrics so the
         # next /api/strategies/ read surfaces empirical Sharpe/DSR/PBO/OOS.
+        # Fusion candidates already carry a real DSL backtest + rigor verdict
+        # (has_real_rigor); they emit no static weight vector, so the buy-and-hold
+        # portfolio_backtester doesn't apply. Skip them here — re-running a
+        # weight-less backtest would only emit backtest_failed and can't improve
+        # on the fusion evaluator's metrics.
         await asyncio.gather(
-            *[_backtest_and_persist(c, strategy_ids[c.candidate_id], emit, library_size) for c in candidates]
+            *[
+                _backtest_and_persist(c, strategy_ids[c.candidate_id], emit, library_size)
+                for c in candidates
+                if not c.has_real_rigor
+            ]
         )
 
         # ── Persist all candidates to episodic memory (T-PE.8) ──
@@ -941,7 +1259,10 @@ async def run_generation(
             for cand in candidates:
                 persist_proposal(
                     generation_id=job_id,
-                    agent="agent",
+                    # "fusion" for fused candidates, "agent" otherwise — the
+                    # episodic record now reflects which engine produced the
+                    # proposal rather than always claiming "agent".
+                    agent="fusion" if cand.generation_method == "fusion" else "agent",
                     intent=brief.intent,
                     strategy_spec={
                         "strategy_name": cand.strategy_name,
@@ -949,7 +1270,7 @@ async def run_generation(
                         "weights": cand.weights,
                         "asset_universe": cand.asset_universe,
                     },
-                    papers=[p.get("arxiv_id", "") for p in cand.source_papers],
+                    papers=[p.get("arxiv_id", "") for p in cand.source_papers] or list(cand.source_arxiv_ids),
                     rigor_verdict=cand.rigor_verdict,
                     extra={"candidate_id": cand.candidate_id, "selected": cand is best},
                 )
@@ -1027,7 +1348,11 @@ async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief) -> tuple
         with get_session() as session:
             record = upsert_strategy(
                 session,
-                generation_method="portfolio_agent_streaming",
+                # Provenance of record — "fusion" for multi-paper synthesis,
+                # "portfolio_agent_streaming" for the single-agent path. Was
+                # hardcoded to the agent method; now reads the candidate's own
+                # method so fusion candidates land in the library as fusion.
+                generation_method=c.generation_method,
                 strategy_name=c.strategy_name,
                 thesis=c.thesis,
                 source_papers=c.source_papers,
@@ -1064,7 +1389,7 @@ async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief) -> tuple
                     out_of_sample_sharpe=c.rigor_verdict.get("oos_sharpe") if c.rigor_verdict else None,
                 )
                 with get_session() as sess2:
-                    ingest_passport(sess2, passport, generation_method="fusion", force_update=True)
+                    ingest_passport(sess2, passport, generation_method=c.generation_method, force_update=True)
                     sess2.commit()
             except Exception as exc:
                 logger.warning("unified passport persist failed (non-blocking): %s", exc)

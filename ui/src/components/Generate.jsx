@@ -10,10 +10,15 @@ import { ASSET_GROUPS, SUPPORTED_ASSETS } from '../data/assetUniverse'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
-// /generate spine page. Single input — backend _pick_pipeline() auto-routes
-// between Fusion (novel synthesis), Architect (curated-library preview), and
-// the streaming agent. The SSE stream emits a `pipeline_selected` event right
-// after `brief_validated` so the frontend renders the correct result component.
+// /generate spine page. Single input — backend _pick_pipeline() picks a
+// pipeline and that choice now DRIVES dispatch (fusion-dispatch wire): when
+// "fusion" is selected and the corpus + LLM allow it, the streaming pipeline
+// runs the multi-paper fusion engine and surfaces it through the SAME SSE
+// events as the agent path (candidate_drafted / candidate_evaluated /
+// persisted); otherwise it falls back to the streaming agent. The SSE stream
+// emits a `pipeline_selected` event right after `brief_validated` carrying the
+// pipeline that ACTUALLY ran, so the frontend renders the correct result
+// component and the announced pipeline is never a label for a different run.
 
 const STORAGE_JOB_KEY = 'archimedes:currentJobId'
 const STORAGE_FUSION_JOB_KEY = 'archimedes:currentFusionJobId'
@@ -95,8 +100,10 @@ export default function Generate({ onNavigate }) {
       return
     }
     setStarting(true)
-    // Mode is intentionally omitted — the backend's _pick_pipeline() auto-routes
-    // between Fusion / Architect / Agent; the choice is surfaced in the SSE stream.
+    // Mode is intentionally omitted — the backend's _pick_pipeline() chooses the
+    // pipeline and that choice now DRIVES dispatch (fusion actually runs the
+    // fusion engine via the streaming path; otherwise the agent path runs). The
+    // pipeline that actually ran is surfaced in the SSE `pipeline_selected` event.
     // `model` is sent only when the user picked a free-tier model; the server
     // re-validates it against a free-tier allowlist and falls back to the env
     // default otherwise, so omitting it keeps the current behavior.
