@@ -284,24 +284,60 @@ class ChatService:
             return "<vault_context>No metadata available for this vault.</vault_context>"
         return "<vault_context>\n" + "\n".join(parts) + "\n</vault_context>"
 
+    # Prefix that makes every fallback message visibly NON-AUTHORITATIVE, so a
+    # creds-less visitor never mistakes a canned string for a freshly-reasoned
+    # live answer (issue #752 — "claims must be true"). The live assistant did
+    # NOT run; this is static, non-personalized info, and it must read that way.
+    _FALLBACK_PREFIX = "⚠️ _The live assistant is temporarily unavailable — this is a static, non-personalized message (no live AI ran)._\n\n"
+
     def _canned_response(self, vault_address: str, user_message: str) -> dict | None:
-        """Fallback AI responses when Claude API is unavailable."""
+        """Static fallback when the LLM backend is unavailable or errors.
+
+        CRITICAL (issue #752): this path does NOT run the live agent, so it must
+        not assert product guarantees (rigor controls, on-chain anchoring) as
+        freshly-verified live output. Every message is prefixed as a static
+        offline notice, and the body points the user at the real, independently
+        verifiable surfaces (the strategy passport, the Traces tab) instead of
+        restating those guarantees as a fact the agent just established.
+        """
         msg_lower = user_message.lower()
 
         if any(w in msg_lower for w in ["performance", "return", "pnl", "profit"]):
-            text = "Portfolio performance is tracked on-chain via reasoning traces. Every rebalance decision is anchored with a verifiable hash on Arc. Check the Traces tab for the full history."
+            body = (
+                "I can't pull live numbers right now. This vault's performance and every "
+                "rebalance decision are recorded in the Traces tab — open it to read the "
+                "history and verify it yourself."
+            )
         elif any(w in msg_lower for w in ["rebalance", "adjust", "change"]):
-            text = "Rebalances are triggered by regime detection and strategy rotation signals. I execute them with full reasoning traces — the why, not just the what."
+            body = (
+                "I can't analyze the live portfolio right now. Past rebalances and the "
+                "reasoning behind them are listed in the Traces tab when you're ready to review."
+            )
         elif any(w in msg_lower for w in ["risk", "safe", "dangerous"]):
-            text = "Every Tier 1 strategy passes four selection-bias controls (DSR, PBO, walk-forward OOS, look-ahead audit) before admission. Rigor is the wedge."
+            body = (
+                "I can't give a live risk read right now. Each strategy's rigor checks and "
+                "their results are shown on its strategy passport — that's the place to "
+                "confirm what controls it actually passed."
+            )
         elif any(w in msg_lower for w in ["strategy", "paper", "research"]):
-            text = "Our strategies are grounded in peer-reviewed quantitative finance research. Each one carries a strategy passport with backtest results and paper-claim deltas."
+            body = (
+                "I can't look up this vault's strategies live right now. Each one carries a "
+                "strategy passport with its source paper, backtest results, and paper-claim "
+                "deltas — check the passport for the verifiable details."
+            )
         elif any(w in msg_lower for w in ["hello", "hi", "hey", "what"]):
-            text = "Hey! 👋 I'm Archimedes, your AI portfolio manager. Ask me about this vault's strategy, recent rebalances, or the research backing our positions."
+            body = (
+                "Hi — I'm Archimedes, the vault's AI portfolio manager, but I'm offline at "
+                "the moment so I can't answer live. Try again shortly, or browse the strategy "
+                "passport and Traces tab in the meantime."
+            )
         else:
-            text = "Good question. I'm monitoring the portfolio and market conditions. Feel free to ask about specific strategies, performance, or our research-backed approach."
+            body = (
+                "I'm offline right now and can't answer live. Try again shortly, or explore "
+                "this vault's strategy passport and Traces tab for the recorded details."
+            )
 
-        return self.post_ai_message(vault_address, text, trigger="mention")
+        return self.post_ai_message(vault_address, self._FALLBACK_PREFIX + body, trigger="mention")
 
     def get_message_count(self, vault_address: str) -> int:
         """Get total message count for a vault."""

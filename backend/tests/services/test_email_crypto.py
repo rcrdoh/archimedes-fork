@@ -64,3 +64,57 @@ def test_env_var_changes_key(monkeypatch) -> None:
     monkeypatch.delenv("EMAIL_ENCRYPTION_KEY", raising=False)
     default_key = _derive_key()
     assert custom_key != default_key
+
+
+# ── Fail-closed in production (issue #753) ────────────────────────────────
+
+
+def test_derive_key_fails_closed_in_production_without_key(monkeypatch) -> None:
+    """Prod context (PUBLIC_DOMAIN set, no dev opt-in) + no key → raise.
+
+    Refusing the random-key fallback prevents encrypting real PII with an
+    ephemeral key that cannot be decrypted after a restart.
+    """
+    monkeypatch.delenv("EMAIL_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.setenv("PUBLIC_DOMAIN", "https://archimedes-arc.com")
+    with pytest.raises(RuntimeError, match="EMAIL_ENCRYPTION_KEY"):
+        _derive_key()
+
+
+def test_encrypt_fails_closed_in_production_without_key(monkeypatch) -> None:
+    """The fail-closed guard also fires through the public encrypt entrypoint."""
+    monkeypatch.delenv("EMAIL_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.setenv("PUBLIC_DOMAIN", "https://archimedes-arc.com")
+    with pytest.raises(RuntimeError, match="EMAIL_ENCRYPTION_KEY"):
+        encrypt_email("alice@example.com")
+
+
+def test_derive_key_dev_path_works_without_key_no_public_domain(monkeypatch) -> None:
+    """Local dev (no PUBLIC_DOMAIN, no key) still gets a random key — no raise."""
+    monkeypatch.delenv("EMAIL_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("PUBLIC_DOMAIN", raising=False)
+    monkeypatch.delenv("TESTING", raising=False)
+    key = _derive_key()  # must not raise
+    assert isinstance(key, bytes)
+    assert len(key) == 44
+
+
+def test_derive_key_testing_optin_overrides_production_marker(monkeypatch) -> None:
+    """TESTING=1 keeps the dev path working even if PUBLIC_DOMAIN is set."""
+    monkeypatch.delenv("EMAIL_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setenv("PUBLIC_DOMAIN", "https://archimedes-arc.com")
+    monkeypatch.setenv("TESTING", "1")
+    key = _derive_key()  # must not raise — TESTING is the explicit dev opt-in
+    assert isinstance(key, bytes)
+    assert len(key) == 44
+
+
+def test_production_with_key_still_works(monkeypatch) -> None:
+    """Prod with the key set is the normal, deterministic, non-raising path."""
+    monkeypatch.setenv("PUBLIC_DOMAIN", "https://archimedes-arc.com")
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.setenv("EMAIL_ENCRYPTION_KEY", "a-real-prod-secret")
+    token = encrypt_email("alice@example.com")
+    assert decrypt_email(token) == "alice@example.com"

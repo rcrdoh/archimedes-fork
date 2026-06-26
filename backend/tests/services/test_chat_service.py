@@ -9,6 +9,7 @@ Added 2026-05-24 as part of the #147 coverage-gate lift.
 
 from __future__ import annotations
 
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -194,23 +195,61 @@ class TestEventPosters:
 
 
 class TestCannedResponse:
-    @pytest.mark.parametrize(
-        "user_message,expected_marker",
-        [
-            ("How is performance?", "performance"),
-            ("Should we rebalance soon?", "Rebalances"),
-            ("Is this risky?", "selection-bias"),
-            ("What strategy is this?", "research"),
-            ("Hello!", "👋"),
-            ("Just listing without any trigger", "monitoring the portfolio"),
-        ],
-    )
-    def test_keyword_routing(self, user_message: str, expected_marker: str) -> None:
+    """The fallback path (no live AI) must read as static, non-authoritative
+    info — never as a freshly-reasoned live agent answer (issue #752).
+    """
+
+    # Representative user messages spanning every keyword branch + the default.
+    _MESSAGES: ClassVar[list[str]] = [
+        "How is performance?",
+        "Should we rebalance soon?",
+        "Is this risky?",
+        "What strategy is this?",
+        "Hello!",
+        "Just listing without any trigger",
+    ]
+
+    @pytest.mark.parametrize("user_message", _MESSAGES)
+    def test_every_branch_is_marked_non_authoritative(self, user_message: str) -> None:
+        """Every fallback message carries the offline/static prefix."""
         with patch.object(ChatService, "post_ai_message") as poster:
             poster.return_value = {"id": 1}
             ChatService()._canned_response("0xv", user_message)
         text = poster.call_args.args[1]
-        assert expected_marker in text
+        assert text.startswith(ChatService._FALLBACK_PREFIX)
+        lowered = text.lower()
+        # Honest framing words that signal "this is not a live answer".
+        assert ("unavailable" in lowered) or ("offline" in lowered)
+        assert "no live ai ran" in lowered
+
+    @pytest.mark.parametrize("user_message", _MESSAGES)
+    def test_no_authoritative_product_claims_in_fallback(self, user_message: str) -> None:
+        """Anti-goal guard (#752): the fallback must NOT restate product
+        guarantees as freshly-verified live output. The specific marketing
+        sentences that previously leaked through this path are forbidden.
+        """
+        with patch.object(ChatService, "post_ai_message") as poster:
+            poster.return_value = {"id": 1}
+            ChatService()._canned_response("0xv", user_message)
+        text = poster.call_args.args[1]
+        forbidden = [
+            "Every Tier 1 strategy passes four selection-bias controls",
+            "anchored with a verifiable hash on Arc",
+            "Rigor is the wedge",
+            "Portfolio performance is tracked on-chain via reasoning traces",
+        ]
+        for claim in forbidden:
+            assert claim not in text, f"fallback must not assert: {claim!r}"
+
+    def test_fallback_points_to_verifiable_surfaces(self) -> None:
+        """Honest static info may direct the user to the real, independently
+        verifiable surfaces (passport / Traces tab) — that's allowed and good.
+        """
+        with patch.object(ChatService, "post_ai_message") as poster:
+            poster.return_value = {"id": 1}
+            ChatService()._canned_response("0xv", "Is this risky?")
+        text = poster.call_args.args[1]
+        assert ("passport" in text.lower()) or ("traces" in text.lower())
 
 
 class TestGetMessageCount:
