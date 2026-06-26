@@ -271,6 +271,16 @@ contract PriceOracleChainlinkTest is Test {
         assertTrue(oracle.isFresh());
     }
 
+    function test_feed_future_updatedAt_degrades_to_admin() public {
+        vm.prank(owner);
+        oracle.setPriceFeed(address(feed));
+        // A feed reporting a timestamp in the FUTURE is malformed round metadata — it must
+        // fail closed (degrade to admin), not be treated as fresh (#724 review).
+        feed.setUpdatedAt(block.timestamp + 1 hours);
+        assertEq(oracle.getPrice(), oracle.price());
+        assertTrue(oracle.isFresh()); // admin fallback is fresh
+    }
+
     function test_feed_out_of_band_degrades_to_admin() public {
         vm.prank(owner);
         oracle.setPriceFeed(address(feed));

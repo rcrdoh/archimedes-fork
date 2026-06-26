@@ -356,7 +356,8 @@ contract PriceOracle is Ownable {
     ///         the admin fallback instead of bricking every consumer (#724 review fix 1).
     /// @dev    Fail-soft → (false, 0) on: the feed call itself reverting (paused /
     ///         self-destructed / non-conforming); answer <= 0; incomplete round
-    ///         (updatedAt == 0); carried-over round (answeredInRound < roundId); stale
+    ///         (updatedAt == 0); a FUTURE updatedAt (malformed metadata, fails closed);
+    ///         carried-over round (answeredInRound < roundId); stale
     ///         beyond the per-feed heartbeat (now - updatedAt > feedStaleness — fix 3);
     ///         or a nonzero answer that floors to 0 after down-scaling (fix 4). Uses the
     ///         decimals CACHED at config time — no per-read decimals() call (TOCTOU + gas).
@@ -373,6 +374,7 @@ contract PriceOracle is Ownable {
         ) {
             if (answer <= 0) return (false, 0);
             if (updatedAt == 0) return (false, 0);
+            if (updatedAt > block.timestamp) return (false, 0); // future timestamp = malformed round metadata
             if (answeredInRound < roundId) return (false, 0);
             if (block.timestamp > updatedAt + feedStaleness) return (false, 0);
 
