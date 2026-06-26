@@ -67,6 +67,7 @@ contract DeployScript is Script {
             agentAddr,
             address(ammRouter),
             USDC_ARC_TESTNET,
+            address(traceRegistry),
             owner,
             owner
         );

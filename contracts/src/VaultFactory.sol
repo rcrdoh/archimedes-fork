@@ -16,6 +16,10 @@ contract VaultFactory is IVaultFactory, Ownable {
     address public immutable override ammRouter;
     address public immutable override usdc;
 
+    /// @notice Trace registry passed to every vault this factory creates, so each vault
+    ///         enforces commit-before-trade in rebalance() (#589).
+    address public immutable traceRegistry;
+
     address public platformFeeRecipient;
 
     address[] private _vaults;
@@ -31,12 +35,15 @@ contract VaultFactory is IVaultFactory, Ownable {
         address _agentAddress,
         address _ammRouter,
         address _usdc,
+        address _traceRegistry,
         address _platformFeeRecipient,
         address _owner
     ) Ownable(_owner) {
+        require(_traceRegistry != address(0), "Trace registry required");
         agentAddress = _agentAddress;
         ammRouter = _ammRouter;
         usdc = _usdc;
+        traceRegistry = _traceRegistry;
         platformFeeRecipient = _platformFeeRecipient;
     }
 
@@ -55,6 +62,7 @@ contract VaultFactory is IVaultFactory, Ownable {
         Vault newVault = new Vault(
             usdc,
             ammRouter,
+            traceRegistry,
             msg.sender,
             vaultTier,
             managementFeeBps,
