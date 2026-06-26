@@ -1116,4 +1116,196 @@ contract VaultTest is Test {
         assertEq(vault.balanceOf(alice), 0);
         assertEq(vault.balanceOf(bob), amount2);
     }
+
+    // ─── T0.2: non-custodial owner≠agent + drain-vector ──────────────
+    //
+    // Context (re-land of the intent behind PR #646, which #650 reverted).
+    // #646 tried to separate the Vault's Ownable owner from its creator/agent by
+    // adding a 6th `address _vaultOwner` arg to createVault. That changed the
+    // on-chain selector to createVault(string,string,uint16,uint16,bool,address),
+    // but the VaultFactory deployed on Arc testnet only has the 5-arg selector —
+    // so every createVault reverted on-chain and #650 reverted #646 in full to
+    // un-break the live demo (see PR #650).
+    //
+    // The owner≠agent SEPARATION is re-landed here WITHOUT touching the deployed
+    // createVault selector or the Vault constructor: the backend now creates the
+    // vault (becoming creator+owner), calls setAgent(backendAgent), then
+    // transferOwnership(userWallet) — both already in the live ABI. The contract
+    // surface below proves that handoff yields the intended non-custodial posture:
+    // the agent has rebalance authority ONLY, and a compromised agent key cannot
+    // drain the vault, re-point oracles, pause, or otherwise touch owner-only
+    // sensitive setters.
+    //
+    // These tests build vaults with a DISTINCT owner and agent (in the shared
+    // setUp, agent == creator == owner, which would mask the separation).
+
+    /// @dev Mirror of the runtime handoff the backend performs after createVault:
+    ///      creator creates the vault (becomes Ownable owner), sets a distinct
+    ///      agent, then transfers ownership to the end user's wallet. Returns the
+    ///      vault now owned by `user` with `compromisedAgent` as the rebalancer.
+    function _handoffVault(address creator_, address user, address compromisedAgent)
+        internal
+        returns (Vault v)
+    {
+        vm.prank(creator_);
+        address vaultAddr = factory.createVault("NonCustodial", "vNC", 0, 0, true);
+        v = Vault(payable(vaultAddr));
+
+        // Backend wires the agent (rebalance authority) while it is still owner.
+        vm.prank(creator_);
+        v.setAgent(compromisedAgent);
+
+        // Backend hands ownership to the depositing user — owner != agent now.
+        vm.prank(creator_);
+        v.transferOwnership(user);
+
+        assertEq(v.owner(), user, "owner must be the user wallet after handoff");
+        assertEq(v.agent(), compromisedAgent, "agent must be the backend signer");
+        assertTrue(v.owner() != v.agent(), "owner and agent must differ (non-custodial)");
+    }
+
+    /// @dev transferOwnership (inherited from OZ Ownable) moves ALL owner-only
+    ///      rights to the new owner and strips them from the previous owner. This
+    ///      is the exact primitive the backend relies on to make vaults
+    ///      user-owned, so we assert both halves: the user gains owner rights and
+    ///      the previous owner (the backend creator) loses them.
+    function test_transferOwnership_moves_owner_rights_to_user() public {
+        address creator_ = address(0xC0FFEE);
+        address user = address(0xA11CE);
+        address backendAgent = address(0xA9E27);
+
+        Vault v = _handoffVault(creator_, user, backendAgent);
+
+        // The previous owner (creator/backend) can no longer call owner-only setters.
+        vm.prank(creator_);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, creator_));
+        v.setMaxSlippageBps(50);
+
+        // The new owner (user) can.
+        vm.prank(user);
+        v.setMaxSlippageBps(50);
+        assertEq(v.maxSlippageBps(), 50);
+    }
+
+    /// @dev DRAIN VECTOR — the headline non-custodial invariant.
+    ///      A fully compromised agent key (it can call every onlyManager function:
+    ///      rebalance, setTargetAllocations, setTokenOraclesFromRegistry) must NOT
+    ///      be able to move user funds out of the vault. It has NO path to:
+    ///        (a) withdraw/redeem someone else's shares,
+    ///        (b) re-point the NAV/slippage oracle to a self-serving one,
+    ///        (c) pause the vault to grief users,
+    ///        (d) seize ownership.
+    ///      The only thing it can do is rebalance WITHIN the oracle-enforced
+    ///      slippage floor — which conserves vault value and cannot exfiltrate it.
+    function test_drain_vector_compromised_agent_cannot_drain() public {
+        address creator_ = address(0xC0FFEE);
+        address user = address(0xA11CE);
+        address attacker = address(0xBADBAD); // the compromised agent key
+
+        Vault v = _handoffVault(creator_, user, attacker);
+
+        // Owner (user) wires a legitimate oracle so the vault can price/rebalance.
+        address[] memory tokens = _singleton(address(sTSLA));
+        address[] memory oracles = _singleton(address(tslaOracle));
+        vm.prank(user);
+        v.setTokenOracles(tokens, oracles);
+
+        // A real user deposits real funds.
+        uint256 deposit = 50_000 * 10**6;
+        usdc.mint(user, deposit);
+        vm.startPrank(user);
+        usdc.approve(address(v), deposit);
+        v.deposit(deposit, user);
+        vm.stopPrank();
+
+        uint256 vaultUsdcBefore = usdc.balanceOf(address(v));
+        assertEq(vaultUsdcBefore, deposit, "vault should hold the user's USDC");
+
+        // (a) The attacker cannot withdraw or redeem the user's shares — it owns
+        //     none and has no allowance, so the ERC-4626 allowance check reverts.
+        //     Read the view values BEFORE expectRevert so the cheatcode targets
+        //     the redeem/withdraw call, not an inlined view (#expectRevert pitfall).
+        uint256 userShares = v.balanceOf(user);
+        uint256 withdrawable = deposit - v.MIN_LIQUIDITY();
+        vm.prank(attacker);
+        vm.expectRevert(); // ERC20InsufficientAllowance (no allowance granted)
+        v.redeem(userShares, attacker, user);
+
+        vm.prank(attacker);
+        vm.expectRevert();
+        v.withdraw(withdrawable, attacker, user);
+
+        // (b) The attacker cannot re-point the oracle that feeds the slippage
+        //     floor — setTokenOracles is onlyOwner. Without this, the classic
+        //     drain is: point sTSLA at an attacker oracle returning a price of 1,
+        //     set minAmountOut≈0, and route a swap that leaks value.
+        PriceOracle evilOracle = new PriceOracle("evil", 1, attacker);
+        address[] memory evilOracles = _singleton(address(evilOracle));
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, attacker));
+        v.setTokenOracles(tokens, evilOracles);
+
+        // (c) The attacker cannot widen slippage past the cap (it cannot call the
+        //     setter at all — onlyOwner) to weaken swap protection. Read the cap
+        //     view before expectRevert so the cheatcode targets the setter call.
+        uint256 cap = v.MAX_SLIPPAGE_CAP_BPS();
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, attacker));
+        v.setMaxSlippageBps(cap);
+
+        // (d) The attacker cannot pause (grief) or seize ownership.
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, attacker));
+        v.pause();
+
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, attacker));
+        v.transferOwnership(attacker);
+
+        // (e) Sanity: the attacker CAN still rebalance (its legitimate authority),
+        //     but the swap is bounded by the owner-set oracle floor, so vault NAV
+        //     is conserved — value moves between USDC and sTSLA, never OUT to the
+        //     attacker. The vault's total NAV (priced via the owner's oracle) is
+        //     held to within the bounded slippage; funds never leave the vault.
+        uint256 navBefore = v.totalAssets();
+        address[] memory tIn = _singleton(address(sTSLA));
+        uint256[] memory aIn = _singletonUint(10_000 * 10**6);
+        address[] memory tOut = new address[](0);
+        uint256[] memory aOut = new uint256[](0);
+        vm.prank(attacker);
+        v.rebalance(tIn, aIn, tOut, aOut); // buys sTSLA within the oracle floor
+
+        // The vault now holds sTSLA + remaining USDC; the attacker's own USDC
+        // balance is unchanged — nothing was exfiltrated to the attacker.
+        assertEq(usdc.balanceOf(attacker), 0, "attacker must not have received any vault USDC");
+        assertGt(sTSLA.balanceOf(address(v)), 0, "vault holds the bought synth, not the attacker");
+
+        // NAV is conserved within the vault's slippage tolerance (default 1%) —
+        // the rebalance reshuffled USDC↔sTSLA but did not bleed value out. Any
+        // delta is AMM fee + bounded impact, NOT an exfiltration to the attacker.
+        uint256 navAfter = v.totalAssets();
+        assertGe(navAfter, (navBefore * 9900) / 10000, "NAV must stay within slippage; value not drained");
+
+        // The user — and ONLY the user — can redeem their funds; custody never
+        // left them. We redeem 90% of the shares: a full-share redeem would have
+        // to liquidate the bought sTSLA back through the AMM (a second fee-bearing
+        // leg), so the very last sliver of NAV isn't payable in USDC without
+        // incurring round-trip friction — that residual is a normal ERC-4626
+        // property, not a custody loss. Redeeming 90% comfortably clears the
+        // available USDC + liquidation headroom and proves the user controls the
+        // funds. Read the share balance before prank so the cheatcode applies to
+        // redeem(), not the balanceOf view (single-call pitfall).
+        uint256 redeemable = (v.balanceOf(user) * 90) / 100;
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        vm.prank(user);
+        v.redeem(redeemable, user, user);
+        uint256 recovered = usdc.balanceOf(user) - userUsdcBefore;
+        // 90% of a ~50k deposit, minus bounded slippage → comfortably > 44k.
+        assertGt(recovered, (deposit * 88) / 100, "user recovers their funds; attacker got nothing");
+    }
+
+    function _singletonUint(uint256 x) internal pure returns (uint256[] memory arr) {
+        arr = new uint256[](1);
+        arr[0] = x;
+    }
 }

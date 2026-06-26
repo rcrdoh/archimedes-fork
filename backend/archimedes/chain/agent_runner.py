@@ -1201,12 +1201,20 @@ class StrategyRunner:
 
         logger.info("No vaults found — auto-creating default Tier 1 vault…")
         try:
+            # T0.2 — non-custodial: there is no user wallet at auto-create time, so
+            # create_vault resolves the owner from ARC_VAULT_GOVERNANCE_ADDRESS (a
+            # cold key DISTINCT from the agent). If that env var is unset, the
+            # vault stays backend-owned and create_vault logs a loud warning — it
+            # NEVER silently hands ownership to the agent. Set
+            # ARC_VAULT_GOVERNANCE_ADDRESS in the runner's env to make
+            # auto-created demo vaults non-custodial.
             vault_address = await chain_executor.create_vault(
                 name="Archimedes Momentum",
                 symbol="vMOMENTUM",
                 management_fee_bps=100,
                 performance_fee_bps=1500,
                 agent_assisted=True,
+                owner_wallet=None,  # → governance address, or warn-and-stay-backend-owned
             )
             logger.info("Default vault created at %s", vault_address)
             self._known_vaults.add(vault_address)
