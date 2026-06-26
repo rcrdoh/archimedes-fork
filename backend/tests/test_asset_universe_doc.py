@@ -5,6 +5,7 @@ Hermetic: pure in-memory render vs the committed file — no DB / Redis / RPC / 
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from archimedes.universe import COMPLIANCE_FLAGGED_SINGLE_STOCKS, ON_CHAIN_SYNTHS
@@ -34,3 +35,17 @@ def test_asset_universe_doc_lists_every_synth() -> None:
         assert f"`{sym}`" in text, f"on-chain synth {sym} missing from docs/asset-universe.md"
     for sym in COMPLIANCE_FLAGGED_SINGLE_STOCKS:
         assert f"`{sym}`" in text, f"compliance-flagged {sym} missing from docs/asset-universe.md"
+
+
+def test_on_chain_table_has_exactly_one_row_per_synth() -> None:
+    # Stronger than "symbol appears somewhere": the on-chain TABLE must have exactly one
+    # row per deploy-eligible synth (guards a symbol appearing only in prose / the
+    # compliance list while its table row is missing). Table rows start `| `sXXX` |`;
+    # the compliance list renders symbols inline (not as table rows), so it won't match.
+    text = _doc_path().read_text(encoding="utf-8")
+    rows = re.findall(r"^\| `(s[A-Za-z0-9]+)` \|", text, flags=re.MULTILINE)
+    assert set(rows) == set(ON_CHAIN_SYNTHS), (
+        f"on-chain table rows != SSOT. only-in-table={sorted(set(rows) - set(ON_CHAIN_SYNTHS))} "
+        f"only-in-ssot={sorted(set(ON_CHAIN_SYNTHS) - set(rows))}"
+    )
+    assert len(rows) == len(set(rows)) == len(ON_CHAIN_SYNTHS), "duplicate or missing table rows"
