@@ -9,7 +9,7 @@ import pricing from '../data/modelPricing.json'
 //
 // SAFETY (critical): only FREE/default-tier models (works_now:true) are
 // selectable. Premium rows (Claude Haiku/Sonnet — works_now:false) stay
-// display-only with a "Paid tier — unlock coming soon" affordance; selecting
+// display-only with a "Premium model — activating soon (pending Bedrock approval)" affordance; selecting
 // them is a no-op until the paid-tier 402 entitlement (#723) lands. The server
 // re-enforces this allowlist, so the UI restriction is defense-in-depth.
 //
@@ -83,7 +83,7 @@ export default function ModelCostPanel({ selectedModel = null, onSelectModel }) 
           <p className="caption mb-3" style={{ color: 'var(--text-3)' }}>
             {pricing.unit} · {pricing.region} · snapshot {pricing.generated}. Cheaper is usually
             less capable — pick for your budget. <strong style={{ color: '#3fb950' }}>✓</strong> = invokable
-            now and selectable; <strong>premium</strong> models are <em>Paid tier — unlock coming soon</em>.
+            now and selectable; <strong>premium</strong> models (Claude) are <em>activating soon — pending AWS Bedrock approval</em>.
           </p>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
@@ -110,7 +110,7 @@ export default function ModelCostPanel({ selectedModel = null, onSelectModel }) 
                       title={
                         canSelect
                           ? 'Use this model for the next generation'
-                          : 'Paid tier — unlock coming soon'
+                          : 'Premium model — activating soon (pending Bedrock approval)'
                       }
                       style={{
                         borderTop: '1px solid var(--glass-border)',
@@ -138,8 +138,8 @@ export default function ModelCostPanel({ selectedModel = null, onSelectModel }) 
                         {m.works_now ? (
                           <span style={{ color: '#3fb950' }} title="Invokable now">✓</span>
                         ) : (
-                          <span className="caption" style={{ color: 'var(--text-3)' }} title="Paid tier — unlock coming soon">
-                            Paid tier — soon
+                          <span className="caption" style={{ color: 'var(--text-3)' }} title="Premium model — activating soon (pending Bedrock approval)">
+                            Premium · soon
                           </span>
                         )}
                       </td>
