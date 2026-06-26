@@ -37,18 +37,21 @@ interface AggregatorV3Interface {
 ///         here need a careful contract review (Chuan).
 ///
 ///         Read-path precedence (see `getPrice()`):
-///           1. Chainlink feed (if `priceFeed != address(0)`), with staleness +
-///              non-negative + round-completeness checks, scaled to 6 decimals.
-///           2. Admin-fed `price` (the existing hackathon path), with its own
-///              staleness check — used when no feed is configured.
+///           1. Chainlink feed (if `priceFeed != address(0)`): read, validated (round
+///              completeness + staleness + future-timestamp), scaled to 6 decimals, and
+///              checked against the admin sanity band.
+///           2. Admin-fed `price`: used when no feed is configured, AND as the automatic
+///              DEGRADE target when a configured feed is unreadable / stale / invalid /
+///              out-of-band. getPrice() only reverts when BOTH sources are unusable.
 ///         The no-arg `getPrice()` signature is preserved so every existing consumer
 ///         (Vault, SyntheticVault, SyntheticFactory) and the backend keep working.
 contract PriceOracle is Ownable {
     /// @notice Asset price in USDC (6 decimals). e.g. $392.60 → 392600000.
-    ///         This is the *admin-fed* value (the fallback path). When a Chainlink
-    ///         feed is configured, `getPrice()` reads the feed instead and this
-    ///         field is not used for the live read. Kept public + named `price` so
-    ///         the backend's on-chain reference read (`.price()`) keeps working.
+    ///         This is the *admin-fed* value. With a Chainlink feed configured getPrice()
+    ///         PREFERS the feed — but `price` is still consulted: as the sanity-band
+    ///         reference, and as the value returned when the feed degrades (unreadable /
+    ///         stale / invalid / out-of-band). Kept public + named `price` so the backend's
+    ///         on-chain reference read (`.price()`) keeps working.
     uint256 public price;
 
     /// @notice Human-readable label (e.g. "TSLA", "NVDA", "SPY")
@@ -324,7 +327,12 @@ contract PriceOracle is Ownable {
                     return feedPrice;
                 }
                 uint256 diff = feedPrice > price ? feedPrice - price : price - feedPrice;
-                if (diff * BPS_DENOMINATOR <= price * maxFeedDeviationBps) {
+                // Overflow-safe band (#724 review): keep the large multiply off the
+                // attacker-controllable `diff` side. `price * maxFeedDeviationBps` is bounded
+                // (admin price × ≤10× bps); `diff` is a subtraction. A malicious huge feedPrice
+                // therefore can't overflow-and-revert here (which would brick getPrice) — it
+                // simply falls out of band and degrades to admin.
+                if (diff <= (price * maxFeedDeviationBps) / BPS_DENOMINATOR) {
                     return feedPrice; // in band → trust the live feed
                 }
                 // out of band → fall through and degrade to the admin price
@@ -384,9 +392,14 @@ contract PriceOracle is Ownable {
             if (d == PRICE_DECIMALS) {
                 scaled = raw;
             } else if (d > PRICE_DECIMALS) {
-                scaled = raw / (10 ** (d - PRICE_DECIMALS)); // e.g. 8-dec USD feed → /100
+                scaled = raw / (10 ** (d - PRICE_DECIMALS)); // e.g. 8-dec USD feed → /100 (division: no overflow)
             } else {
-                scaled = raw * (10 ** (PRICE_DECIMALS - d));
+                // Up-scale (sub-6-decimal feed). A malicious huge answer could overflow
+                // raw * factor and REVERT inside the try — uncaught by the catch, bricking
+                // getPrice. Bounds-check so it fails SOFT (degrade) instead (#724 review).
+                uint256 factor = 10 ** (PRICE_DECIMALS - d);
+                if (raw > type(uint256).max / factor) return (false, 0);
+                scaled = raw * factor;
             }
             if (scaled == 0) return (false, 0); // nonzero answer floored to 0 by scaling
             return (true, scaled);

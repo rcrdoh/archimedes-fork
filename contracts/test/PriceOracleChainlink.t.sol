@@ -281,6 +281,25 @@ contract PriceOracleChainlinkTest is Test {
         assertTrue(oracle.isFresh()); // admin fallback is fresh
     }
 
+    function test_feed_huge_answer_out_of_band_degrades_no_overflow() public {
+        vm.prank(owner);
+        oracle.setPriceFeed(address(feed)); // 8-decimal feed
+        // A malicious answer near int256 max scales to an enormous price. The sanity-band
+        // comparison must NOT overflow-and-revert (which would brick getPrice) — it falls
+        // out of band and degrades to admin (#724 review: overflow-safe band).
+        feed.setAnswer(type(int256).max);
+        assertEq(oracle.getPrice(), oracle.price());
+    }
+
+    function test_feed_upscale_overflow_degrades_no_revert() public {
+        // Sub-6-decimal feed: a huge answer would overflow `raw * 10**(6-d)` INSIDE the try
+        // block (uncaught → getPrice revert). The bounds check degrades instead (#724 review).
+        MockAggregator feed2 = new MockAggregator(2, type(int256).max, block.timestamp);
+        vm.prank(owner);
+        oracle.setPriceFeed(address(feed2));
+        assertEq(oracle.getPrice(), oracle.price());
+    }
+
     function test_feed_out_of_band_degrades_to_admin() public {
         vm.prank(owner);
         oracle.setPriceFeed(address(feed));
