@@ -18,7 +18,28 @@ from web3.providers import AsyncHTTPProvider
 
 
 class ChainSettings(BaseSettings):
-    """On-chain connection settings — loaded from .env or environment variables."""
+    """On-chain connection settings — loaded from .env or environment variables.
+
+    **Contract addresses are externalized (roadmap T2.3).** Every address field
+    below is read from an environment variable, falling back to the value shown as
+    its default when the variable is unset — so nothing breaks if the env is
+    unset, while a redeploy can repoint the backend at new contracts without a
+    code change. Because ``env_prefix = "ARC_"``, the override variable for a
+    field is its name upper-cased with the ``ARC_`` prefix:
+
+    - ``usdc_address``      ← ``ARC_USDC_ADDRESS``
+    - ``amm_router_address`` ← ``ARC_AMM_ROUTER_ADDRESS``
+    - ``vault_factory_address`` ← ``ARC_VAULT_FACTORY_ADDRESS``
+    - ``stsla_address``     ← ``ARC_STSLA_ADDRESS``  (one per synth)
+    - ``stsla_oracle_address`` ← ``ARC_STSLA_ORACLE_ADDRESS``  (one per oracle)
+
+    The defaults match the deployed Arc-testnet contracts and the ``ARC_*=...``
+    lines emitted by ``backend/archimedes/scripts/deploy_contracts.py``; the full
+    set of override variables is documented in ``.env.example``. The public API
+    (field names plus the ``synth_addresses`` / ``oracle_addresses`` /
+    ``*_account`` properties) is unchanged — only the source-of-truth for each
+    address moved from "hardcoded constant" to "env var with hardcoded fallback".
+    """
 
     # RPC
     arc_rpc_url: str = "https://rpc.testnet.arc.network"
@@ -31,32 +52,37 @@ class ChainSettings(BaseSettings):
     # Owner account (for admin operations like oracle price updates)
     owner_private_key: str = ""
 
-    # Contract addresses — set these after deploying via Deploy.s.sol
-    usdc_address: str = "0x3600000000000000000000000000000000000000"
-    amm_router_address: str = ""
-    synthetic_factory_address: str = ""
-    vault_factory_address: str = ""
-    reasoning_trace_registry_address: str = ""
-    asset_registry_address: str = ""
-    strategy_registry_address: str = ""
+    # Contract addresses — env-overridable via ARC_<FIELD>; defaults = deployed
+    # Arc testnet contracts (Deploy.s.sol / deploy_contracts.py emits the
+    # ARC_*=... lines). Empty defaults mark deployment-specific addresses that
+    # must be supplied via .env before that contract can be used.
+    usdc_address: str = "0x3600000000000000000000000000000000000000"  # ARC_USDC_ADDRESS
+    amm_router_address: str = ""  # ARC_AMM_ROUTER_ADDRESS
+    synthetic_factory_address: str = ""  # ARC_SYNTHETIC_FACTORY_ADDRESS
+    vault_factory_address: str = ""  # ARC_VAULT_FACTORY_ADDRESS
+    reasoning_trace_registry_address: str = ""  # ARC_REASONING_TRACE_REGISTRY_ADDRESS
+    asset_registry_address: str = ""  # ARC_ASSET_REGISTRY_ADDRESS
+    strategy_registry_address: str = ""  # ARC_STRATEGY_REGISTRY_ADDRESS
 
-    # Individual synthetic token addresses (defaults = deployed Arc testnet contracts)
-    stsla_address: str = "0xd514cd27baf762c650536765cde9b61c876abacd"
-    snvda_address: str = "0x805e75019a1291a598dfc134ad2519121a35fb11"
-    sspy_address: str = "0x6fea38dedea0c6bb66ce93e5383c34385d8b889f"
-    sbtc_address: str = "0x317e82be8f7cba6c162ab968fcf695d88e8e0359"
-    sgold_address: str = "0xf384562c8bdafce52400eb6839f195695f6fa276"
-    soil_address: str = "0x46cead4120f17a968ba1168f1a56563962cf3c4b"
-    snky_address: str = "0x445b8f0f827a0d384d1b8ccf18cbc6ec8a543376"
+    # Individual synthetic token addresses — env-overridable via
+    # ARC_<SYMBOL>_ADDRESS; defaults = deployed Arc testnet contracts.
+    stsla_address: str = "0xd514cd27baf762c650536765cde9b61c876abacd"  # ARC_STSLA_ADDRESS
+    snvda_address: str = "0x805e75019a1291a598dfc134ad2519121a35fb11"  # ARC_SNVDA_ADDRESS
+    sspy_address: str = "0x6fea38dedea0c6bb66ce93e5383c34385d8b889f"  # ARC_SSPY_ADDRESS
+    sbtc_address: str = "0x317e82be8f7cba6c162ab968fcf695d88e8e0359"  # ARC_SBTC_ADDRESS
+    sgold_address: str = "0xf384562c8bdafce52400eb6839f195695f6fa276"  # ARC_SGOLD_ADDRESS
+    soil_address: str = "0x46cead4120f17a968ba1168f1a56563962cf3c4b"  # ARC_SOIL_ADDRESS
+    snky_address: str = "0x445b8f0f827a0d384d1b8ccf18cbc6ec8a543376"  # ARC_SNKY_ADDRESS
 
-    # Individual oracle addresses (defaults = deployed Arc testnet contracts)
-    stsla_oracle_address: str = "0xe1c9f2b11be97097223a66a188fca541e07873a6"
-    snvda_oracle_address: str = "0xeb36acf88e739dd312de8278985262146a017374"
-    sspy_oracle_address: str = "0xd8161a8eeab7c7100e2863abe3d5f346b5ff9e52"
-    sbtc_oracle_address: str = "0x6cc5f621c4e3b46152e69e5c9873689cbb4a85e8"
-    sgold_oracle_address: str = "0x35fccde01ae8728c7a7cb83c3f59c701ebecc633"
-    soil_oracle_address: str = "0x79f354524fd09af16d841a2221af2b2b7bc432c8"
-    snky_oracle_address: str = "0xcd34a4103ad64a3cf729b1b1a58295ccc957fcee"
+    # Individual oracle addresses — env-overridable via
+    # ARC_<SYMBOL>_ORACLE_ADDRESS; defaults = deployed Arc testnet contracts.
+    stsla_oracle_address: str = "0xe1c9f2b11be97097223a66a188fca541e07873a6"  # ARC_STSLA_ORACLE_ADDRESS
+    snvda_oracle_address: str = "0xeb36acf88e739dd312de8278985262146a017374"  # ARC_SNVDA_ORACLE_ADDRESS
+    sspy_oracle_address: str = "0xd8161a8eeab7c7100e2863abe3d5f346b5ff9e52"  # ARC_SSPY_ORACLE_ADDRESS
+    sbtc_oracle_address: str = "0x6cc5f621c4e3b46152e69e5c9873689cbb4a85e8"  # ARC_SBTC_ORACLE_ADDRESS
+    sgold_oracle_address: str = "0x35fccde01ae8728c7a7cb83c3f59c701ebecc633"  # ARC_SGOLD_ORACLE_ADDRESS
+    soil_oracle_address: str = "0x79f354524fd09af16d841a2221af2b2b7bc432c8"  # ARC_SOIL_ORACLE_ADDRESS
+    snky_oracle_address: str = "0xcd34a4103ad64a3cf729b1b1a58295ccc957fcee"  # ARC_SNKY_ORACLE_ADDRESS
 
     # Paths
     abi_dir: str = str(Path(__file__).resolve().parents[3] / "contracts" / "abis")
