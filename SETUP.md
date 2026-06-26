@@ -138,11 +138,18 @@ cast block-number --rpc-url $RPC
 cast chain-id --rpc-url $RPC    # → 0x4CEF52 (Arc testnet, chain ID 5042002)
 ```
 
-Contract sources are in [`contracts/src/`](contracts/src/). Build + test:
+Contract sources are in [`contracts/src/`](contracts/src/). The Foundry deps
+(`forge-std`, `openzeppelin-contracts`) are tracked as git submodules under
+`contracts/lib/` pinned to `contracts/foundry.lock`. Restore them from a clean
+checkout (skip if you cloned with `--recurse-submodules`), then build + test:
 
 ```bash
+git submodule update --init --recursive   # restores contracts/lib/* deps
 cd contracts && forge build && forge test
 ```
+
+See [`contracts/README.md`](contracts/README.md) for the dependency layout and the
+import auto-remapping.
 
 ### Frontend dev (Vite hot-reload)
 

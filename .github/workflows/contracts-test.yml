@@ -1,0 +1,44 @@
+# Contracts test gate — builds and tests the Foundry contracts on every PR that
+# touches contracts/**. Closes the gap where Solidity was never auto-tested in CI:
+# the 5 suites (AMM, PriceOracle, Registry, SyntheticVault, Vault — 181 tests) only
+# ever ran on a contributor's laptop. This makes `forge build` + `forge test` a real
+# (blocking) check for contract PRs, mirroring the Python gate's discipline.
+#
+# Scoped narrow with a paths: filter so it never runs on non-contract PRs. The deps
+# (forge-std, openzeppelin-contracts) are git submodules under contracts/lib/ pinned
+# to contracts/foundry.lock; checkout pulls them with submodules: recursive.
+
+name: contracts-test
+
+on:
+  pull_request:
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contracts-test.yml"
+
+# Least-privilege GITHUB_TOKEN: this workflow only reads the repo to build + test
+# the contracts; it never writes. The explicit block satisfies CodeQL
+# actions/missing-workflow-permissions and bounds blast radius if a third-party
+# action in the job is ever compromised.
+permissions:
+  contents: read
+
+jobs:
+  contracts-test:
+    name: Contracts — forge build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Restores contracts/lib/forge-std + contracts/lib/openzeppelin-contracts
+          # at the revs pinned in .gitmodules / foundry.lock so forge can resolve the
+          # @openzeppelin/ and forge-std/ import remappings.
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: forge build
+        working-directory: contracts
+        run: forge build
+      - name: forge test
+        working-directory: contracts
+        run: forge test -vv

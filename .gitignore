@@ -25,7 +25,13 @@ node_modules/
 # Foundry
 contracts/cache/
 contracts/out/
-contracts/lib/
+contracts/broadcast/
+# Ignore everything under contracts/lib/ (forge install scratch, transient deps)
+# EXCEPT the two pinned submodules — their gitlinks + .gitmodules must be tracked
+# so `git submodule update --init --recursive` restores deps from a clean clone.
+contracts/lib/*
+!contracts/lib/forge-std
+!contracts/lib/openzeppelin-contracts
 
 # OS
 .DS_Store
