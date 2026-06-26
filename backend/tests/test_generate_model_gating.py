@@ -53,11 +53,19 @@ def test_allowlisted_model_is_honored() -> None:
     assert payload.get("model") == "zai.glm-4.7-flash"
 
 
-def test_premium_model_is_dropped() -> None:
-    """A premium (gated) id must be ignored → model None → env default."""
+def test_premium_model_anonymous_rejected_402() -> None:
+    """A premium (Anthropic) id from a non-entitled (here anonymous) caller is
+    REJECTED with HTTP 402 by the paid-tier entitlement gate (T1.8 / #723) —
+    it is NOT silently dropped to the env default, and no job is enqueued.
+
+    (Previously this asserted a 202 silent drop; once the #723 entitlement gate
+    landed on top of the free-tier allowlist, an explicit premium request is
+    rejected rather than downgraded. The allowlist still drops junk ids — see
+    test_junk_model_is_dropped.)
+    """
     resp, payload = _start("us.anthropic.claude-sonnet-4-6")
-    assert resp.status_code == 202, resp.text
-    assert payload.get("model") is None
+    assert resp.status_code == 402, resp.text
+    assert payload == {}  # rejected before enqueue
 
 
 def test_junk_model_is_dropped() -> None:

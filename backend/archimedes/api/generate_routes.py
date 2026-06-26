@@ -37,6 +37,7 @@ from archimedes.api.limiter import limiter
 from archimedes.services.job_queue import EVENT_LOG_TTL, get_job_store
 from archimedes.services.llm_backend import is_allowed_model
 from archimedes.services.log_scrubber import sanitize_log_value
+from archimedes.services.model_gate import enforce_model_entitlement
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +67,21 @@ async def start_generation(
     _wallet: str | None = Depends(gate_generation),  # 401 when REQUIRE_SIWE_FOR_GENERATION is on
 ) -> GenerateStartResponse:
     """Create a generation job and start the pipeline in the background."""
+    # Paid-tier gating (T1.8): a premium (Anthropic) model requires a
+    # wallet-connected entitlement. Enforced BEFORE the job is enqueued so a
+    # non-entitled premium request is rejected (HTTP 402) without burning any
+    # work — and is NOT silently downgraded to the free default model. Free
+    # models (and the unset/default case) always pass.
+    enforce_model_entitlement(req.model, _wallet)
+
     store = get_job_store()
-    # Server-side model gate (defense in depth — the UI also restricts this).
-    # Only an allowlisted free-tier model id is honored; anything else (premium
-    # ids, junk, None) is dropped and the pipeline falls back to the env default,
-    # so behavior is UNCHANGED when no valid model is selected. This enforces the
-    # free-tier restriction on the server even if the UI is bypassed, and keeps
-    # premium models gated until the #723 HTTP-402 entitlement lands.
+    # Free-tier selection (defense in depth — the UI also restricts this).
+    # Runs AFTER the entitlement gate above: a non-entitled premium request has
+    # already been rejected with 402, so this only ever sees an allowlisted free
+    # model, an entitled premium id, junk, or None. Only an allowlisted free-tier
+    # id is honored for the pipeline; everything else (incl. entitled premium,
+    # which cannot serve until Bedrock activation — roadmap T3.8) falls back to
+    # the env default, so behavior is UNCHANGED when no valid free model is picked.
     selected_model = req.model if is_allowed_model(req.model) else None
     if req.model and selected_model is None:
         logger.info("generate: ignoring non-allowlisted model %r; using env default", sanitize_log_value(req.model))
@@ -87,6 +96,11 @@ async def start_generation(
             "brief": req.brief.model_dump(),
             "n_candidates": req.n_candidates,
             "owner_wallet": _wallet,
+            # The allowlist-filtered model the pipeline will actually use (None →
+            # env default). enforce_model_entitlement (above) has already rejected
+            # a non-entitled premium request with 402, so anything reaching here is
+            # either an allowlisted free model or None — auditable provenance for
+            # the tier the run was authorized for.
             "model": selected_model,
         },
     )

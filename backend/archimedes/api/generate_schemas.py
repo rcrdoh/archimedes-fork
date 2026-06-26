@@ -36,9 +36,11 @@ class GenerateStartRequest(BaseModel):
     model: str | None = Field(
         default=None,
         description=(
-            "Optional free-tier LLM model id chosen on the Generate page. Validated server-side "
-            "against a free-tier allowlist; ignored (falls back to the env default) if absent or "
-            "not allowlisted. Premium models are NOT selectable until the paid-tier 402 gate (#723)."
+            "Optional LLM model id chosen on the Generate page (matches ui/src/data/modelPricing.json). "
+            "Two server-side gates apply: (1) the paid-tier entitlement gate (T1.8) rejects a premium "
+            "(Anthropic) model from a non-entitled caller with HTTP 402 — see PREMIUM_MODELS_ENABLED / "
+            "PREMIUM_MODELS_ALLOWLIST; (2) the free-tier allowlist then honors the id only if it is an "
+            "allowlisted free model, otherwise it falls back to the env default. Absent → env default."
         ),
     )
 
