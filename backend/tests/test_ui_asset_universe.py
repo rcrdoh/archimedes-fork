@@ -1,7 +1,9 @@
-"""The Generate/Explore asset picker must match the deploy-eligible SSOT (#758).
+"""The GENERATE-page asset picker must match the deploy-eligible SSOT (#758).
 
 ``ui/src/data/assetUniverse.js`` is generated from the SSOT; these tests fail CI if it
 drifts — e.g. a single-name equity is re-added, or a deploy-eligible asset is missing.
+(Explore sources its assets from the backend ``/api/explore/assets`` endpoint, not this
+file — that path is aligned to the SSOT separately by #764/#765.)
 Hermetic: reads the committed file + in-memory SSOT, no DB / Redis / RPC / .env.
 """
 
