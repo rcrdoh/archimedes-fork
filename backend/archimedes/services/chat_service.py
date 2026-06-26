@@ -33,11 +33,16 @@ Never promise returns. Always frame in terms of process and rigor."""
 
 # Use the Circle dev-controlled wallet as the AI's identity in chat.
 # Falls back to a labelled placeholder if the wallet address isn't configured.
-import os as _os
-
-AI_WALLET_ADDRESS = _os.getenv(
+AI_WALLET_ADDRESS = os.getenv(
     "WALLET_ADDRESS", "0xc221dcd6fe7d81ff741f94c08e61f52bea1f9ac9"
 )  # Circle agent walleter for AI identity
+
+# Optional per-surface model override for vault chat. When unset (the default),
+# chat rides the same cheap env-resolved model as the rest of the app via
+# make_llm_backend() — NO hardcoded premium literal. Set CHAT_MODEL only if the
+# chat persona genuinely needs a stronger (paid-tier) model than the generate
+# default; it must be a model id the configured provider can serve.
+CHAT_MODEL = os.getenv("CHAT_MODEL", "").strip() or None
 
 
 class ChatService:
@@ -184,20 +189,18 @@ class ChatService:
         user_message: str,
         wallet_address: str,  # noqa: ARG002 — accepted for future per-wallet personalization; current body uses vault_address + user_message only
     ) -> dict | None:
-        """Generate an AI response using Claude or GLM API."""
-        import anthropic
+        """Generate an AI response via the provider-agnostic LLM backend.
 
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
-        auth_token = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
-        base_url = os.getenv("ANTHROPIC_BASE_URL", "")
-        if api_key:
-            client: anthropic.Anthropic | None = anthropic.Anthropic(api_key=api_key)
-        elif auth_token and base_url:
-            client = anthropic.Anthropic(auth_token=auth_token, base_url=base_url)
-        else:
-            client = None
-        if client is None:
-            logger.warning("No LLM credentials set — returning canned AI response")
+        Routes through ``make_llm_backend(model=CHAT_MODEL)`` instead of a
+        hardcoded premium Claude literal, so the cheap env default applies and
+        the model is configurable (cost leak fixed). ``CHAT_MODEL`` is an
+        opt-in named override for callers that want a stronger model for chat.
+        """
+        from archimedes.services.llm_backend import make_llm_backend
+
+        backend = make_llm_backend(model=CHAT_MODEL)
+        if not getattr(backend, "available", False):
+            logger.warning("No LLM backend available — returning canned AI response")
             return self._canned_response(vault_address, user_message)
 
         try:
@@ -214,32 +217,20 @@ class ChatService:
             # Inject vault-specific context to prevent hallucination (#386)
             vault_context = self._build_vault_context(vault_address)
 
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=300,
-                system=AI_SYSTEM_PROMPT,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Vault: {vault_address}\n"
-                            f"{vault_context}\n"
-                            f"<chat_history>\n{context}\n</chat_history>\n\n"
-                            f"<user_message>{user_message}</user_message>"
-                        ),
-                    }
-                ],
+            user_prompt = (
+                f"Vault: {vault_address}\n"
+                f"{vault_context}\n"
+                f"<chat_history>\n{context}\n</chat_history>\n\n"
+                f"<user_message>{user_message}</user_message>"
             )
 
-            ai_text = (
-                response.content[0].text.strip()
-                if response.content
-                else "I'm analyzing the portfolio. Give me a moment."
-            )
+            ai_text = (backend.complete(AI_SYSTEM_PROMPT, user_prompt) or "").strip()
+            if not ai_text:
+                ai_text = "I'm analyzing the portfolio. Give me a moment."
             return self.post_ai_message(vault_address, ai_text, trigger="mention")
 
         except Exception:
-            logger.exception("Claude API call failed — falling back to canned response")
+            logger.exception("LLM call failed — falling back to canned response")
             return self._canned_response(vault_address, user_message)
 
     def _build_vault_context(self, vault_address: str) -> str:

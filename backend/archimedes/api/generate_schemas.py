@@ -33,6 +33,14 @@ class GenerateStartRequest(BaseModel):
         default=None,
         description="Optional pipeline override: 'fusion', 'architect', or 'agent'. When set, bypasses auto-routing.",
     )
+    model: str | None = Field(
+        default=None,
+        description=(
+            "Optional free-tier LLM model id chosen on the Generate page. Validated server-side "
+            "against a free-tier allowlist; ignored (falls back to the env default) if absent or "
+            "not allowlisted. Premium models are NOT selectable until the paid-tier 402 gate (#723)."
+        ),
+    )
 
 
 class GenerateStartResponse(BaseModel):

@@ -220,3 +220,78 @@ class TestGetMessageCount:
             count = ChatService().get_message_count("0xv")
         assert count == 3
         session.close.assert_called_once()
+
+
+class TestGenerateAiResponse:
+    """P0 — the chat AI response must route through make_llm_backend(), not a
+    hardcoded premium Claude literal (silent cost-leak fix).
+    """
+
+    def test_no_hardcoded_model_literal_in_source(self) -> None:
+        """Anti-goal guard: the old hardcoded Sonnet id must be gone."""
+        import inspect
+
+        from archimedes.services import chat_service as mod
+
+        src = inspect.getsource(mod)
+        assert "claude-sonnet-4-20250514" not in src
+        # And the route is the provider-agnostic factory.
+        assert "make_llm_backend" in src
+
+    def test_routes_through_make_llm_backend(self) -> None:
+        """A real LLM response is produced via backend.complete(), and posted."""
+        svc = ChatService()
+        fake_backend = MagicMock()
+        fake_backend.available = True
+        fake_backend.complete.return_value = "  Backend-served reply.  "
+        with (
+            patch("archimedes.services.llm_backend.make_llm_backend", return_value=fake_backend),
+            patch.object(svc, "get_messages", return_value=[]),
+            patch.object(svc, "_build_vault_context", return_value="<vault_context/>"),
+            patch.object(svc, "post_ai_message", return_value={"id": 1, "message": "Backend-served reply."}) as post,
+        ):
+            result = svc._generate_ai_response("0xv", "@archimedes hi", "0xw")
+        # complete() is called with (system_prompt, user_prompt) — the seam, no model literal.
+        fake_backend.complete.assert_called_once()
+        assert result is not None
+        # Posted text is stripped backend output.
+        assert post.call_args.args[1] == "Backend-served reply."
+
+    def test_falls_back_to_canned_when_backend_unavailable(self) -> None:
+        """No credentials → canned response, not a crash."""
+        svc = ChatService()
+        fake_backend = MagicMock()
+        fake_backend.available = False
+        with (
+            patch("archimedes.services.llm_backend.make_llm_backend", return_value=fake_backend),
+            patch.object(svc, "_canned_response", return_value={"id": 9, "message": "canned"}) as canned,
+        ):
+            result = svc._generate_ai_response("0xv", "how is performance?", "0xw")
+        canned.assert_called_once()
+        assert result["message"] == "canned"
+
+    def test_chat_model_override_threaded_to_factory(self, monkeypatch) -> None:
+        """CHAT_MODEL (when set) is the named override passed to make_llm_backend()."""
+        import importlib
+
+        monkeypatch.setenv("CHAT_MODEL", "amazon.nova-lite-v1:0")
+        # Re-import so the module-level CHAT_MODEL picks up the env var.
+        from archimedes.services import chat_service as mod
+
+        importlib.reload(mod)
+        try:
+            svc = mod.ChatService()
+            fake_backend = MagicMock()
+            fake_backend.available = True
+            fake_backend.complete.return_value = "ok"
+            with (
+                patch("archimedes.services.llm_backend.make_llm_backend", return_value=fake_backend) as factory,
+                patch.object(svc, "get_messages", return_value=[]),
+                patch.object(svc, "_build_vault_context", return_value=""),
+                patch.object(svc, "post_ai_message", return_value={"id": 1}),
+            ):
+                svc._generate_ai_response("0xv", "hi", "0xw")
+            factory.assert_called_once_with(model="amazon.nova-lite-v1:0")
+        finally:
+            monkeypatch.delenv("CHAT_MODEL", raising=False)
+            importlib.reload(mod)

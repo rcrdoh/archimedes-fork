@@ -38,6 +38,10 @@ export default function Generate({ onNavigate }) {
   const [depth, setDepth] = useState(5)       // replaces max_papers UI
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState('')
+  // Optional free-tier model pick from ModelCostPanel. null → backend env
+  // default (unchanged behavior). Premium models are never selectable here; the
+  // server also allowlists, so a non-free id can't ride this field through.
+  const [selectedModel, setSelectedModel] = useState(null)
 
   // ── Agent / SSE path ──
   const [jobId, setJobId] = useState(() => localStorage.getItem(STORAGE_JOB_KEY) || null)
@@ -93,6 +97,9 @@ export default function Generate({ onNavigate }) {
     setStarting(true)
     // Mode is intentionally omitted — the backend's _pick_pipeline() auto-routes
     // between Fusion / Architect / Agent; the choice is surfaced in the SSE stream.
+    // `model` is sent only when the user picked a free-tier model; the server
+    // re-validates it against a free-tier allowlist and falls back to the env
+    // default otherwise, so omitting it keeps the current behavior.
     const payload = {
       brief: {
         intent,
@@ -100,6 +107,7 @@ export default function Generate({ onNavigate }) {
         asset_classes: selectedAssets.length > 0 ? selectedAssets : undefined,
         max_papers: depth,
       },
+      ...(selectedModel ? { model: selectedModel } : {}),
     }
     const postStart = () =>
       fetch(`${API_BASE}/api/generate/start`, {
@@ -462,7 +470,7 @@ export default function Generate({ onNavigate }) {
       {/* ── Model & cost transparency (which LLM is running + the cost landscape).
           Inside the wallet gate — only shown to connected users. ── */}
       {!jobId && !fusionJobId && !fusionResult && (
-        <ModelCostPanel />
+        <ModelCostPanel selectedModel={selectedModel} onSelectModel={setSelectedModel} />
       )}
 
       {/* ── SSE STREAM (agent + architect paths) ── */}
