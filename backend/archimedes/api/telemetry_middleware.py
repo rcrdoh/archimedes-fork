@@ -1,0 +1,140 @@
+"""Telemetry middleware — human-vs-agent request classifier (issue #428).
+
+Classifies every inbound request as HUMAN or AGENT and increments the matching
+Redis counter (see ``services/telemetry_store.py``). This is the app-layer MVP
+of the hackathon win-condition instrument: a real, live "agents vs humans"
+traction number backed by the live request path rather than a claim.
+
+Classifier (deterministic — identity model as of today):
+  - HUMAN  = a valid SIWE wallet session cookie (``archimedes_session``),
+             verified with the same ``_verify_session`` the auth layer uses.
+  - AGENT (internal) = a valid ``X-Internal-Agent-Key`` header (HMAC-compared
+             against ``INTERNAL_AGENT_API_KEY``), agent_type="internal".
+  - AGENT (external) = no session AND a non-browser User-Agent (no "Mozilla";
+             matches curl / python-requests / boto / axios / *bot*),
+             agent_type="external".
+  - Default (browser UA, no session) = HUMAN — the demo is open, so an
+    un-signed-in browser visitor still counts as a human.
+
+This module only READS the existing auth primitives; it never changes auth.
+
+Graceful degradation is a hard requirement: any classification or Redis error
+is logged at ``debug`` and swallowed. The counter is observability, never a
+gate — a telemetry fault must never turn a request into a 5xx.
+"""
+
+from __future__ import annotations
+
+import hmac
+import logging
+import os
+import re
+
+from starlette.requests import Request
+from starlette.responses import Response
+
+logger = logging.getLogger(__name__)
+
+# Non-browser User-Agent markers. A request with no SIWE session whose UA
+# matches one of these (or carries no "Mozilla" token at all) is treated as an
+# external agent. Browsers always send a "Mozilla/5.0 ..." UA, so its absence
+# is a strong external-client signal.
+_AGENT_UA_PATTERN = re.compile(
+    r"curl|python-requests|httpx|aiohttp|go-http-client|boto|botocore|axios|"
+    r"node-fetch|okhttp|java/|wget|libwww|scrapy|bot|spider|crawler",
+    re.IGNORECASE,
+)
+
+
+def _is_browser_ua(user_agent: str) -> bool:
+    """A real browser sends a ``Mozilla/...`` UA. Empty/non-Mozilla → not a browser."""
+    return "mozilla" in user_agent.lower()
+
+
+def _has_valid_internal_key(request: Request) -> bool:
+    """True iff a valid ``X-Internal-Agent-Key`` is present (constant-time compare).
+
+    Mirrors ``auth_guard.require_internal_agent_key`` semantics: fail-closed when
+    the env key is unset (no key configured → no request can be "internal").
+    """
+    expected = os.getenv("INTERNAL_AGENT_API_KEY", "")
+    provided = request.headers.get("X-Internal-Agent-Key", "")
+    return bool(expected) and hmac.compare_digest(provided, expected)
+
+
+def _has_valid_session(request: Request) -> bool:
+    """True iff the request carries a valid SIWE session cookie.
+
+    Reuses the auth layer's ``_verify_session`` so the human classification
+    matches exactly what the app treats as an authenticated wallet.
+    """
+    from archimedes.api.auth_siwe import _COOKIE_NAME, _verify_session
+
+    token = request.cookies.get(_COOKIE_NAME)
+    if not token:
+        return False
+    return _verify_session(token) is not None
+
+
+def classify_request(request: Request) -> tuple[bool, str]:
+    """Classify a request. Returns ``(is_agent, agent_type)``.
+
+    ``agent_type`` is one of ``"internal"``, ``"external"``, or ``"human"``.
+    Deterministic and side-effect-free so it is trivially testable.
+    """
+    # 1. Internal agent — explicit, strongest signal.
+    if _has_valid_internal_key(request):
+        return True, "internal"
+
+    # 2. Human — a valid SIWE session.
+    if _has_valid_session(request):
+        return False, "human"
+
+    # 3. No session: a non-browser UA is an external agent/script.
+    user_agent = request.headers.get("user-agent", "")
+    if not _is_browser_ua(user_agent) or _AGENT_UA_PATTERN.search(user_agent):
+        return True, "external"
+
+    # 4. Default — browser UA, no session: an open-demo human.
+    return False, "human"
+
+
+async def telemetry_middleware(request: Request, call_next):
+    """ASGI HTTP middleware: classify, count, tag the response.
+
+    Sets ``request.state.is_agent`` / ``request.state.agent_type`` for any
+    downstream consumer, increments the right Redis counter, and adds an
+    ``X-Telemetry-Agent: true|false`` response header. Any error in
+    classification or counting is swallowed (logged at debug) so telemetry can
+    never break the request it is measuring.
+    """
+    is_agent = False
+    try:
+        is_agent, agent_type = classify_request(request)
+        request.state.is_agent = is_agent
+        request.state.agent_type = agent_type
+
+        # Lazy import keeps the store off the import-time critical path and
+        # makes the boundary (the Redis client) easy to mock in tests.
+        from archimedes.services.telemetry_store import TelemetryStore
+
+        store = TelemetryStore()
+        try:
+            if is_agent:
+                await store.increment_agent()
+            else:
+                await store.increment_human()
+        finally:
+            await store.close()
+    except Exception as exc:
+        # Fail-safe: never let telemetry raise into the request path.
+        logger.debug("telemetry middleware classify/count failed: %s", exc)
+
+    response: Response = await call_next(request)
+
+    try:
+        response.headers["X-Telemetry-Agent"] = "true" if is_agent else "false"
+    except Exception as exc:
+        logger.debug("telemetry middleware header set failed: %s", exc)
+
+    return response

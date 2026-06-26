@@ -36,6 +36,7 @@ from archimedes.api.generate_routes import generate_router
 from archimedes.api.limiter import limiter
 
 # marketplace_router removed — hardcoded fees + invented math (Issue #381)
+from archimedes.api.metrics_routes import metrics_router
 from archimedes.api.portfolio_routes import portfolio_router
 from archimedes.api.proposals_routes import proposals_router
 from archimedes.api.risk_routes import risk_router
@@ -147,6 +148,16 @@ async def _limit_request_body(request: Request, call_next):
     return await call_next(request)
 
 
+# ── Telemetry middleware: human-vs-agent traction counter (issue #428) ──
+# Registered AFTER _limit_request_body and BEFORE include_router. It classifies
+# each request (SIWE session → human; internal-key / bot-UA → agent), increments
+# the matching Redis counter, and tags the response with X-Telemetry-Agent.
+# Graceful-degrades on any error — telemetry never turns a request into a 5xx.
+from archimedes.api.telemetry_middleware import telemetry_middleware
+
+app.middleware("http")(telemetry_middleware)
+
+
 # Initialize database (creates chat tables if needed)
 init_db()
 
@@ -235,6 +246,7 @@ app.include_router(papers_router)
 app.include_router(user_router)
 app.include_router(auth_router)
 app.include_router(proposals_router)
+app.include_router(metrics_router)
 
 
 @app.get("/health")
@@ -314,10 +326,27 @@ async def health():
     except Exception:
         risk_data_reason = "import failed"
 
+    # Human-vs-agent traction counts (issue #428). Fail-safe: get_counts
+    # returns (0, 0) when Redis is unreachable, so /health never degrades on it.
+    human_count = 0
+    agent_count = 0
+    try:
+        from archimedes.services.telemetry_store import TelemetryStore
+
+        _store = TelemetryStore()
+        try:
+            human_count, agent_count = await _store.get_counts()
+        finally:
+            await _store.close()
+    except Exception:
+        logger.debug("telemetry counts read failed", exc_info=True)
+
     return {
         "status": "ok" if connected else "degraded",
         "service": "archimedes-backend",
         "chain_connected": connected,
+        "human_count": human_count,
+        "agent_count": agent_count,
         "corpus_papers": len(corpus),
         "corpus_db_count": db_count,
         "corpus_source": corpus_source,
