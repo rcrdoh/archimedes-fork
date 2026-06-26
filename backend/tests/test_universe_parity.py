@@ -30,6 +30,9 @@ These are pure in-memory set comparisons: hermetic, no DB / Redis / RPC / .env.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from archimedes.services.strategy_signal_evaluator import GLOBAL_ASSETS
 from archimedes.universe import (
     COMPLIANCE_FLAGGED_SINGLE_STOCKS,
@@ -127,4 +130,39 @@ def test_universe_expanded_at_least_5x() -> None:
     legacy_size = 7
     assert len(ON_CHAIN) >= 5 * legacy_size, (
         f"On-chain universe is {len(ON_CHAIN)}; expected at least {5 * legacy_size} (5X the legacy 7-synth universe)."
+    )
+
+
+def _generated_solidity_path() -> Path:
+    import archimedes  # backend/archimedes/__init__.py → parents: archimedes, backend, <repo>
+
+    return Path(archimedes.__file__).resolve().parents[2] / "contracts" / "src" / "generated" / "SyntheticUniverse.sol"
+
+
+def test_generated_solidity_universe_matches_ssot() -> None:
+    # Invariant 5 (#756): the Foundry deploy path reads the GENERATED Solidity library
+    # contracts/src/generated/SyntheticUniverse.sol — assert it carries exactly the SSOT
+    # symbol set with positive prices, so a `forge` redeploy can't silently ship the wrong
+    # universe (previously Deploy.s.sol hardcoded 5 synths, incl. 2 compliance-flagged ones).
+    text = _generated_solidity_path().read_text(encoding="utf-8")
+    symbols = set(re.findall(r'symbols\[\d+\] = "(s[A-Za-z0-9-]+)"', text))
+    prices = [int(p) for p in re.findall(r"prices\[\d+\] = (\d+);", text)]
+    assert symbols == ON_CHAIN, (
+        "generated SyntheticUniverse.sol drifted from the SSOT. "
+        f"only-in-sol={sorted(symbols - ON_CHAIN)} only-in-ssot={sorted(ON_CHAIN - symbols)}"
+    )
+    assert len(prices) == len(ON_CHAIN), f"price count {len(prices)} != synth count {len(ON_CHAIN)}"
+    assert all(p > 0 for p in prices), "generated SyntheticUniverse.sol has a non-positive price"
+
+
+def test_generated_solidity_is_in_sync() -> None:
+    # The committed generated file must be byte-identical to a fresh render — a SSOT edit
+    # that forgets to regenerate fails CI here. Fix: regenerate with
+    # `python -m archimedes.scripts.gen_solidity_universe`.
+    from archimedes.scripts.gen_solidity_universe import render_solidity
+
+    committed = _generated_solidity_path().read_text(encoding="utf-8")
+    assert committed == render_solidity(), (
+        "contracts/src/generated/SyntheticUniverse.sol is stale vs the SSOT — regenerate with "
+        "`python -m archimedes.scripts.gen_solidity_universe`."
     )

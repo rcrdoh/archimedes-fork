@@ -11,6 +11,7 @@ import "../src/Vault.sol";
 import "../src/VaultFactory.sol";
 import "../src/ReasoningTraceRegistry.sol";
 import "../src/AssetRegistry.sol";
+import "../src/generated/SyntheticUniverse.sol";
 
 /// @notice Deploy the full Archimedes ecosystem to Arc testnet.
 ///         Usage:
@@ -27,16 +28,6 @@ import "../src/AssetRegistry.sol";
 ///         Arc Testnet USDC: 0x3600000000000000000000000000000000000000
 contract DeployScript is Script {
     address constant USDC_ARC_TESTNET = 0x3600000000000000000000000000000000000000;
-
-    string[] syntheticNames   = ["Synthetic TSLA", "Synthetic NVDA", "Synthetic SPY", "Synthetic BTC", "Synthetic GOLD"];
-    string[] syntheticSymbols = ["sTSLA", "sNVDA", "sSPY", "sBTC", "sGOLD"];
-    uint256[] initialPrices   = [
-        392_600_000,      // TSLA @ $392.60
-        135_000_000,      // NVDA @ $135.00
-        528_500_000,      // SPY @ $528.50
-        103_000_000_000,  // BTC @ $103,000
-        3_215_000_000     // GOLD @ $3,215.00
-    ];
 
     function run() external {
         uint256 deployerKey = vm.envUint("DEPLOYER_KEY");
@@ -79,6 +70,16 @@ contract DeployScript is Script {
 
         console.log("");
         console.log("=== Phase 2: Synthetic Assets ===");
+
+        // The synthetic set is GENERATED from the SSOT
+        // (backend/archimedes/data/synthetic_universe.json) so this forge deploy can never
+        // drift from it (#756) — regenerate via
+        // `python -m archimedes.scripts.gen_solidity_universe`.
+        (
+            string[] memory syntheticNames,
+            string[] memory syntheticSymbols,
+            uint256[] memory initialPrices
+        ) = SyntheticUniverse.synthetics();
 
         address[] memory synthTokens = new address[](syntheticNames.length);
         address[] memory synthOracles = new address[](syntheticNames.length);
@@ -141,15 +142,17 @@ contract DeployScript is Script {
                 abi.encode("Archimedes Momentum Alpha", "vMOM", uint16(150), uint16(2000))
             );
 
-            // Set target allocations for the vault
+            // Set target allocations for the vault. Symbol-keyed (NOT positional): the SSOT
+            // is sorted by symbol, so a positional index would silently point at the wrong
+            // token. sSPY + sBTC are both deploy-eligible (sTSLA is compliance-held now).
             address[] memory allocTokens = new address[](3);
             allocTokens[0] = USDC_ARC_TESTNET;
-            allocTokens[1] = synthTokens[0]; // sTSLA
-            allocTokens[2] = synthTokens[3]; // sBTC
+            allocTokens[1] = _tokenFor(syntheticSymbols, synthTokens, "sSPY");
+            allocTokens[2] = _tokenFor(syntheticSymbols, synthTokens, "sBTC");
 
             uint256[] memory allocWeights = new uint256[](3);
             allocWeights[0] = 4000; // 40% USDC
-            allocWeights[1] = 3500; // 35% sTSLA
+            allocWeights[1] = 3500; // 35% sSPY
             allocWeights[2] = 2500; // 25% sBTC
 
             Vault(payable(tier1Vault)).setTargetAllocations(allocTokens, allocWeights);
@@ -201,5 +204,20 @@ contract DeployScript is Script {
         console.log("Owner:                 ", owner);
         console.log("Agent:                 ", agentAddr);
         console.log("Synthetic count:       ", synthTokens.length);
+    }
+
+    /// @dev Resolve a deployed synth token by symbol. Symbol-keyed (not positional) so
+    ///      allocations don't depend on the SSOT's sorted ordering. Reverts if the symbol
+    ///      isn't in the deployed set.
+    function _tokenFor(string[] memory symbols, address[] memory tokens, string memory target)
+        private
+        pure
+        returns (address)
+    {
+        bytes32 t = keccak256(bytes(target));
+        for (uint256 i = 0; i < symbols.length; i++) {
+            if (keccak256(bytes(symbols[i])) == t) return tokens[i];
+        }
+        revert(string.concat("synth not in deployed set: ", target));
     }
 }
