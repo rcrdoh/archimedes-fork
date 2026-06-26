@@ -210,9 +210,9 @@ export default function StrategyPassport({ strategyId, onNavigate, walletAddr })
         </div>
         <div className="flex items-center gap-3">
           {/* Publish button — replicates the passport pipeline in an isolated
-              container and lists the strategy in the Copy Trading Market. Only
-              shown for strategies that have passed the rigor gate. */}
-          {s.passes_rigor_gate === true && walletAddr && (
+              container and lists the strategy in the Copy Trading Market.
+              Requires wallet connection (rigor gate requirement removed). */}
+          {walletAddr && (
             <button
               className="btn btn-primary"
               onClick={handlePublish}
