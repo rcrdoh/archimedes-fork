@@ -11,6 +11,7 @@ import StrategyPassport from './components/StrategyPassport'
 import CorpusExplorer from './components/CorpusExplorer'
 import Reasoning from './components/Reasoning'
 import Architecture from './components/Architecture'
+import MarketTab from './components/MarketTab'
 import RiskAnalysis from './components/RiskAnalysis'
 import PortfolioAdvisorPanels from './components/PortfolioAdvisorPanels'
 import BacktestVisualizer from './components/BacktestVisualizer'
@@ -31,6 +32,7 @@ const PAGE_TO_PATH = {
   generate:  '/generate',
   architecture: '/architecture',
   library:   '/library',
+  market:    '/market',
   corpus:    '/corpus',
   quant:     '/quant',
   portfolio: '/portfolio',
@@ -175,6 +177,7 @@ export default function App() {
       library:        'Library · Archimedes',
       corpus:         'Corpus · Archimedes',
       quant:          'Quant Lab · Archimedes',
+      market:         'Market · Archimedes',
       portfolio:      'Portfolio · Archimedes',
       reasoning:      'Reasoning · Archimedes',
       learnings:      'Learnings · Archimedes',
@@ -226,6 +229,7 @@ export default function App() {
         </WalletGate>
       )
       case 'strategy':     return <StrategyPassport strategyId={selectedStrategy} onNavigate={navigateToPage} walletAddr={walletAddr} />
+      case 'market':       return <MarketTab walletAddr={walletAddr} onNavigate={navigateToPage} />
       case 'corpus':       return <CorpusExplorer />
       case 'quant':        return (
         <div className="quant-lab">

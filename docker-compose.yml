@@ -151,6 +151,75 @@ services:
       redis:
         condition: service_healthy
 
+  # ---------- Copy Trading: Replicator Agent (Type 3) ----------
+  # One instance per subscription - subscribes to a published strategy's
+  # event feed and replicates trades in the subscriber's vault.
+  # Started dynamically by the publish/subscribe API endpoints.
+  replicator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "archimedes.chain.agent_replicator"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AGENT_INTERVAL_SECONDS: ${AGENT_INTERVAL_SECONDS:-300}
+      PUBLISH_ENDPOINT: ${PUBLISH_ENDPOINT:-http://backend:8000/api/market/events/}
+      SUBSCRIPTION_ID: ${SUBSCRIPTION_ID:-0}
+      AGENT_VAULT_ADDRESSES: ${AGENT_VAULT_ADDRESSES:-}
+      MARKET_FUNDING_THRESHOLD: ${MARKET_FUNDING_THRESHOLD:-10.0}
+      ARC_VAULT_FACTORY_ADDRESS: ${ARC_VAULT_FACTORY_ADDRESS:-0xca873414070844aeb98b0bf1051f81969c79cc32}
+      ARC_AMM_ROUTER_ADDRESS: ${ARC_AMM_ROUTER_ADDRESS:-0xd5b829f9d364a8bbe1caf6c8b19cb05371b178f4}
+    env_file:
+      - .env
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+  # ---------- Copy Trading: Published Strategy Runner (Type 2) ----------
+  # Template for dynamically-created published strategy containers.
+  # When a strategy is published, a new container is started via the Docker
+  # API with its own isolated vault and vault<>strategy mapping.
+  # The environment variables below serve as defaults; the publish endpoint
+  # overrides them per-container.
+  published-agent:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "archimedes.chain.agent_runner"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AGENT_INTERVAL_SECONDS: ${PUBLISHED_AGENT_INTERVAL_SECONDS:-300}
+      AGENT_DRY_RUN: ${AGENT_DRY_RUN:-false}
+      # Published agent uses its own isolated vault - no default vault addresses
+      AGENT_VAULT_ADDRESSES: ""
+      # Strategy identifier for this published instance
+      PUBLISHED_STRATEGY_ID: ${PUBLISHED_STRATEGY_ID:-0}
+      ARC_VAULT_FACTORY_ADDRESS: ${ARC_VAULT_FACTORY_ADDRESS:-0xca873414070844aeb98b0bf1051f81969c79cc32}
+      ARC_AMM_ROUTER_ADDRESS: ${ARC_AMM_ROUTER_ADDRESS:-0xd5b829f9d364a8bbe1caf6c8b19cb05371b178f4}
+      ARC_REASONING_TRACE_REGISTRY_ADDRESS: ${ARC_REASONING_TRACE_REGISTRY_ADDRESS:-0x42d8a23edb897cbee203e9fa197eb05ab5106ca6}
+    env_file:
+      - .env
+    volumes:
+      - ./analytics-engine/strategies:/app/analytics-engine/strategies:ro
+      - ./contracts/abis:/contracts/abis:ro
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # ---------- KB pipeline runner (Phase 3c skeleton) ----------
   # Polls the corpus + artifact volume and re-runs the SPECTER2 / HDBSCAN /
   # BERTopic / REBEL / SciSpacy pipeline when the trigger conditions hit

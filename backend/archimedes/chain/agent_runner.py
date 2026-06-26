@@ -26,6 +26,7 @@ import uuid
 from datetime import UTC, datetime
 
 from archimedes.chain.client import chain_client
+from archimedes.chain.event_publisher import publish_event
 from archimedes.chain.executor import InsufficientLiquidityError, chain_executor
 from archimedes.chain.oracle_updater import OracleUpdater
 from archimedes.chain.provenance_publisher import pin_public_provenance
@@ -717,6 +718,13 @@ class StrategyRunner:
                     [h[:16] for h in tx_hashes],
                 )
                 await self.state.save_last_rebalance(vault_address)
+                # Publish event for Type 3 Agent subscribers
+                await publish_event("rebalance", {
+                    "vault_address": vault_address,
+                    "trades": [{"symbol": t.symbol, "direction": t.direction.value, "amount": t.amount} for t in trades],
+                    "reasoning": reasoning[:200],
+                    "tick_id": tick_id,
+                })
             except InsufficientLiquidityError as e:
                 logger.warning(
                     "[tick %s] Vault %s: swap skipped — thin pool: %s; will retry next tick",

@@ -85,6 +85,8 @@ export default function StrategyPassport({ strategyId, onNavigate, walletAddr })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deployOpen, setDeployOpen] = useState(false)
+  const [publishing, setPublishing] = useState(false)
+  const [publishMsg, setPublishMsg] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -130,6 +132,29 @@ export default function StrategyPassport({ strategyId, onNavigate, walletAddr })
   const paperAnchorLine = (displayTitle !== s.paper_title && s.paper_title)
     ? `Anchored on: ${s.paper_title}`
     : null
+
+  const handlePublish = async () => {
+    setPublishing(true)
+    setPublishMsg('')
+    try {
+      const r = await fetch(`${API_BASE}/api/market/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ strategy_id: strategyId }),
+      })
+      if (!r.ok) {
+        const err = await r.text()
+        throw new Error(err || r.statusText)
+      }
+      const data = await r.json()
+      setPublishMsg(`Published! Vault: ${data.vault_address?.slice(0, 10)}… Status: ${data.status}`)
+    } catch (e) {
+      setPublishMsg(`Publish failed: ${e.message}`)
+    } finally {
+      setPublishing(false)
+    }
+  }
 
   return (
     <div className="max-w-[920px]">
@@ -183,23 +208,43 @@ export default function StrategyPassport({ strategyId, onNavigate, walletAddr })
             {s.passes_rigor_gate === false && <> This strategy did not pass the rigor gate — deploy at your own risk.</>}
           </p>
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={() => setDeployOpen(true)}
-          disabled={!walletAddr}
-          style={
-            !walletAddr
-              ? { opacity: 0.45, cursor: 'not-allowed', filter: 'grayscale(0.6)' }
-              : undefined
-          }
-          title={
-            !walletAddr ? 'Connect wallet to deploy' :
-            'Open deploy modal'
-          }
-        >
-          Deploy as Vault →
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Publish button — replicates the passport pipeline in an isolated
+              container and lists the strategy in the Copy Trading Market. Only
+              shown for strategies that have passed the rigor gate. */}
+          {s.passes_rigor_gate === true && walletAddr && (
+            <button
+              className="btn btn-primary"
+              onClick={handlePublish}
+              disabled={publishing}
+              title="Publish to Copy Trading Market"
+            >
+              {publishing ? 'Publishing…' : 'Publish to Market'}
+            </button>
+          )}
+          <button
+            className="btn btn-outline"
+            onClick={() => setDeployOpen(true)}
+            disabled={!walletAddr}
+            style={
+              !walletAddr
+                ? { opacity: 0.45, cursor: 'not-allowed', filter: 'grayscale(0.6)' }
+                : undefined
+            }
+            title={
+              !walletAddr ? 'Connect wallet to deploy' :
+              'Open deploy modal'
+            }
+          >
+            Deploy as Vault →
+          </button>
+        </div>
       </div>
+      {publishMsg && (
+        <div className="info-box mb-4" style={{ padding: '10px 14px', fontSize: '0.85rem' }}>
+          {publishMsg}
+        </div>
+      )}
 
       {/* Methodology + source paper */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 fade-up fade-up-3">
