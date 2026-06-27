@@ -1,0 +1,95 @@
+<!-- GENERATED FROM backend/archimedes/data/synthetic_universe.json BY scripts/gen_asset_universe_doc.py — DO NOT EDIT BY HAND; run: PYTHONPATH=backend python scripts/gen_asset_universe_doc.py -->
+
+# Archimedes asset universe
+
+What Archimedes prices and trades on-chain. This page is **generated from the single source of truth** (`backend/archimedes/data/synthetic_universe.json`) so it can never drift from the actual universe — a CI test fails if it's stale. Regenerate: `PYTHONPATH=backend python scripts/gen_asset_universe_doc.py`.
+
+- **On-chain deploy-eligible synths:** 59 across 27 asset classes
+- **Chainlink-covered:** 32 covered · 27 not covered (of 59)
+- **Single-name equity synths held back (backtest-only, compliance):** 59
+
+**Parity invariant:** every on-chain synth is also backtestable (`on-chain ⊆ GLOBAL_ASSETS`); every backtestable-but-not-on-chain symbol is an explained compliance-flagged single stock; and **no on-chain synth is compliance-held** (`on-chain ∩ compliance-held = ∅`). Enforced by `backend/tests/test_universe_parity.py`.
+
+## On-chain deploy-eligible universe
+
+All 59 synths below are **on-chain-eligible** (priced on the live path).
+
+| symbol | name | asset_class | price_usd | decimals | chainlink_covered | on-chain-eligible |
+|---|---|---|---:|---:|:---:|:---:|
+| sCORN | Synthetic Corn | agri_fut | $4.45 | 6 | false | live ✅ |
+| sSOY | Synthetic Soybeans | agri_fut | $10.40 | 6 | false | live ✅ |
+| sWHEAT | Synthetic Wheat | agri_fut | $5.70 | 6 | false | live ✅ |
+| sEWJ | Synthetic EWJ | asia_equity_etf | $73.20 | 6 | false | live ✅ |
+| sEWY | Synthetic EWY (Korea) | asia_equity_etf | $58.30 | 6 | false | live ✅ |
+| sINDA | Synthetic INDA | asia_equity_etf | $55.80 | 6 | false | live ✅ |
+| sMCHI | Synthetic MCHI | asia_equity_etf | $51.40 | 6 | false | live ✅ |
+| sNKY | Synthetic NKY | asia_index | $38,500.00 | 6 | true | live ✅ |
+| sHYG | Synthetic HYG (HY credit) | credit_hy | $79.40 | 6 | false | live ✅ |
+| sLQD | Synthetic LQD (IG credit) | credit_ig | $110.30 | 6 | false | live ✅ |
+| sBTC | Synthetic BTC | crypto | $104,500.00 | 6 | true | live ✅ |
+| sETH | Synthetic ETH | crypto | $3,850.00 | 6 | true | live ✅ |
+| sSOL | Synthetic SOL | crypto | $215.00 | 6 | true | live ✅ |
+| sEMB | Synthetic EMB (EM bond) | em_bond | $91.80 | 6 | false | live ✅ |
+| sEEM | Synthetic EEM | em_equity_etf | $44.10 | 6 | true | live ✅ |
+| sEWG | Synthetic EWG (Germany) | eu_equity_etf | $35.40 | 6 | false | live ✅ |
+| sEWQ | Synthetic EWQ (France) | eu_equity_etf | $43.90 | 6 | false | live ✅ |
+| sEWU | Synthetic EWU (UK) | eu_equity_etf | $38.20 | 6 | false | live ✅ |
+| sEZU | Synthetic EZU | eu_equity_etf | $53.70 | 6 | false | live ✅ |
+| sCAC | Synthetic CAC 40 | eu_index | $7,600.00 | 6 | true | live ✅ |
+| sDAX | Synthetic DAX 40 | eu_index | $18,400.00 | 6 | true | live ✅ |
+| sFTSE | Synthetic FTSE 100 | eu_index | $8,200.00 | 6 | true | live ✅ |
+| sUNG | Synthetic UNG | energy_etf | $14.20 | 6 | false | live ✅ |
+| sUSO | Synthetic USO | energy_etf | $78.50 | 6 | false | live ✅ |
+| sBRENT | Synthetic Brent | energy_fut | $66.40 | 6 | false | live ✅ |
+| sNG | Synthetic Natural Gas | energy_fut | $3.10 | 6 | false | live ✅ |
+| sOIL | Synthetic OIL | energy_fut | $62.80 | 6 | true | live ✅ |
+| sEURUSD | Synthetic EUR/USD | fx | $1.085 | 6 | true | live ✅ |
+| sGBPUSD | Synthetic GBP/USD | fx | $1.27 | 6 | true | live ✅ |
+| sUSDJPY | Synthetic USD/JPY | fx | $157.20 | 6 | true | live ✅ |
+| sUSDTRY | Synthetic USD/TRY | fx | $39.10 | 6 | true | live ✅ |
+| sGLD | Synthetic GLD | metal_etf | $300.50 | 6 | true | live ✅ |
+| sPALL | Synthetic Palladium | metal_etf | $92.10 | 6 | true | live ✅ |
+| sPPLT | Synthetic Platinum | metal_etf | $96.30 | 6 | true | live ✅ |
+| sSLV | Synthetic SLV | metal_etf | $30.20 | 6 | true | live ✅ |
+| sGOLD | Synthetic GOLD | metal_fut | $3,250.00 | 6 | true | live ✅ |
+| sHG | Synthetic Copper | metal_fut | $4.30 | 6 | false | live ✅ |
+| sSI | Synthetic Silver | metal_fut | $32.40 | 6 | true | live ✅ |
+| sGDX | Synthetic GDX | metal_eq_etf | $40.80 | 6 | false | live ✅ |
+| sGDXJ | Synthetic GDXJ | metal_eq_etf | $51.60 | 6 | false | live ✅ |
+| sTUR | Synthetic TUR (Turkey) | tr_equity_etf | $28.70 | 6 | false | live ✅ |
+| sBIST | Synthetic BIST 100 | tr_index | $10,300.00 | 6 | false | live ✅ |
+| sBIL | Synthetic BIL (T-Bills) | us_bond_tbill | $91.60 | 6 | false | live ✅ |
+| sTIP | Synthetic TIP (TIPS) | us_bond_tips | $108.70 | 6 | false | live ✅ |
+| sAGG | Synthetic AGG (Aggregate) | us_bond_agg | $98.20 | 6 | true | live ✅ |
+| sIEF | Synthetic IEF (7-10yr) | us_bond_mid | $95.10 | 6 | true | live ✅ |
+| sTLT | Synthetic TLT (20+yr) | us_bond_long | $92.30 | 6 | true | live ✅ |
+| sSHY | Synthetic SHY (1-3yr) | us_bond_short | $82.40 | 6 | false | live ✅ |
+| sDIA | Synthetic DIA | us_equity_etf | $437.10 | 6 | true | live ✅ |
+| sIWM | Synthetic IWM | us_equity_etf | $228.70 | 6 | true | live ✅ |
+| sQQQ | Synthetic QQQ | us_equity_etf | $512.30 | 6 | true | live ✅ |
+| sSPY | Synthetic SPY | us_equity_etf | $592.40 | 6 | true | live ✅ |
+| sMUB | Synthetic MUB (US muni) | us_muni | $106.50 | 6 | false | live ✅ |
+| sXLE | Synthetic XLE | us_sector_etf | $91.80 | 6 | true | live ✅ |
+| sXLF | Synthetic XLF | us_sector_etf | $49.60 | 6 | true | live ✅ |
+| sXLI | Synthetic XLI | us_sector_etf | $138.90 | 6 | true | live ✅ |
+| sXLK | Synthetic XLK | us_sector_etf | $235.40 | 6 | true | live ✅ |
+| sXLU | Synthetic XLU | us_sector_etf | $78.40 | 6 | true | live ✅ |
+| sXLV | Synthetic XLV | us_sector_etf | $146.20 | 6 | true | live ✅ |
+
+## Held back — single-name equities (backtest-only)
+
+**Compliance status (verbatim from the SSOT):** FLAGGED — DO NOT add to the live on-chain path without compliance sign-off
+
+> Single-stock synthetics (sTSLA, sNVDA, sAAPL, sMSFT, ... and the EU/Asian/Turkish single names in GLOBAL_ASSETS) reference individual securities. Minting an on-chain synthetic that tracks a single registered security raises securities-law / derivatives-registration questions that broad-index, FX, crypto, and commodity synths do not. These remain backtest-only (present in GLOBAL_ASSETS) until legal review. The two single-stock names that were on the legacy live list (sTSLA, sNVDA) are intentionally REMOVED from the live on-chain universe by this SSOT.
+
+The 59 single-name equity synths below are present in the backtest universe but **NOT** on the live on-chain path. Do not add any to the SSOT `synthetics` without sign-off.
+
+`sAAPL` `sAKBNK` `sAMD` `sAMZN` `sASELS` `sASML` `sAVGO` `sAZN`
+`sBABA` `sBAC` `sBIMAS` `sBP` `sBRK-B` `sCOIN` `sCOP` `sCOST`
+`sCRM` `sCVX` `sEREGL` `sGARAN` `sGOOGL` `sGS` `sHD` `sHSBC`
+`sJNJ` `sJPM` `sKCHOL` `sLLY` `sLVMH` `sMA` `sMETA` `sMRK`
+`sMSFT` `sMSTR` `sNESN` `sNFLX` `sNOVO` `sNVDA` `sORCL` `sPFE`
+`sPG` `sPLTR` `sRHM` `sSAHOL` `sSAP` `sSE` `sSHEL` `sSIE`
+`sSONY` `sTCEHY` `sTHYAO` `sTM` `sTSLA` `sTSM` `sTTE` `sUNH`
+`sV` `sWMT` `sXOM`
+
