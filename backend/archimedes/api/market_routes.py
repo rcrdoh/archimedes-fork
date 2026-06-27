@@ -430,6 +430,52 @@ async def list_published_strategies(
         session.close()
 
 
+
+# ─── My published strategies (Library → Published tab) ─────
+
+
+@market_router.get("/strategies/mine", response_model=PublishedListResponse)
+async def list_my_published_strategies(
+    wallet: str = Depends(require_verified_wallet),
+):
+    """List published strategies belonging to the connected wallet."""
+    session = get_session()
+    try:
+        strategies = (
+            session.query(PublishedStrategy)
+            .filter(PublishedStrategy.creator_address == wallet.lower())
+            .order_by(PublishedStrategy.created_at.desc())
+            .all()
+        )
+
+        result = []
+        for s in strategies:
+            sub_count = (
+                session.query(Subscription)
+                .filter(
+                    Subscription.published_strategy_id == s.id,
+                    Subscription.status.in_(["active", "funding"]),
+                )
+                .count()
+            )
+            result.append(
+                PublishedStrategySummary(
+                    id=s.id,
+                    strategy_id=s.strategy_id,
+                    vault_address=s.vault_address,
+                    creator_address=s.creator_address,
+                    description=s.description or "",
+                    funding_threshold=s.funding_threshold,
+                    status=s.status,
+                    subscriptor_count=sub_count,
+                    created_at=s.created_at.isoformat() if s.created_at else None,
+                )
+            )
+
+        return PublishedListResponse(strategies=result, total=len(result))
+    finally:
+        session.close()
+
 # ─── Get strategy detail + subscriptors ─────────────────────
 
 
@@ -767,52 +813,6 @@ async def get_strategy_events(
             if e.get("data", {}).get("vault_address", "").lower() == published.vault_address.lower()
         ]
         return {"events": vault_events, "total": len(vault_events)}
-    finally:
-        session.close()
-
-
-# ─── My published strategies (Library → Published tab) ─────
-
-
-@market_router.get("/strategies/mine", response_model=PublishedListResponse)
-async def list_my_published_strategies(
-    wallet: str = Depends(require_verified_wallet),
-):
-    """List published strategies belonging to the connected wallet."""
-    session = get_session()
-    try:
-        strategies = (
-            session.query(PublishedStrategy)
-            .filter(PublishedStrategy.creator_address == wallet.lower())
-            .order_by(PublishedStrategy.created_at.desc())
-            .all()
-        )
-
-        result = []
-        for s in strategies:
-            sub_count = (
-                session.query(Subscription)
-                .filter(
-                    Subscription.published_strategy_id == s.id,
-                    Subscription.status.in_(["active", "funding"]),
-                )
-                .count()
-            )
-            result.append(
-                PublishedStrategySummary(
-                    id=s.id,
-                    strategy_id=s.strategy_id,
-                    vault_address=s.vault_address,
-                    creator_address=s.creator_address,
-                    description=s.description or "",
-                    funding_threshold=s.funding_threshold,
-                    status=s.status,
-                    subscriptor_count=sub_count,
-                    created_at=s.created_at.isoformat() if s.created_at else None,
-                )
-            )
-
-        return PublishedListResponse(strategies=result, total=len(result))
     finally:
         session.close()
 
