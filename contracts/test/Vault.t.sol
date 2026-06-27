@@ -7,6 +7,7 @@ import "../src/VaultFactory.sol";
 import "../src/AMMRouter.sol";
 import "../src/AMMPool.sol";
 import "../src/AssetRegistry.sol";
+import "../src/ReasoningTraceRegistry.sol";
 
 /// @dev Mock ERC-20 USDC for testing
 contract MockUSDC is ERC20 {
@@ -38,6 +39,7 @@ contract VaultTest is Test {
     AMMRouter public router;
     VaultFactory public factory;
     Vault public vault;
+    ReasoningTraceRegistry public traceRegistry;
 
     MockToken public sTSLA;
     PriceOracle public tslaOracle;
@@ -58,10 +60,14 @@ contract VaultTest is Test {
         router = new AMMRouter(owner);
 
         vm.prank(owner);
+        traceRegistry = new ReasoningTraceRegistry(owner);
+
+        vm.prank(owner);
         factory = new VaultFactory(
             agent,
             address(router),
             address(usdc),
+            address(traceRegistry),
             platformRecipient,
             owner
         );
@@ -122,6 +128,7 @@ contract VaultTest is Test {
         address[] memory tokensOut = new address[](0);
         uint256[] memory amountsOut = new uint256[](0);
 
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
     }
@@ -135,8 +142,24 @@ contract VaultTest is Test {
         uint256[] memory amountsOut = new uint256[](1);
         amountsOut[0] = amount;
 
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+    }
+
+    /// @dev #589: commit a matching reasoning trace one block before a rebalance, so the
+    ///      vault's commit-before-trade enforcement is satisfied. tradeId MUST equal what
+    ///      Vault.rebalance() recomputes from the same swap arrays.
+    function _commitFor(
+        address[] memory tokensIn,
+        uint256[] memory amountsIn,
+        address[] memory tokensOut,
+        uint256[] memory amountsOut
+    ) internal {
+        bytes32 tradeId = keccak256(abi.encode(tokensIn, amountsIn, tokensOut, amountsOut));
+        vm.prank(agent);
+        traceRegistry.commit(address(vault), keccak256("trace"), uint64(block.timestamp + 1), tradeId, "");
+        vm.roll(block.number + 1); // commit must strictly precede the trade block
     }
 
     /// @dev Deposit USDC into the vault as alice.
@@ -417,6 +440,7 @@ contract VaultTest is Test {
         address[] memory tokensOut = new address[](0);
         uint256[] memory amountsOut = new uint256[](0);
 
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
 
@@ -459,6 +483,7 @@ contract VaultTest is Test {
         uint256[] memory amountsOut = new uint256[](0);
 
         // Creator (agent in this case) can rebalance
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
         // No tokens swapped, but no revert — success
@@ -703,6 +728,7 @@ contract VaultTest is Test {
         address[] memory tokensOut = new address[](0);
         uint256[] memory amountsOut = new uint256[](0);
 
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vm.expectRevert(AMMRouter.SlippageExceeded.selector);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
@@ -729,6 +755,7 @@ contract VaultTest is Test {
         address[] memory tokensOut = new address[](0);
         uint256[] memory amountsOut = new uint256[](0);
 
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vm.expectRevert(AMMRouter.SlippageExceeded.selector);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
@@ -755,6 +782,7 @@ contract VaultTest is Test {
         uint256[] memory amountsOut = new uint256[](1);
         amountsOut[0] = 1_000 * 1e18;
 
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vm.expectRevert(AMMRouter.SlippageExceeded.selector);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
@@ -783,6 +811,7 @@ contract VaultTest is Test {
         address[] memory tokensOut = new address[](0);
         uint256[] memory amountsOut = new uint256[](0);
 
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vm.expectRevert(Vault.OracleNotSet.selector);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
@@ -854,6 +883,7 @@ contract VaultTest is Test {
         amountsIn[0] = 1 * 10**6;
         address[] memory tokensOut = new address[](0);
         uint256[] memory amountsOut = new uint256[](0);
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
 
@@ -910,6 +940,7 @@ contract VaultTest is Test {
         address[] memory tokensOut = new address[](0);
         uint256[] memory amountsOut = new uint256[](0);
 
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
         vm.prank(agent);
         vm.expectRevert(PriceOracle.StalePrice.selector);
         vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
@@ -1272,6 +1303,12 @@ contract VaultTest is Test {
         uint256[] memory aIn = _singletonUint(10_000 * 10**6);
         address[] memory tOut = new address[](0);
         uint256[] memory aOut = new uint256[](0);
+        // #589: even the compromised agent must commit-before-trade — but this does NOT
+        // help it drain, the swap stays bounded by the owner's oracle floor.
+        bytes32 drainTradeId = keccak256(abi.encode(tIn, aIn, tOut, aOut));
+        vm.prank(attacker);
+        traceRegistry.commit(address(v), keccak256("trace"), uint64(block.timestamp + 1), drainTradeId, "");
+        vm.roll(block.number + 1);
         vm.prank(attacker);
         v.rebalance(tIn, aIn, tOut, aOut); // buys sTSLA within the oracle floor
 
@@ -1302,6 +1339,60 @@ contract VaultTest is Test {
         uint256 recovered = usdc.balanceOf(user) - userUsdcBefore;
         // 90% of a ~50k deposit, minus bounded slippage → comfortably > 44k.
         assertGt(recovered, (deposit * 88) / 100, "user recovers their funds; attacker got nothing");
+    }
+
+    // ─── Commit-before-trade enforcement (#589) ──────────────────────
+
+    function test_revert_rebalance_without_commit() public {
+        _depositAsAlice(50_000 * 10**6);
+
+        address[] memory tokensIn = _singleton(address(sTSLA));
+        uint256[] memory amountsIn = _singletonUint(10_000 * 10**6);
+        address[] memory tokensOut = new address[](0);
+        uint256[] memory amountsOut = new uint256[](0);
+
+        // No prior commit — a trade cannot settle without a matching commitment.
+        vm.prank(agent);
+        vm.expectRevert("No matching commitment");
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+    }
+
+    function test_rebalance_commit_is_single_use() public {
+        _depositAsAlice(50_000 * 10**6);
+
+        address[] memory tokensIn = _singleton(address(sTSLA));
+        uint256[] memory amountsIn = _singletonUint(10_000 * 10**6);
+        address[] memory tokensOut = new address[](0);
+        uint256[] memory amountsOut = new uint256[](0);
+
+        // Commit, then trade — succeeds.
+        _commitFor(tokensIn, amountsIn, tokensOut, amountsOut);
+        vm.prank(agent);
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+
+        // The commitment is consumed — repeating the identical trade without a fresh
+        // commit reverts, so one trace cannot authorize many trades.
+        vm.prank(agent);
+        vm.expectRevert("No matching commitment");
+        vault.rebalance(tokensIn, amountsIn, tokensOut, amountsOut);
+    }
+
+    function test_revert_rebalance_commit_for_different_trade() public {
+        _depositAsAlice(50_000 * 10**6);
+
+        // The agent commits a SMALL trade (1,000 USDC) ...
+        address[] memory tIn = _singleton(address(sTSLA));
+        uint256[] memory aInCommitted = _singletonUint(1_000 * 10**6);
+        address[] memory tOut = new address[](0);
+        uint256[] memory aOut = new uint256[](0);
+        _commitFor(tIn, aInCommitted, tOut, aOut);
+
+        // ... but tries to execute a LARGER trade (10,000 USDC). Different tradeId =>
+        // no matching commitment => the trade is blocked. (No bait-and-switch.)
+        uint256[] memory aInActual = _singletonUint(10_000 * 10**6);
+        vm.prank(agent);
+        vm.expectRevert("No matching commitment");
+        vault.rebalance(tIn, aInActual, tOut, aOut);
     }
 
     function _singletonUint(uint256 x) internal pure returns (uint256[] memory arr) {

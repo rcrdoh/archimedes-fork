@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IAMMRouter.sol";
 import "./interfaces/IAssetRegistry.sol";
+import "./interfaces/IReasoningTraceRegistry.sol";
 import "./PriceOracle.sol";
 
 /// @title Vault
@@ -100,6 +101,12 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     ///         arbitrary address — see setTokenOraclesFromRegistry.
     IAssetRegistry public assetRegistry;
 
+    /// @notice On-chain reasoning-trace registry that enforces commit-before-trade.
+    ///         Wired immutably at construction (the factory passes the deployed
+    ///         registry). rebalance() consumes a matching fresh commitment here
+    ///         before any swap, so a trade cannot settle without a prior commit (#589).
+    IReasoningTraceRegistry public immutable traceRegistry;
+
     // ─── Errors ──────────────────────────────────────────────────────
 
     error ZeroAmount();
@@ -114,6 +121,7 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     error InvalidOraclePrice();
     error OracleNotRegistered(address token);
     error AssetRegistryNotSet();
+    error TraceRegistryNotSet();
 
     // ─── Events (Vault-local) ────────────────────────────────────────
 
@@ -122,12 +130,16 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
     event PlatformFeeRecipientSet(address indexed oldRecipient, address indexed newRecipient);
     event AssetRegistrySet(address indexed registry);
     event TokenOraclesSetFromRegistry(uint256 count);
+    /// @notice Emitted by rebalance() with the tradeId it enforced and the trace ID of
+    ///         the commitment it consumed in the trace registry (#589).
+    event RebalanceTrace(bytes32 indexed tradeId, uint256 indexed traceId);
 
     // ─── Constructor ─────────────────────────────────────────────────
 
     constructor(
         address _usdc,
         address _ammRouter,
+        address _traceRegistry,
         address _creator,
         uint8 _tier,
         uint16 _managementFeeBps,
@@ -137,8 +149,12 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
         string memory _name,
         string memory _symbol
     ) ERC20(_name, _symbol) Ownable(_creator) {
+        // Strict commit-before-trade: the trace registry is required and immutable, so
+        // a vault can never exist in a state where rebalance() skips the commit check (#589).
+        if (_traceRegistry == address(0)) revert TraceRegistryNotSet();
         asset = _usdc;
         ammRouter = IAMMRouter(_ammRouter);
+        traceRegistry = IReasoningTraceRegistry(_traceRegistry);
         creator = _creator;
         tier = _tier;
         managementFeeBps = _managementFeeBps;
@@ -321,6 +337,16 @@ contract Vault is IVault, ERC20, Ownable, ReentrancyGuard, Pausable {
         address[] calldata tokensOut,
         uint256[] calldata amountsOut
     ) external override onlyManager nonReentrant whenNotPaused {
+        // Commit-before-trade enforcement (#589): the agent must have committed a
+        // matching reasoning trace in an EARLIER block. Recompute the trade identifier
+        // from the exact swap parameters and consume the fresh commitment — reverts if
+        // none binds this (vault, trade), so a trade cannot settle without a prior commit.
+        // (Deposits/withdrawals never touch the registry — funds paths stay registry-
+        // independent so a registry issue can never lock user funds.)
+        bytes32 tradeId = keccak256(abi.encode(tokensIn, amountsIn, tokensOut, amountsOut));
+        uint256 traceId = traceRegistry.executeTrade(tradeId);
+        emit RebalanceTrace(tradeId, traceId);
+
         _accrueFees();
 
         // Sell tokens (swap tokenOut -> USDC via AMM)

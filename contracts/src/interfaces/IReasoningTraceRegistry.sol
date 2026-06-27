@@ -35,6 +35,15 @@ interface IReasoningTraceRegistry {
         uint256 revealBlock
     );
 
+    /// @notice Emitted when a vault consumes a matching commitment as it executes
+    ///         the covered trade (the on-chain commit-before-trade enforcement point).
+    event TradeExecuted(
+        uint256 indexed traceId,
+        address indexed vault,
+        bytes32 indexed tradeId,
+        uint256 executeBlock
+    );
+
     event VaultAgentSet(address indexed vault, address indexed agent, bool authorized);
 
     // ── Write ────────────────────────────────────────────────
@@ -59,14 +68,37 @@ interface IReasoningTraceRegistry {
     /// @param vault The vault the upcoming trade applies to
     /// @param contentHash keccak256 of the canonical trace JSON
     /// @param claimedExecutionTime Unix time the covered trade is claimed to execute at
+    /// @param tradeId Identifier binding this commitment to a specific trade —
+    ///        keccak256(abi.encode(tokensIn, amountsIn, tokensOut, amountsOut)) of the
+    ///        rebalance the commitment authorizes (#589). The Vault recomputes this in
+    ///        rebalance() and calls executeTrade(tradeId); a mismatch means no matching
+    ///        commitment exists and the trade reverts.
     /// @param tradeIntentSummary ABI-encoded: decisionType, numTrades, totalNotionalUsdc
     /// @return traceId Auto-incrementing trace ID (shared ID space with publishTrace)
     function commit(
         address vault,
         bytes32 contentHash,
         uint64 claimedExecutionTime,
+        bytes32 tradeId,
         bytes calldata tradeIntentSummary
     ) external returns (uint256 traceId);
+
+    /// @notice Consume the fresh commitment that authorizes `tradeId` for the calling
+    ///         vault, at the moment the vault executes that trade. MUST be called by the
+    ///         vault itself (msg.sender == vault). Reverts if no fresh (committed in an
+    ///         earlier block, unrevealed, not-yet-executed) commitment binds this
+    ///         (vault, tradeId) — this is the on-chain "a trade cannot settle without a
+    ///         prior matching commit" guarantee (#589 / #510 acceptance criterion 1).
+    /// @param tradeId keccak256(abi.encode(tokensIn, amountsIn, tokensOut, amountsOut))
+    /// @return traceId The trace ID of the consumed commitment
+    function executeTrade(bytes32 tradeId) external returns (uint256 traceId);
+
+    /// @notice The trace ID of the fresh, unconsumed commitment binding (vault, tradeId),
+    ///         or 0 if none exists. View counterpart to executeTrade for off-chain checks.
+    function pendingTradeCommitment(address vault, bytes32 tradeId)
+        external
+        view
+        returns (uint256 traceId);
 
     /// @notice Reveal the full trace content AFTER the trade settles.
     ///         Verifies keccak256(fullTraceContent) matches the committed hash,

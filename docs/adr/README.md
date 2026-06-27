@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-> **Status:** Day-10 (2026-05-22). One ADR currently. The ADR pattern is:
+> **Status:** Day-10 (2026-05-22; updated 2026-06-26). Two ADRs currently. The ADR pattern is:
 > capture a non-trivial technical decision once, with the alternatives considered
 > and the reasoning, so future contributors can understand the choice without
 > needing to relitigate it.
@@ -10,6 +10,7 @@
 | ADR | Decision |
 |---|---|
 | [`backtrader-vs-vectorbt-decision-memo.md`](backtrader-vs-vectorbt-decision-memo.md) | Why we picked **backtrader** over **vectorbt** for the v1 backtest engine |
+| [`chainlink-primary-oracle.md`](chainlink-primary-oracle.md) | Why on-chain prices are **Chainlink-primary** with a thin, bounded admin fallback that **degrades (not reverts)** on feed outage (#724) |
 
 ## When to add an ADR
 

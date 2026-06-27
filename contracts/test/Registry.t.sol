@@ -239,7 +239,7 @@ contract ReasoningTraceRegistryTest is Test {
     function test_revert_commit_unauthorized() public {
         vm.prank(attacker);
         vm.expectRevert("Not authorized for vault");
-        registry.commit(vault1, keccak256("forged"), uint64(block.timestamp + 60), "");
+        registry.commit(vault1, keccak256("forged"), uint64(block.timestamp + 60), keccak256("trade"), "");
     }
 
     function test_revert_setVaultAgent_non_owner() public {
@@ -270,7 +270,7 @@ contract ReasoningTraceRegistryTest is Test {
 
         vm.prank(vaultAgent);
         uint256 traceId = registry.commit(
-            address(vault), keccak256("trace"), uint64(block.timestamp + 60), ""
+            address(vault), keccak256("trace"), uint64(block.timestamp + 60), keccak256("trade"), ""
         );
         assertEq(traceId, 1);
     }
@@ -289,7 +289,7 @@ contract ReasoningTraceRegistryTest is Test {
             1, contentHash, agent1, vault1, block.number, executionTime
         );
         vm.prank(agent1);
-        uint256 traceId = registry.commit(vault1, contentHash, executionTime, intent);
+        uint256 traceId = registry.commit(vault1, contentHash, executionTime, keccak256("trade"), intent);
         assertEq(traceId, 1);
 
         // T-3: next block — the trade executes (simulated by advancing the chain)
@@ -347,7 +347,7 @@ contract ReasoningTraceRegistryTest is Test {
     function test_revert_reveal_hash_mismatch() public {
         vm.prank(agent1);
         uint256 traceId = registry.commit(
-            vault1, keccak256("the real trace"), uint64(block.timestamp + 10), ""
+            vault1, keccak256("the real trace"), uint64(block.timestamp + 10), keccak256("trade"), ""
         );
 
         vm.roll(block.number + 1);
@@ -363,20 +363,20 @@ contract ReasoningTraceRegistryTest is Test {
         // the covered trade has to land at least one block after the commit.
         vm.prank(agent1);
         vm.expectRevert("Time-lock: execution must follow commit");
-        registry.commit(vault1, keccak256("trace"), uint64(block.timestamp), "");
+        registry.commit(vault1, keccak256("trace"), uint64(block.timestamp), keccak256("trade"), "");
 
         // Claimed execution in the past fails too
         vm.warp(block.timestamp + 100);
         vm.prank(agent1);
         vm.expectRevert("Time-lock: execution must follow commit");
-        registry.commit(vault1, keccak256("trace"), uint64(block.timestamp - 1), "");
+        registry.commit(vault1, keccak256("trace"), uint64(block.timestamp - 1), keccak256("trade"), "");
     }
 
     function test_revert_reveal_in_commit_block() public {
         bytes memory content = "trace";
         vm.prank(agent1);
         uint256 traceId = registry.commit(
-            vault1, keccak256(content), uint64(block.timestamp + 1), ""
+            vault1, keccak256(content), uint64(block.timestamp + 1), keccak256("trade"), ""
         );
 
         // Same block as the commit — temporal binding cannot hold
@@ -390,7 +390,7 @@ contract ReasoningTraceRegistryTest is Test {
         bytes memory content = "trace";
         uint64 executionTime = uint64(block.timestamp + 100);
         vm.prank(agent1);
-        uint256 traceId = registry.commit(vault1, keccak256(content), executionTime, "");
+        uint256 traceId = registry.commit(vault1, keccak256(content), executionTime, keccak256("trade"), "");
 
         vm.roll(block.number + 1); // later block, but execution time not reached
         vm.prank(agent1);
@@ -402,7 +402,7 @@ contract ReasoningTraceRegistryTest is Test {
         bytes memory content = "trace";
         vm.prank(agent1);
         uint256 traceId = registry.commit(
-            vault1, keccak256(content), uint64(block.timestamp + 1), ""
+            vault1, keccak256(content), uint64(block.timestamp + 1), keccak256("trade"), ""
         );
 
         vm.roll(block.number + 1);
@@ -416,7 +416,7 @@ contract ReasoningTraceRegistryTest is Test {
         bytes memory content = "trace";
         vm.prank(agent1);
         uint256 traceId = registry.commit(
-            vault1, keccak256(content), uint64(block.timestamp + 1), ""
+            vault1, keccak256(content), uint64(block.timestamp + 1), keccak256("trade"), ""
         );
 
         vm.roll(block.number + 1);
@@ -432,7 +432,7 @@ contract ReasoningTraceRegistryTest is Test {
     function test_revert_commit_empty_hash() public {
         vm.prank(agent1);
         vm.expectRevert("Empty content hash");
-        registry.commit(vault1, bytes32(0), uint64(block.timestamp + 1), "");
+        registry.commit(vault1, bytes32(0), uint64(block.timestamp + 1), keccak256("trade"), "");
     }
 
     function test_revert_getCommitment_nonexistent() public {
@@ -446,7 +446,7 @@ contract ReasoningTraceRegistryTest is Test {
 
         vm.prank(agent1);
         uint256 id2 = registry.commit(
-            vault1, keccak256("committed"), uint64(block.timestamp + 1), ""
+            vault1, keccak256("committed"), uint64(block.timestamp + 1), keccak256("trade"), ""
         );
 
         assertEq(id1, 1);
@@ -455,6 +455,73 @@ contract ReasoningTraceRegistryTest is Test {
 
         uint256[] memory vaultIds = registry.getTracesByVault(vault1);
         assertEq(vaultIds.length, 2);
+    }
+
+    // ─── Commit-before-trade binding (#589) ──────────────────────────
+
+    function test_revert_commit_empty_tradeId() public {
+        vm.prank(agent1);
+        vm.expectRevert("Empty trade id");
+        registry.commit(vault1, keccak256("trace"), uint64(block.timestamp + 1), bytes32(0), "");
+    }
+
+    function test_revert_commit_duplicate_pending() public {
+        bytes32 tradeId = keccak256("trade-A");
+        vm.prank(agent1);
+        registry.commit(vault1, keccak256("t1"), uint64(block.timestamp + 1), tradeId, "");
+        // A second commit for the SAME (vault, tradeId) before it executes must revert.
+        vm.prank(agent1);
+        vm.expectRevert("Pending commitment exists");
+        registry.commit(vault1, keccak256("t2"), uint64(block.timestamp + 1), tradeId, "");
+    }
+
+    function test_revert_executeTrade_no_commitment() public {
+        // The vault marks its own trade (msg.sender == vault); no prior commit => revert.
+        vm.prank(vault1);
+        vm.expectRevert("No matching commitment");
+        registry.executeTrade(keccak256("trade-A"));
+    }
+
+    function test_executeTrade_consumes_and_is_single_use() public {
+        bytes32 tradeId = keccak256("trade-A");
+        vm.prank(agent1);
+        uint256 traceId = registry.commit(vault1, keccak256("trace"), uint64(block.timestamp + 1), tradeId, "");
+        assertEq(registry.pendingTradeCommitment(vault1, tradeId), traceId);
+
+        // Strictly later block, then the vault consumes the commitment.
+        vm.roll(block.number + 1);
+        vm.expectEmit(true, true, true, true);
+        emit IReasoningTraceRegistry.TradeExecuted(traceId, vault1, tradeId, block.number);
+        vm.prank(vault1);
+        uint256 consumed = registry.executeTrade(tradeId);
+        assertEq(consumed, traceId);
+        assertEq(registry.pendingTradeCommitment(vault1, tradeId), 0); // cleared
+
+        // Single-use: a second execute for the same trade reverts.
+        vm.prank(vault1);
+        vm.expectRevert("No matching commitment");
+        registry.executeTrade(tradeId);
+    }
+
+    function test_revert_executeTrade_same_block_as_commit() public {
+        bytes32 tradeId = keccak256("trade-A");
+        vm.prank(agent1);
+        registry.commit(vault1, keccak256("trace"), uint64(block.timestamp + 1), tradeId, "");
+        // Same block as the commit — the trade cannot prove the commit preceded it.
+        vm.prank(vault1);
+        vm.expectRevert("Time-lock: execute in commit block");
+        registry.executeTrade(tradeId);
+    }
+
+    function test_executeTrade_only_consumes_own_vault_commitment() public {
+        // A commitment for vault1 cannot be consumed by a different vault address.
+        bytes32 tradeId = keccak256("trade-A");
+        vm.prank(agent1);
+        registry.commit(vault1, keccak256("trace"), uint64(block.timestamp + 1), tradeId, "");
+        vm.roll(block.number + 1);
+        vm.prank(vault2);
+        vm.expectRevert("No matching commitment");
+        registry.executeTrade(tradeId);
     }
 }
 

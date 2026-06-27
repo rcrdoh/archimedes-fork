@@ -36,6 +36,8 @@ contract ReasoningTraceRegistry is IReasoningTraceRegistry, Ownable {
         uint64 commitBlock;
         uint64 claimedExecutionTime;
         uint64 revealBlock; // 0 until revealed
+        bytes32 tradeId; // #589: binds this commitment to a specific rebalance
+        uint64 executeBlock; // #589: 0 until the covered trade executes (single-use guard)
         string storagePointer; // empty until revealed
     }
 
@@ -55,6 +57,10 @@ contract ReasoningTraceRegistry is IReasoningTraceRegistry, Ownable {
 
     /// @notice vault => agent => explicitly granted anchoring authority
     mapping(address => mapping(address => bool)) private _vaultAgents;
+
+    /// @notice vault => tradeId => trace ID of the fresh (unexecuted) commitment that
+    ///         binds that trade. Set by commit(), cleared by executeTrade(). (#589)
+    mapping(address => mapping(bytes32 => uint256)) private _pendingTrade;
 
     // ─── Constructor ─────────────────────────────────────────────────
 
@@ -109,10 +115,24 @@ contract ReasoningTraceRegistry is IReasoningTraceRegistry, Ownable {
         address vault,
         bytes32 contentHash,
         uint64 claimedExecutionTime,
+        bytes32 tradeId,
         bytes calldata tradeIntentSummary
     ) external override returns (uint256 traceId) {
         require(isAuthorizedForVault(vault, msg.sender), "Not authorized for vault");
         require(contentHash != bytes32(0), "Empty content hash");
+        require(tradeId != bytes32(0), "Empty trade id");
+        // One outstanding commitment per (vault, trade) at a time — a second commit
+        // must not clobber an unexecuted one. (#589)
+        uint256 pending = _pendingTrade[vault][tradeId];
+        if (pending != 0) {
+            Commitment storage p = _commitments[pending];
+            if (p.executeBlock != 0 || p.revealBlock != 0) {
+                // Stale pointer (already executed/revealed) — clear so this tradeId can be reused.
+                delete _pendingTrade[vault][tradeId];
+            } else {
+                revert("Pending commitment exists");
+            }
+        }
         // Time-lock: the covered execution must be claimed strictly after this
         // block's timestamp — i.e. it lands at least one block after the commit.
         require(claimedExecutionTime > block.timestamp, "Time-lock: execution must follow commit");
@@ -125,10 +145,45 @@ contract ReasoningTraceRegistry is IReasoningTraceRegistry, Ownable {
             commitBlock: uint64(block.number),
             claimedExecutionTime: claimedExecutionTime,
             revealBlock: 0,
+            tradeId: tradeId,
+            executeBlock: 0,
             storagePointer: ""
         });
+        _pendingTrade[vault][tradeId] = traceId;
 
         emit TraceCommitted(traceId, contentHash, msg.sender, vault, block.number, claimedExecutionTime);
+    }
+
+    /// @inheritdoc IReasoningTraceRegistry
+    /// @dev The on-chain commit-before-trade enforcement point. The Vault calls this
+    ///      from rebalance() (so msg.sender IS the vault), consuming the fresh
+    ///      commitment that binds the exact trade being executed. No matching, in-time,
+    ///      unconsumed commitment => revert => the trade cannot settle.
+    function executeTrade(bytes32 tradeId) external override returns (uint256 traceId) {
+        traceId = _pendingTrade[msg.sender][tradeId];
+        require(traceId != 0, "No matching commitment");
+
+        Commitment storage c = _commitments[traceId];
+        // Commit must strictly precede the trade block — a same-block commit+trade is
+        // atomically forgeable and would defeat the "trace existed before the trade" proof.
+        require(block.number > c.commitBlock, "Time-lock: execute in commit block");
+        require(c.executeBlock == 0, "Already executed");
+        require(c.revealBlock == 0, "Already revealed");
+
+        c.executeBlock = uint64(block.number);
+        delete _pendingTrade[msg.sender][tradeId];
+
+        emit TradeExecuted(traceId, msg.sender, tradeId, block.number);
+    }
+
+    /// @inheritdoc IReasoningTraceRegistry
+    function pendingTradeCommitment(address vault, bytes32 tradeId)
+        external
+        view
+        override
+        returns (uint256 traceId)
+    {
+        return _pendingTrade[vault][tradeId];
     }
 
     /// @inheritdoc IReasoningTraceRegistry
