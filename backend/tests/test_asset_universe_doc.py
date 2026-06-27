@@ -33,10 +33,15 @@ def _clean_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     # Hermetic subprocess env: do NOT inherit the developer's .env (DATABASE_URL etc. that
     # only resolve inside docker compose) — just what the stdlib generator needs to import
     # archimedes and find the SSOT (CLAUDE.md subprocess-test convention).
+    # Force UTF-8 stdio: the generated doc/diff contains non-ASCII (✅ · ⊆ ∩ ∅ em-dash); a
+    # C-locale CI runner would otherwise give the child ASCII stdio and crash with
+    # UnicodeEncodeError when --check prints the unified diff to stderr (#757 review).
     env = {
         "HOME": os.environ.get("HOME", "/tmp"),
         "PATH": os.environ.get("PATH", ""),
         "PYTHONPATH": str(_repo_root() / "backend"),
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
     }
     if extra:
         env.update(extra)
@@ -100,10 +105,11 @@ def test_parity_invariant_states_disjointness() -> None:
 
 
 def test_check_cli_reports_in_sync_via_subprocess() -> None:
-    # Exercise the REAL --check CLI contract (exit 0 + 'in sync' message), not just render_doc()
+    # Exercise the REAL --check CLI contract (exit 0 + 'in sync' message) through the
+    # #757-documented `scripts/gen_asset_universe_doc.py` wrapper, not just render_doc()
     # in-process (#757 review).
     proc = subprocess.run(
-        [sys.executable, "-m", "archimedes.scripts.gen_asset_universe_doc", "--check"],
+        [sys.executable, "scripts/gen_asset_universe_doc.py", "--check"],
         cwd=str(_repo_root()),
         env=_clean_env(),
         capture_output=True,
@@ -121,7 +127,7 @@ def test_check_cli_detects_drift_via_subprocess(tmp_path: Path) -> None:
     drifted = tmp_path / "asset-universe.md"
     drifted.write_text(render_doc() + "| sFAKE | Fake | crypto | $1.00 | 6 | true | live ✅ |\n", encoding="utf-8")
     proc = subprocess.run(
-        [sys.executable, "-m", "archimedes.scripts.gen_asset_universe_doc", "--check"],
+        [sys.executable, "scripts/gen_asset_universe_doc.py", "--check"],
         cwd=str(_repo_root()),
         env=_clean_env({"ASSET_UNIVERSE_DOC_PATH": str(drifted)}),
         capture_output=True,
