@@ -464,7 +464,10 @@ export default function MarketTab({ walletAddr, onNavigate }) {
 
   const loadStrategies = async () => {
     try {
-      const r = await fetch(`${API_BASE}/api/market/strategies?status=live&limit=50`)
+      // Cache-bust: browser GET caching can serve stale listings after an unpublish
+      const r = await fetch(`${API_BASE}/api/market/strategies?status=live&limit=50&_=${Date.now()}`, {
+        headers: { 'Cache-Control': 'no-cache' },
+      })
       if (!r.ok) throw new Error(await r.text())
       const data = await r.json()
       setStrategies(data.strategies || [])

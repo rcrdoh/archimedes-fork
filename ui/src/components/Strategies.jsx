@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import CustomSelect from './CustomSelect'
 // EfficientFrontier + CorrelationMatrix deleted (Issue #383) — synthetic RNG data
@@ -638,6 +638,9 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
   const [examples, setExamples] = useState([])
   const [generated, setGenerated] = useState([])
   const [published, setPublished] = useState([])
+  const [expandedPublishedId, setExpandedPublishedId] = useState(null)
+  const [confirmingRetireId, setConfirmingRetireId] = useState(null)
+  const [retiringId, setRetiringId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   // 'generated' is the first-class tab per product feedback — pushes user
@@ -860,50 +863,157 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
                     <th style={{ padding: '10px 14px' }}>Vault</th>
                     <th style={{ padding: '10px 14px' }}>Status</th>
                     <th style={{ padding: '10px 14px' }}>Subscribers</th>
-                    <th style={{ padding: '10px 14px' }}>Actions</th>
+                    <th style={{ padding: '10px 14px' }} />
                   </tr>
                 </thead>
                 <tbody>
-                  {published.map(p => (
-                    <tr key={p.id} style={{ borderBottom: '1px solid var(--glass-border)' }}>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span className="body">{p.description || `Strategy #${p.strategy_id.slice(0, 8)}`}</span>
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span className="mono" style={{ fontSize: '0.78rem' }}>
-                          {p.vault_address ? `${p.vault_address.slice(0, 6)}...${p.vault_address.slice(-4)}` : '—'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span className={`tag ${p.status === 'live' ? 'tag-positive' : p.status === 'paused' ? 'tag-muted' : 'tag-muted'}`}>
-                          {p.status || 'unknown'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span className="mono">{p.subscriptor_count ?? 0}</span>
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <button
-                          className="btn btn-outline btn-sm"
-                          style={{ color: 'var(--negative, #ef4444)' }}
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            if (!window.confirm('Retire this strategy from the market? This will stop the publisher and replicator containers.')) return
-                            try {
-                              const res = await apiPost('/api/market/unpublish', { published_strategy_id: p.id })
-                              if (res.status === 'retired') {
-                                setPublished(prev => prev.filter(x => x.id !== p.id))
-                              }
-                            } catch (err) {
-                              alert('Failed to unpublish: ' + (err.message || 'unknown error'))
-                            }
-                          }}
+                  {published.map(p => {
+                    const isExpanded = expandedPublishedId === p.id
+                    return (
+                      <React.Fragment key={p.id}>
+                        <tr
+                          className="cursor-pointer"
+                          style={{ borderBottom: isExpanded ? 'none' : '1px solid var(--glass-border)' }}
+                          onClick={() => setExpandedPublishedId(isExpanded ? null : p.id)}
                         >
-                          Retire from Market
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          <td style={{ padding: '10px 14px' }}>
+                            <span
+                              className={`${isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'} w-3 h-3 mr-1.5 text-[var(--text-4)] inline-block`}
+                            />
+                            <span className="body">{p.description || `Strategy #${p.strategy_id ? p.strategy_id.slice(0, 8) : p.id}`}</span>
+                          </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span className="mono" style={{ fontSize: '0.78rem' }}>
+                              {p.vault_address ? `${p.vault_address.slice(0, 6)}...${p.vault_address.slice(-4)}` : '—'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span className={`tag ${p.status === 'live' ? 'tag-positive' : p.status === 'paused' ? 'tag-accent' : 'tag-muted'}`}>
+                              {p.status || 'unknown'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span className="mono">{p.subscriptor_count ?? 0}</span>
+                          </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            {!isExpanded && (
+                              <span
+                                className="i-lucide-chevron-down w-3 h-3 text-[var(--text-4)] inline-block"
+                                style={{ transform: 'rotate(-90deg)' }}
+                              />
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={5} style={{ padding: 0, borderBottom: '1px solid var(--glass-border)' }}>
+                              <div
+                                style={{
+                                  background: 'rgba(255,255,255,0.02)',
+                                  padding: '16px 18px',
+                                  borderLeft: '3px solid var(--accent, #6366f1)',
+                                  margin: '0 0 0 0',
+                                }}
+                              >
+                                {/* Header row */}
+                                <div className="label mb-2" style={{ fontSize: '0.85rem' }}>
+                                  Published Strategy Management
+                                </div>
+
+                                {/* Info grid */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+                                  <div>
+                                    <div className="caption" style={{ color: 'var(--text-4)' }}>Vault</div>
+                                    <div className="mono" style={{ fontSize: '0.82rem' }}>
+                                      {p.vault_address ? `${p.vault_address.slice(0, 6)}...${p.vault_address.slice(-4)}` : '—'}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="caption" style={{ color: 'var(--text-4)' }}>Status</div>
+                                    <span className={`tag ${p.status === 'live' ? 'tag-positive' : p.status === 'paused' ? 'tag-accent' : 'tag-muted'}`} style={{ marginTop: 2 }}>
+                                      {p.status || 'unknown'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <div className="caption" style={{ color: 'var(--text-4)' }}>Subscribers</div>
+                                    <div className="mono" style={{ fontSize: '0.82rem' }}>{p.subscriptor_count ?? 0}</div>
+                                  </div>
+                                  <div>
+                                    <div className="caption" style={{ color: 'var(--text-4)' }}>Published</div>
+                                    <div className="body" style={{ fontSize: '0.82rem' }}>
+                                      {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Description */}
+                                {p.description && (
+                                  <div className="body mb-3" style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>
+                                    {p.description}
+                                  </div>
+                                )}
+
+                                {/* Retire action */}
+                                {confirmingRetireId === p.id ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
+                                    <span className="caption" style={{ color: 'var(--negative)' }}>
+                                      Retire this strategy from the market? This will stop publisher and replicator containers.
+                                    </span>
+                                    <button
+                                      className="btn btn-sm"
+                                      style={{ background: 'var(--negative, #ef4444)', color: '#fff', border: 'none' }}
+                                      disabled={retiringId === p.id}
+                                      onClick={async (e) => {
+                                        e.stopPropagation()
+                                        setRetiringId(p.id)
+                                        try {
+                                          const res = await apiPost('/api/market/unpublish', { published_strategy_id: p.id })
+                                          if (res.status === 'retired') {
+                                            setPublished(prev => prev.filter(x => x.id !== p.id))
+                                            setExpandedPublishedId(null)
+                                            setConfirmingRetireId(null)
+                                          }
+                                        } catch (err) {
+                                          alert('Failed to unpublish: ' + (err.message || 'unknown error'))
+                                        } finally {
+                                          setRetiringId(null)
+                                        }
+                                      }}
+                                    >
+                                      {retiringId === p.id ? 'Retiring…' : 'Confirm Retire'}
+                                    </button>
+                                    <button
+                                      className="btn btn-outline btn-sm"
+                                      disabled={retiringId === p.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setConfirmingRetireId(null)
+                                      }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <button
+                                      className="btn btn-outline btn-sm"
+                                      style={{ color: 'var(--negative, #ef4444)' }}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setConfirmingRetireId(p.id)
+                                      }}
+                                    >
+                                      Retire from Market
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
