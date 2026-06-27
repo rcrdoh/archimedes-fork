@@ -349,8 +349,12 @@ def runs_test(returns: object) -> dict:
 
 
 def diagnose(returns: object, lags: int = 10, vr_q: int = 2) -> dict:
-    # TODO(issue #621): wire into run_rigor_gate to enforce IID assumption check
     """Run all three IID / random-walk diagnostics and aggregate.
+
+    Wired into ``rigor_evaluator.run_rigor_gate`` (#621) as an **advisory**
+    diagnostic surfaced in ``RigorGateResult.gate_details['iid']`` — it is
+    deliberately NOT a pass/fail criterion, because autocorrelated returns are
+    the edge for trend/momentum strategies and must not fail the gate.
 
     Parameters
     ----------

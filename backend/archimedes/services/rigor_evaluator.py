@@ -45,6 +45,7 @@ from archimedes.services._rigor_helpers import (
     regime_conditional_sharpe,  # noqa: F401 - re-exported for test_rigor_regime
     regime_robustness_score,  # noqa: F401 - re-exported for test_rigor_regime
 )
+from archimedes.services.return_diagnostics import diagnose
 
 logger = logging.getLogger(__name__)
 
@@ -352,6 +353,8 @@ class RigorGateResult:
         cpcv_mean_oos_sharpe: float | None = None,
         cpcv_positive_fraction: float | None = None,
         pbo_source: str = "cohort",
+        iid_assumption_violated: bool | None = None,
+        iid_diagnostics: dict | None = None,
     ) -> None:
         self.strategy_id = strategy_id
         self.deflated_sharpe = deflated_sharpe
@@ -372,6 +375,15 @@ class RigorGateResult:
         # strategy's edge holds OOS across a majority of CPCV paths.
         self.cpcv_mean_oos_sharpe = cpcv_mean_oos_sharpe
         self.cpcv_positive_fraction = cpcv_positive_fraction
+        # IID / random-walk return diagnostics (#621). ADVISORY, not a pass/fail
+        # criterion: autocorrelated returns are the *signal* for trend/momentum
+        # strategies (Faber SMA200, TSMOM), so an IID violation must NOT fail the
+        # gate — it would wrongly reject legitimate strategies. We surface it so
+        # the diagnostic is honest (computed AND reported, not computed-and-dropped)
+        # and the passport can flag "interpret the Sharpe SE with caution here".
+        # iid_diagnostics carries the full Ljung-Box / variance-ratio / runs detail.
+        self.iid_assumption_violated = iid_assumption_violated
+        self.iid_diagnostics = iid_diagnostics
 
     @property
     def passes_all(self) -> bool:
@@ -406,6 +418,8 @@ class RigorGateResult:
             not math.isfinite(self.cpcv_positive_fraction) or self.cpcv_positive_fraction < 0.5
         ):
             return False
+        # NOTE: the IID diagnostic (#621) is deliberately NOT a pass/fail criterion.
+        # It is surfaced via gate_details["iid"] as an advisory only — see __init__.
         return self.look_ahead_passed
 
     @property
@@ -456,6 +470,19 @@ class RigorGateResult:
             details["cpcv"] = "MISSING"
 
         details["look_ahead"] = "PASS" if self.look_ahead_passed else "FAIL"
+
+        # IID / random-walk diagnostic (#621) — ADVISORY, never gates pass/fail.
+        # Surfaced so a reader knows whether the Sharpe SE rests on an IID
+        # assumption that the return series actually violates (common + expected
+        # for trend/momentum strategies, where the autocorrelation IS the edge).
+        if self.iid_assumption_violated is None:
+            details["iid"] = "MISSING"
+        elif self.iid_assumption_violated:
+            details["iid"] = (
+                "ADVISORY: autocorrelation detected (Sharpe SE may understate risk; expected for trend/momentum)"
+            )
+        else:
+            details["iid"] = "ADVISORY: returns consistent with IID / random-walk"
 
         return details
 
@@ -530,6 +557,12 @@ def run_rigor_gate(
     oos_sharpe = compute_oos_sharpe(daily_returns)
     cpcv = compute_cpcv_oos_sharpe(cv_returns_matrix)
 
+    # IID / random-walk diagnostics (#621) — computed AND surfaced (previously
+    # computed-and-dropped). ADVISORY only: it never gates pass/fail because a
+    # trend/momentum strategy's autocorrelation is its edge, so an IID violation
+    # must not reject it. See RigorGateResult.passes_all / gate_details["iid"].
+    iid = diagnose(daily_returns)
+
     # 4. Look-ahead audit
     if strategy_code is not None:
         la_passed, la_warnings = look_ahead_audit(strategy_code)
@@ -566,10 +599,12 @@ def run_rigor_gate(
         cpcv_mean_oos_sharpe=cpcv["mean_oos_sharpe"] if cpcv else None,
         cpcv_positive_fraction=cpcv["positive_fraction"] if cpcv else None,
         pbo_source=pbo_source,
+        iid_assumption_violated=iid.get("iid_assumption_violated"),
+        iid_diagnostics=iid,
     )
 
     logger.info(
-        "Rigor gate [%s]: %s (DSR p=%s, PBO=%s [%s], OOS=%s, CPCV+=%s, LA=%s)",
+        "Rigor gate [%s]: %s (DSR p=%s, PBO=%s [%s], OOS=%s, CPCV+=%s, LA=%s, IID_violated=%s [advisory])",
         strategy_id,
         "PASS" if result.passes_all else "FAIL",
         dsr_p_value,
@@ -578,6 +613,7 @@ def run_rigor_gate(
         oos_sharpe,
         cpcv["positive_fraction"] if cpcv else None,
         la_passed,
+        iid.get("iid_assumption_violated"),
     )
 
     return result

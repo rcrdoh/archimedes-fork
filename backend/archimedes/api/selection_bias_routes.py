@@ -31,12 +31,22 @@ from pydantic import BaseModel
 
 
 class RigorGateDetail(BaseModel):
-    """Per-check pass/fail detail."""
+    """Per-check pass/fail detail.
+
+    Mirrors every key of ``RigorGateResult.gate_details`` so the passport surfaces
+    the gate honestly — including ``cpcv`` (a real pass/fail criterion when a
+    combinatorial OOS matrix exists), the ``dsr_convention`` disclosure (#547), and
+    the advisory ``iid`` diagnostic (#621). Dropping a computed criterion here would
+    show ``passes_all=False`` with no rendered reason.
+    """
 
     dsr: str = "MISSING"
     pbo: str = "MISSING"
     oos_sharpe: str = "MISSING"
     look_ahead: str = "MISSING"
+    cpcv: str = "MISSING"
+    dsr_convention: str = "MISSING"
+    iid: str = "MISSING"
 
 
 class LibraryPbo(BaseModel):
@@ -241,6 +251,9 @@ async def evaluate_rigor_gate():
                     pbo=details.get("pbo", "MISSING"),
                     oos_sharpe=details.get("oos_sharpe", "MISSING"),
                     look_ahead=details.get("look_ahead", "MISSING"),
+                    cpcv=details.get("cpcv", "MISSING"),
+                    dsr_convention=details.get("dsr_convention", "MISSING"),
+                    iid=details.get("iid", "MISSING"),
                 ),
                 deflated_sharpe=gate_result.deflated_sharpe,
                 dsr_p_value=gate_result.dsr_p_value,
