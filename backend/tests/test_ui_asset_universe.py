@@ -12,15 +12,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from archimedes.scripts.gen_ui_asset_universe import _tickers_in, expected_tickers
+from archimedes.scripts.gen_ui_asset_universe import _OUTPUT_PATH, _tickers_in, expected_tickers
 from archimedes.services.strategy_signal_evaluator import GLOBAL_ASSETS
 from archimedes.universe import COMPLIANCE_FLAGGED_SINGLE_STOCKS
 
 
 def _picker_path() -> Path:
-    import archimedes  # backend/archimedes/__init__.py → parents: archimedes, backend, <repo>
-
-    return Path(archimedes.__file__).resolve().parents[2] / "ui" / "src" / "data" / "assetUniverse.js"
+    # Single-source the path from the generator's canonical _OUTPUT_PATH so the test target
+    # stays in lockstep with what the generator writes (no duplicate repo-root math) (#758 review).
+    return _OUTPUT_PATH
 
 
 def test_picker_matches_deploy_eligible_ssot() -> None:
@@ -29,7 +29,7 @@ def test_picker_matches_deploy_eligible_ssot() -> None:
     assert got == want, (
         "asset picker drifted from the deploy-eligible SSOT — "
         f"only-in-picker={sorted(got - want)} only-in-ssot={sorted(want - got)}. "
-        "Regenerate: python -m archimedes.scripts.gen_ui_asset_universe"
+        "Regenerate from repo root: PYTHONPATH=backend python -m archimedes.scripts.gen_ui_asset_universe"
     )
 
 
