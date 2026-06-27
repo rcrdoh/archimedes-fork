@@ -225,7 +225,7 @@ export default function App() {
           description="Library shows strategies you've generated, plus a clearly-separated set of paper-grounded example strategies. Connect a wallet — sign in with a passkey, no extension needed — to see your generations and deploy them as vaults."
           onConnect={openConnectModal}
         >
-          <Strategies highlightStrategyId={highlightStrategyId} defaultTab={defaultTab} onNavigate={navigateToPage} />
+          <Strategies highlightStrategyId={highlightStrategyId} defaultTab={defaultTab} onNavigate={navigateToPage} walletAddr={walletAddr} />
         </WalletGate>
       )
       case 'strategy':     return <StrategyPassport strategyId={selectedStrategy} onNavigate={navigateToPage} walletAddr={walletAddr} />

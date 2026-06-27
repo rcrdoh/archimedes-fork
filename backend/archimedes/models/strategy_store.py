@@ -48,6 +48,9 @@ class StrategyRecord(Base):
     asset_universe = Column(Text, nullable=False, default="[]")  # JSON list
     risk_profile = Column(String(32), nullable=False, default="moderate")
 
+    # Creator identity (wallet address that generated this strategy)
+    creator_address = Column(String(64), nullable=True, index=True)
+
     # Status lifecycle
     status = Column(String(16), nullable=False, default="candidate")  # candidate|live|retired|rejected
     rigor_verdict = Column(Text, nullable=True)  # JSON: DSR/PBO/walk-forward results
@@ -89,6 +92,7 @@ class StrategyRecord(Base):
             "thesis": self.thesis,
             "asset_universe": json.loads(self.asset_universe),
             "risk_profile": self.risk_profile,
+            "creator_address": self.creator_address,
             "status": self.status,
             "rigor_verdict": json.loads(self.rigor_verdict) if self.rigor_verdict else None,
             "is_example": self.is_example,
@@ -137,6 +141,7 @@ def upsert_strategy(
     parent_id: str | None = None,
     provenance_hash: str | None = None,
     is_example: bool = False,
+    creator_address: str | None = None,
 ) -> StrategyRecord:
     """Idempotent upsert: same content → same row, no duplicates."""
     content_hash = _compute_content_hash(
@@ -179,6 +184,7 @@ def upsert_strategy(
         parent_id=parent_id,
         provenance_hash=provenance_hash,
         is_example=is_example,
+        creator_address=creator_address,
     )
     if rigor_verdict:
         # Same transition rule as the upsert-existing branch above

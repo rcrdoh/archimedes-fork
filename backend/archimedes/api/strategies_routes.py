@@ -145,8 +145,16 @@ async def list_strategies(
 
 
 @strategies_router.get("/generated")
-async def list_generated_strategies(limit: int = Query(50, ge=1, le=200)):
-    """List fusion/architect-generated strategies from the strategy_store table."""
+async def list_generated_strategies(
+    limit: int = Query(50, ge=1, le=200),
+    creator_address: str | None = Query(None, description="Filter by creator wallet address"),
+):
+    """List fusion/architect-generated strategies from the strategy_store table.
+
+    If `creator_address` is provided, only strategies created by that wallet
+    are returned (plus any legacy strategies with no creator_address set, for
+    backward compatibility). Omitting the filter returns all generated strategies.
+    """
 
     from archimedes.db import get_session
     from archimedes.models.strategy_store import StrategyRecord
@@ -154,13 +162,17 @@ async def list_generated_strategies(limit: int = Query(50, ge=1, le=200)):
     rows: list[dict] = []
     try:
         with get_session() as session:  # type: _Session
-            records = (
-                session.query(StrategyRecord)
-                .filter(StrategyRecord.is_example.is_(False))
-                .order_by(StrategyRecord.created_at.desc())
-                .limit(limit)
-                .all()
-            )
+            query = session.query(StrategyRecord).filter(StrategyRecord.is_example.is_(False))
+
+            if creator_address:
+                # Personal isolation: show strategies belonging to this wallet
+                # plus legacy strategies with no creator set (backward compat)
+                query = query.filter(
+                    (StrategyRecord.creator_address == creator_address.lower())
+                    | (StrategyRecord.creator_address.is_(None))
+                )
+
+            records = query.order_by(StrategyRecord.created_at.desc()).limit(limit).all()
             rows = [r.to_dict() for r in records]
     except Exception as exc:
         import logging as _logging
@@ -1299,6 +1311,7 @@ async def generate_strategy(
                 "strategic_direction": strategic_direction,
                 "max_papers": max_papers,
                 "market_context": market_context,
+                "creator_address": _wallet.lower() if _wallet else None,
             },
         )
     finally:
@@ -1424,6 +1437,7 @@ async def _run_fusion_job(job_id: str) -> None:
             }
 
         strategy_id = None
+        creator_addr = payload.get("creator_address")
         try:
             with get_session() as session:
                 source_papers = [{"arxiv_id": aid, "sha256": ""} for aid in result.source_arxiv_ids]
@@ -1437,6 +1451,7 @@ async def _run_fusion_job(job_id: str) -> None:
                     risk_profile=rp.value,
                     provenance_hash=result.model,
                     rigor_verdict=rigor_verdict_dict,
+                    creator_address=creator_addr,
                 )
                 session.commit()
                 strategy_id = record.id

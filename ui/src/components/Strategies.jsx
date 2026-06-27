@@ -634,9 +634,10 @@ function coerceGenerated(row) {
   }
 }
 
-export default function Strategies({ highlightStrategyId, defaultTab, onNavigate }) {
+export default function Strategies({ highlightStrategyId, defaultTab, onNavigate, walletAddr }) {
   const [examples, setExamples] = useState([])
   const [generated, setGenerated] = useState([])
+  const [published, setPublished] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   // 'generated' is the first-class tab per product feedback — pushes user
@@ -666,9 +667,10 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
     setLoading(true)
     setLoadError('')
     try {
-      const [seedRes, genRes] = await Promise.allSettled([
+      const [seedRes, genRes, pubRes] = await Promise.allSettled([
         apiGet('/api/strategies/'),
-        apiGet('/api/strategies/generated'),
+        apiGet('/api/strategies/generated' + (walletAddr ? `?creator_address=${encodeURIComponent(walletAddr)}` : '')),
+        walletAddr ? apiGet('/api/market/strategies/mine') : Promise.resolve({ strategies: [] }),
       ])
       if (seedRes.status === 'fulfilled') {
         const sorted = [...(seedRes.value.strategies || [])].sort(
@@ -681,11 +683,14 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
       if (genRes.status === 'fulfilled') {
         setGenerated((genRes.value.strategies || []).map(coerceGenerated))
       }
-      // Generated tab failing is non-fatal — empty state is the honest fallback.
+      if (pubRes.status === 'fulfilled') {
+        setPublished(pubRes.value.strategies || [])
+      }
+      // Generated / Published tab failing is non-fatal — empty state is the honest fallback.
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [walletAddr])
 
   useEffect(() => { load() }, [load])
 
@@ -711,6 +716,12 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
           onClick={() => setActiveTab('examples')}
         >
           Examples ({examples.length})
+        </span>
+        <span
+          className={`tag ${activeTab === 'published' ? 'tag-accent' : 'tag-muted'}`}
+          onClick={() => setActiveTab('published')}
+        >
+          Published ({published.length})
         </span>
       </div>
 
@@ -823,6 +834,79 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
               onOpenPassport={openPassport}
               emptyState={<p className="caption">No example strategies loaded.</p>}
             />
+          )}
+        </>
+      )}
+
+      {activeTab === 'published' && (
+        <>
+          {loading && <div className="caption mb-4">Loading…</div>}
+          {!loading && published.length === 0 && (
+            <div className="card" style={{ padding: 22 }}>
+              <div className="label mb-2">No published strategies yet</div>
+              <p className="body" style={{ marginBottom: 10 }}>
+                You haven't published any strategies yet. Open a strategy from{' '}
+                <strong>Library</strong> or <strong>Generated</strong> and click
+                "Publish to Market" to list it on the copy-trading market.
+              </p>
+            </div>
+          )}
+          {!loading && published.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-[var(--glass-border)]">
+              <table className="lib-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(255,255,255,0.03)', textAlign: 'left', borderBottom: '1px solid var(--glass-border)' }}>
+                    <th style={{ padding: '10px 14px' }}>Strategy</th>
+                    <th style={{ padding: '10px 14px' }}>Vault</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                    <th style={{ padding: '10px 14px' }}>Subscribers</th>
+                    <th style={{ padding: '10px 14px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {published.map(p => (
+                    <tr key={p.id} style={{ borderBottom: '1px solid var(--glass-border)' }}>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span className="body">{p.description || `Strategy #${p.strategy_id.slice(0, 8)}`}</span>
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span className="mono" style={{ fontSize: '0.78rem' }}>
+                          {p.vault_address ? `${p.vault_address.slice(0, 6)}...${p.vault_address.slice(-4)}` : '—'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span className={`tag ${p.status === 'live' ? 'tag-positive' : p.status === 'paused' ? 'tag-muted' : 'tag-muted'}`}>
+                          {p.status || 'unknown'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span className="mono">{p.subscriptor_count ?? 0}</span>
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          style={{ color: 'var(--negative, #ef4444)' }}
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (!window.confirm('Retire this strategy from the market? This will stop the publisher and replicator containers.')) return
+                            try {
+                              const res = await apiPost('/api/market/unpublish', { published_strategy_id: p.id })
+                              if (res.status === 'retired') {
+                                setPublished(prev => prev.filter(x => x.id !== p.id))
+                              }
+                            } catch (err) {
+                              alert('Failed to unpublish: ' + (err.message || 'unknown error'))
+                            }
+                          }}
+                        >
+                          Retire from Market
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

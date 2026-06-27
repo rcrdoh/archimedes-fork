@@ -140,6 +140,7 @@ services:
     env_file:
       - .env
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./analytics-engine/strategies:/app/analytics-engine/strategies:ro
       - ./analytics-engine/artifacts:/app/analytics-engine/artifacts:ro
       - ./contracts/abis:/contracts/abis:ro
