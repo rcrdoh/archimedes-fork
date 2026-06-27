@@ -17,6 +17,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -116,23 +117,27 @@ def render_doc() -> str:
     out.append("")
     out.append(
         "**Parity invariant:** every on-chain synth is also backtestable "
-        "(`on-chain ⊆ GLOBAL_ASSETS`), and every backtestable-but-not-on-chain symbol is an "
-        "explained compliance-flagged single stock. Enforced by "
-        "`backend/tests/test_universe_parity.py`."
+        "(`on-chain ⊆ GLOBAL_ASSETS`); every backtestable-but-not-on-chain symbol is an "
+        "explained compliance-flagged single stock; and **no on-chain synth is compliance-held** "
+        "(`on-chain ∩ compliance-held = ∅`). Enforced by `backend/tests/test_universe_parity.py`."
     )
     out.append("")
     out.append("## On-chain deploy-eligible universe")
     out.append("")
     out.append(f"All {n_total} synths below are **on-chain-eligible** (priced on the live path).")
     out.append("")
-    out.append("| Symbol | Name | Asset class | Decimals | Price (USD) | Chainlink | On-chain |")
+    # Columns follow the #757 required schema, machine-greppable: BARE symbol (so the
+    # `^\|\s*s[A-Z]` acceptance regex counts exactly these rows — the compliance list below
+    # is inline-backticked, not table rows), raw `asset_class`, `chainlink_covered` rendered
+    # as true/false (so the documented `grep -c 'true *|'` equals the covered count), and an
+    # explicit `on-chain-eligible` marker.
+    out.append("| symbol | name | asset_class | price_usd | decimals | chainlink_covered | on-chain-eligible |")
     out.append("|---|---|---|---:|---:|:---:|:---:|")
     for spec in specs:
-        label = _CLASS_LABELS.get(spec.asset_class, spec.asset_class)
-        chainlink = "Yes" if spec.chainlink_covered else "No"
+        chainlink = "true" if spec.chainlink_covered else "false"
         out.append(
-            f"| `{spec.symbol}` | {spec.name} | {label} | {spec.decimals} | "
-            f"{_fmt_price(spec.price_usd)} | {chainlink} | Yes |"
+            f"| {spec.symbol} | {spec.name} | {spec.asset_class} | "
+            f"{_fmt_price(spec.price_usd)} | {spec.decimals} | {chainlink} | live ✅ |"
         )
     out.append("")
     out.append("## Held back — single-name equities (backtest-only)")
@@ -157,12 +162,15 @@ def render_doc() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    # Output path is overridable via env so the drift test can exercise the real --check CLI
+    # (exit code + diff) against a temp file, without mutating the committed doc.
+    out_path = Path(os.environ.get("ASSET_UNIVERSE_DOC_PATH", str(_OUTPUT_PATH)))
     content = render_doc()
     if "--check" in argv:
-        if not _OUTPUT_PATH.exists():
-            print(f"MISSING: {_OUTPUT_PATH} does not exist — run the generator.", file=sys.stderr)
+        if not out_path.exists():
+            print(f"MISSING: {out_path} does not exist — run the generator.", file=sys.stderr)
             return 1
-        committed = _OUTPUT_PATH.read_text(encoding="utf-8")
+        committed = out_path.read_text(encoding="utf-8")
         if committed != content:
             import difflib
 
@@ -170,21 +178,21 @@ def main(argv: list[str] | None = None) -> int:
                 difflib.unified_diff(
                     committed.splitlines(keepends=True),
                     content.splitlines(keepends=True),
-                    fromfile="committed docs/asset-universe.md",
+                    fromfile=f"committed {out_path}",
                     tofile="freshly generated from SSOT",
                 )
             )
             print(
-                f"\nSTALE: {_OUTPUT_PATH} is out of sync with the SSOT (diff above) — regenerate with "
+                f"\nSTALE: {out_path} is out of sync with the SSOT (diff above) — regenerate with "
                 "`PYTHONPATH=backend python -m archimedes.scripts.gen_asset_universe_doc`.",
                 file=sys.stderr,
             )
             return 1
-        print(f"OK: {_OUTPUT_PATH} is in sync with the SSOT.")
+        print(f"OK: {out_path} is in sync with the SSOT.")
         return 0
-    _OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _OUTPUT_PATH.write_text(content, encoding="utf-8")
-    print(f"wrote {_OUTPUT_PATH} ({len(content.splitlines())} lines)")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(content, encoding="utf-8")
+    print(f"wrote {out_path} ({len(content.splitlines())} lines)")
     return 0
 
 

@@ -9,73 +9,73 @@ What Archimedes prices and trades on-chain. This page is **generated from the si
 - **Chainlink-covered:** 32 covered · 27 not covered (of 59)
 - **Single-name equity synths held back (backtest-only, compliance):** 59
 
-**Parity invariant:** every on-chain synth is also backtestable (`on-chain ⊆ GLOBAL_ASSETS`), and every backtestable-but-not-on-chain symbol is an explained compliance-flagged single stock. Enforced by `backend/tests/test_universe_parity.py`.
+**Parity invariant:** every on-chain synth is also backtestable (`on-chain ⊆ GLOBAL_ASSETS`); every backtestable-but-not-on-chain symbol is an explained compliance-flagged single stock; and **no on-chain synth is compliance-held** (`on-chain ∩ compliance-held = ∅`). Enforced by `backend/tests/test_universe_parity.py`.
 
 ## On-chain deploy-eligible universe
 
 All 59 synths below are **on-chain-eligible** (priced on the live path).
 
-| Symbol | Name | Asset class | Decimals | Price (USD) | Chainlink | On-chain |
+| symbol | name | asset_class | price_usd | decimals | chainlink_covered | on-chain-eligible |
 |---|---|---|---:|---:|:---:|:---:|
-| `sCORN` | Synthetic Corn | Agricultural futures | 6 | $4.45 | No | Yes |
-| `sSOY` | Synthetic Soybeans | Agricultural futures | 6 | $10.40 | No | Yes |
-| `sWHEAT` | Synthetic Wheat | Agricultural futures | 6 | $5.70 | No | Yes |
-| `sEWJ` | Synthetic EWJ | Asia equity ETFs | 6 | $73.20 | No | Yes |
-| `sEWY` | Synthetic EWY (Korea) | Asia equity ETFs | 6 | $58.30 | No | Yes |
-| `sINDA` | Synthetic INDA | Asia equity ETFs | 6 | $55.80 | No | Yes |
-| `sMCHI` | Synthetic MCHI | Asia equity ETFs | 6 | $51.40 | No | Yes |
-| `sNKY` | Synthetic NKY | Asia indices | 6 | $38,500.00 | Yes | Yes |
-| `sHYG` | Synthetic HYG (HY credit) | Credit — high yield | 6 | $79.40 | No | Yes |
-| `sLQD` | Synthetic LQD (IG credit) | Credit — investment grade | 6 | $110.30 | No | Yes |
-| `sBTC` | Synthetic BTC | Crypto | 6 | $104,500.00 | Yes | Yes |
-| `sETH` | Synthetic ETH | Crypto | 6 | $3,850.00 | Yes | Yes |
-| `sSOL` | Synthetic SOL | Crypto | 6 | $215.00 | Yes | Yes |
-| `sEMB` | Synthetic EMB (EM bond) | EM bonds | 6 | $91.80 | No | Yes |
-| `sEEM` | Synthetic EEM | EM equity ETFs | 6 | $44.10 | Yes | Yes |
-| `sEWG` | Synthetic EWG (Germany) | EU equity ETFs | 6 | $35.40 | No | Yes |
-| `sEWQ` | Synthetic EWQ (France) | EU equity ETFs | 6 | $43.90 | No | Yes |
-| `sEWU` | Synthetic EWU (UK) | EU equity ETFs | 6 | $38.20 | No | Yes |
-| `sEZU` | Synthetic EZU | EU equity ETFs | 6 | $53.70 | No | Yes |
-| `sCAC` | Synthetic CAC 40 | EU indices | 6 | $7,600.00 | Yes | Yes |
-| `sDAX` | Synthetic DAX 40 | EU indices | 6 | $18,400.00 | Yes | Yes |
-| `sFTSE` | Synthetic FTSE 100 | EU indices | 6 | $8,200.00 | Yes | Yes |
-| `sUNG` | Synthetic UNG | Energy ETFs | 6 | $14.20 | No | Yes |
-| `sUSO` | Synthetic USO | Energy ETFs | 6 | $78.50 | No | Yes |
-| `sBRENT` | Synthetic Brent | Energy futures | 6 | $66.40 | No | Yes |
-| `sNG` | Synthetic Natural Gas | Energy futures | 6 | $3.10 | No | Yes |
-| `sOIL` | Synthetic OIL | Energy futures | 6 | $62.80 | Yes | Yes |
-| `sEURUSD` | Synthetic EUR/USD | FX | 6 | $1.085 | Yes | Yes |
-| `sGBPUSD` | Synthetic GBP/USD | FX | 6 | $1.27 | Yes | Yes |
-| `sUSDJPY` | Synthetic USD/JPY | FX | 6 | $157.20 | Yes | Yes |
-| `sUSDTRY` | Synthetic USD/TRY | FX | 6 | $39.10 | Yes | Yes |
-| `sGLD` | Synthetic GLD | Metal ETFs | 6 | $300.50 | Yes | Yes |
-| `sPALL` | Synthetic Palladium | Metal ETFs | 6 | $92.10 | Yes | Yes |
-| `sPPLT` | Synthetic Platinum | Metal ETFs | 6 | $96.30 | Yes | Yes |
-| `sSLV` | Synthetic SLV | Metal ETFs | 6 | $30.20 | Yes | Yes |
-| `sGOLD` | Synthetic GOLD | Metal futures | 6 | $3,250.00 | Yes | Yes |
-| `sHG` | Synthetic Copper | Metal futures | 6 | $4.30 | No | Yes |
-| `sSI` | Synthetic Silver | Metal futures | 6 | $32.40 | Yes | Yes |
-| `sGDX` | Synthetic GDX | Metal-miner ETFs | 6 | $40.80 | No | Yes |
-| `sGDXJ` | Synthetic GDXJ | Metal-miner ETFs | 6 | $51.60 | No | Yes |
-| `sTUR` | Synthetic TUR (Turkey) | Turkish equity ETFs | 6 | $28.70 | No | Yes |
-| `sBIST` | Synthetic BIST 100 | Turkish indices | 6 | $10,300.00 | No | Yes |
-| `sBIL` | Synthetic BIL (T-Bills) | US bonds — T-bills | 6 | $91.60 | No | Yes |
-| `sTIP` | Synthetic TIP (TIPS) | US bonds — TIPS | 6 | $108.70 | No | Yes |
-| `sAGG` | Synthetic AGG (Aggregate) | US bonds — aggregate | 6 | $98.20 | Yes | Yes |
-| `sIEF` | Synthetic IEF (7-10yr) | US bonds — intermediate | 6 | $95.10 | Yes | Yes |
-| `sTLT` | Synthetic TLT (20+yr) | US bonds — long | 6 | $92.30 | Yes | Yes |
-| `sSHY` | Synthetic SHY (1-3yr) | US bonds — short | 6 | $82.40 | No | Yes |
-| `sDIA` | Synthetic DIA | US equity ETFs | 6 | $437.10 | Yes | Yes |
-| `sIWM` | Synthetic IWM | US equity ETFs | 6 | $228.70 | Yes | Yes |
-| `sQQQ` | Synthetic QQQ | US equity ETFs | 6 | $512.30 | Yes | Yes |
-| `sSPY` | Synthetic SPY | US equity ETFs | 6 | $592.40 | Yes | Yes |
-| `sMUB` | Synthetic MUB (US muni) | US municipal bonds | 6 | $106.50 | No | Yes |
-| `sXLE` | Synthetic XLE | US sector ETFs | 6 | $91.80 | Yes | Yes |
-| `sXLF` | Synthetic XLF | US sector ETFs | 6 | $49.60 | Yes | Yes |
-| `sXLI` | Synthetic XLI | US sector ETFs | 6 | $138.90 | Yes | Yes |
-| `sXLK` | Synthetic XLK | US sector ETFs | 6 | $235.40 | Yes | Yes |
-| `sXLU` | Synthetic XLU | US sector ETFs | 6 | $78.40 | Yes | Yes |
-| `sXLV` | Synthetic XLV | US sector ETFs | 6 | $146.20 | Yes | Yes |
+| sCORN | Synthetic Corn | agri_fut | $4.45 | 6 | false | live ✅ |
+| sSOY | Synthetic Soybeans | agri_fut | $10.40 | 6 | false | live ✅ |
+| sWHEAT | Synthetic Wheat | agri_fut | $5.70 | 6 | false | live ✅ |
+| sEWJ | Synthetic EWJ | asia_equity_etf | $73.20 | 6 | false | live ✅ |
+| sEWY | Synthetic EWY (Korea) | asia_equity_etf | $58.30 | 6 | false | live ✅ |
+| sINDA | Synthetic INDA | asia_equity_etf | $55.80 | 6 | false | live ✅ |
+| sMCHI | Synthetic MCHI | asia_equity_etf | $51.40 | 6 | false | live ✅ |
+| sNKY | Synthetic NKY | asia_index | $38,500.00 | 6 | true | live ✅ |
+| sHYG | Synthetic HYG (HY credit) | credit_hy | $79.40 | 6 | false | live ✅ |
+| sLQD | Synthetic LQD (IG credit) | credit_ig | $110.30 | 6 | false | live ✅ |
+| sBTC | Synthetic BTC | crypto | $104,500.00 | 6 | true | live ✅ |
+| sETH | Synthetic ETH | crypto | $3,850.00 | 6 | true | live ✅ |
+| sSOL | Synthetic SOL | crypto | $215.00 | 6 | true | live ✅ |
+| sEMB | Synthetic EMB (EM bond) | em_bond | $91.80 | 6 | false | live ✅ |
+| sEEM | Synthetic EEM | em_equity_etf | $44.10 | 6 | true | live ✅ |
+| sEWG | Synthetic EWG (Germany) | eu_equity_etf | $35.40 | 6 | false | live ✅ |
+| sEWQ | Synthetic EWQ (France) | eu_equity_etf | $43.90 | 6 | false | live ✅ |
+| sEWU | Synthetic EWU (UK) | eu_equity_etf | $38.20 | 6 | false | live ✅ |
+| sEZU | Synthetic EZU | eu_equity_etf | $53.70 | 6 | false | live ✅ |
+| sCAC | Synthetic CAC 40 | eu_index | $7,600.00 | 6 | true | live ✅ |
+| sDAX | Synthetic DAX 40 | eu_index | $18,400.00 | 6 | true | live ✅ |
+| sFTSE | Synthetic FTSE 100 | eu_index | $8,200.00 | 6 | true | live ✅ |
+| sUNG | Synthetic UNG | energy_etf | $14.20 | 6 | false | live ✅ |
+| sUSO | Synthetic USO | energy_etf | $78.50 | 6 | false | live ✅ |
+| sBRENT | Synthetic Brent | energy_fut | $66.40 | 6 | false | live ✅ |
+| sNG | Synthetic Natural Gas | energy_fut | $3.10 | 6 | false | live ✅ |
+| sOIL | Synthetic OIL | energy_fut | $62.80 | 6 | true | live ✅ |
+| sEURUSD | Synthetic EUR/USD | fx | $1.085 | 6 | true | live ✅ |
+| sGBPUSD | Synthetic GBP/USD | fx | $1.27 | 6 | true | live ✅ |
+| sUSDJPY | Synthetic USD/JPY | fx | $157.20 | 6 | true | live ✅ |
+| sUSDTRY | Synthetic USD/TRY | fx | $39.10 | 6 | true | live ✅ |
+| sGLD | Synthetic GLD | metal_etf | $300.50 | 6 | true | live ✅ |
+| sPALL | Synthetic Palladium | metal_etf | $92.10 | 6 | true | live ✅ |
+| sPPLT | Synthetic Platinum | metal_etf | $96.30 | 6 | true | live ✅ |
+| sSLV | Synthetic SLV | metal_etf | $30.20 | 6 | true | live ✅ |
+| sGOLD | Synthetic GOLD | metal_fut | $3,250.00 | 6 | true | live ✅ |
+| sHG | Synthetic Copper | metal_fut | $4.30 | 6 | false | live ✅ |
+| sSI | Synthetic Silver | metal_fut | $32.40 | 6 | true | live ✅ |
+| sGDX | Synthetic GDX | metal_eq_etf | $40.80 | 6 | false | live ✅ |
+| sGDXJ | Synthetic GDXJ | metal_eq_etf | $51.60 | 6 | false | live ✅ |
+| sTUR | Synthetic TUR (Turkey) | tr_equity_etf | $28.70 | 6 | false | live ✅ |
+| sBIST | Synthetic BIST 100 | tr_index | $10,300.00 | 6 | false | live ✅ |
+| sBIL | Synthetic BIL (T-Bills) | us_bond_tbill | $91.60 | 6 | false | live ✅ |
+| sTIP | Synthetic TIP (TIPS) | us_bond_tips | $108.70 | 6 | false | live ✅ |
+| sAGG | Synthetic AGG (Aggregate) | us_bond_agg | $98.20 | 6 | true | live ✅ |
+| sIEF | Synthetic IEF (7-10yr) | us_bond_mid | $95.10 | 6 | true | live ✅ |
+| sTLT | Synthetic TLT (20+yr) | us_bond_long | $92.30 | 6 | true | live ✅ |
+| sSHY | Synthetic SHY (1-3yr) | us_bond_short | $82.40 | 6 | false | live ✅ |
+| sDIA | Synthetic DIA | us_equity_etf | $437.10 | 6 | true | live ✅ |
+| sIWM | Synthetic IWM | us_equity_etf | $228.70 | 6 | true | live ✅ |
+| sQQQ | Synthetic QQQ | us_equity_etf | $512.30 | 6 | true | live ✅ |
+| sSPY | Synthetic SPY | us_equity_etf | $592.40 | 6 | true | live ✅ |
+| sMUB | Synthetic MUB (US muni) | us_muni | $106.50 | 6 | false | live ✅ |
+| sXLE | Synthetic XLE | us_sector_etf | $91.80 | 6 | true | live ✅ |
+| sXLF | Synthetic XLF | us_sector_etf | $49.60 | 6 | true | live ✅ |
+| sXLI | Synthetic XLI | us_sector_etf | $138.90 | 6 | true | live ✅ |
+| sXLK | Synthetic XLK | us_sector_etf | $235.40 | 6 | true | live ✅ |
+| sXLU | Synthetic XLU | us_sector_etf | $78.40 | 6 | true | live ✅ |
+| sXLV | Synthetic XLV | us_sector_etf | $146.20 | 6 | true | live ✅ |
 
 ## Held back — single-name equities (backtest-only)
 
