@@ -634,6 +634,136 @@ async def test_fusion_dispatch_end_to_end_persists_fusion_strategy(tmp_path, mon
     )
 
 
+class _MockTextOnlyFusionBackend:
+    """Deterministic LLM stand-in returning a parseable fusion WITHOUT a
+    machine-readable strategy_spec — the *text-only* path (``has_real_rigor``
+    stays False).
+
+    This is the path that produced the live #784 conversion bug: such a candidate
+    carries ``weights={}`` AND ``has_real_rigor=False``, so before the fix it
+    slipped past the ``if not c.has_real_rigor`` skip-guard into the static-weights
+    backtester and emitted a misleading ``backtest_failed("no weights emitted by
+    agent")`` — making every Generate result look broken.
+    """
+
+    model_id = "mock-textonly-fusion"
+    served_model = "mock-textonly-fusion-served"
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    def complete(self, system: str, user: str) -> str:
+        import json as _json
+        import re as _re
+
+        ids = _re.findall(r'"arxiv_id"\s*:\s*"([^"]+)"', user)[:3]
+        # NOTE: no "strategy_spec" key → proposal.strategy_spec is None → text-only.
+        return _json.dumps(
+            {
+                "strategy_name": "Mock Text-Only Fusion",
+                "thesis": "Fuses two papers as prose; no machine-readable DSL spec emitted.",
+                "source_arxiv_ids": ids,
+                "fusion_reasoning": "Paper A contributes trend timing; paper B vol scaling.",
+                "novelty_rationale": "Combination not published together.",
+                "risk_notes": "Pre-backtest hypothesis; rigor gate applies.",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_fusion_text_only_does_not_emit_spurious_backtest_failed(tmp_path, monkeypatch):
+    """Regression guard for the live #784 conversion bug.
+
+    A text-only fusion candidate (no DSL spec → has_real_rigor=False) must NOT
+    emit the misleading ``backtest_failed("no weights emitted by agent")``. Fusion
+    candidates carry ``weights={}`` by design and must never be routed into the
+    static-weights backtester — the skip is keyed on ``generation_method``, not
+    ``has_real_rigor`` (which is False for the text-only path).
+
+    Hermetic: tmp SQLite DB, fixture corpus, mocked LLM backend — no network.
+    Crucially does NOT set GENERATION_PIPELINE_SKIP_BACKTEST: the bug only
+    manifests when ``_backtest_and_persist`` is actually reached (SKIP_BACKTEST
+    returns earlier, masking it).
+    """
+    import archimedes.db as _db
+    from archimedes.agents import generation_pipeline as gp
+    from archimedes.agents import strategy_fusion as sf
+    from archimedes.models.strategy_store import StrategyRecord
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    test_engine = create_engine(
+        f"sqlite:///{tmp_path / 'fusion_textonly.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    monkeypatch.setattr(_db, "engine", test_engine)
+    monkeypatch.setattr(_db, "SessionLocal", sessionmaker(bind=test_engine, autocommit=False, autoflush=False))
+    from archimedes.models import kg, strategy_passport_record  # noqa: F401
+
+    _db.Base.metadata.create_all(bind=test_engine)
+
+    monkeypatch.setenv("ARCHIMEDES_FUSION_ENABLED", "1")
+    monkeypatch.delenv("GENERATION_PIPELINE_FIXTURE", raising=False)
+    # Intentionally NOT setting GENERATION_PIPELINE_SKIP_BACKTEST — see docstring.
+    monkeypatch.setattr(gp, "_llm_available", lambda: True)
+
+    async def _permissive_validate(brief):
+        return {
+            "is_valid": True,
+            "intent_summary": brief.intent[:140],
+            "asset_classes_inferred": brief.asset_classes or [],
+            "time_horizon_inferred": "unknown",
+            "risk_appetite_adjusted": brief.risk_appetite,
+        }
+
+    monkeypatch.setattr(gp, "_validate_brief", _permissive_validate)
+
+    corpus = _fixture_corpus(24)
+    monkeypatch.setattr(sf, "load_corpus", lambda *a, **k: corpus)
+    monkeypatch.setattr(
+        sf,
+        "default_fusion",
+        lambda: sf.StrategyFusion(backend=_MockTextOnlyFusionBackend(), corpus=corpus),
+    )
+
+    store = _FakeStore()
+    brief = GenerateBrief(
+        intent="equity momentum with a volatility overlay",
+        risk_appetite="moderate",
+        asset_classes=["equities"],
+    )
+
+    await run_generation(job_id="job_fusion_textonly", brief=brief, store=store, dual_regime=False, n_candidates=1)
+
+    # Fusion was dispatched (the candidate IS a fusion candidate).
+    ps = [e for e in store.events if e["event"] == "pipeline_selected"]
+    assert ps and ps[0]["data"]["pipeline"] == "fusion", f"fusion not dispatched: {ps}"
+
+    # The run still produced + persisted a candidate and finished cleanly.
+    names = [e["event"] for e in store.events]
+    for required in ("candidate_drafted", "persisted", "done"):
+        assert required in names, f"text-only fusion run did not emit {required!r} (events={names})"
+
+    # THE FIX: no spurious "no weights" backtest_failed for the fusion candidate.
+    backtest_failed = [e for e in store.events if e["event"] == "backtest_failed"]
+    spurious = [e for e in backtest_failed if "no weights" in (e["data"].get("error", "") or "")]
+    assert not spurious, f"fusion candidate was wrongly routed into the static backtester: {spurious}"
+
+    # Persisted as a fusion strategy (generation_method preserved).
+    with _db.get_session() as session:
+        record = (
+            session.query(StrategyRecord)
+            .filter(
+                StrategyRecord.generation_method == "fusion",
+                StrategyRecord.strategy_name == "Mock Text-Only Fusion",
+            )
+            .first()
+        )
+    assert record is not None, "no text-only fusion StrategyRecord was persisted"
+    assert record.generation_method == "fusion"
+
+
 @pytest.mark.asyncio
 async def test_fusion_falls_back_to_agent_when_no_llm(monkeypatch):
     """Fusion selected but no LLM → relabel to agent + run the fixture path.

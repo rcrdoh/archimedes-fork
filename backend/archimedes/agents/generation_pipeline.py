@@ -1239,16 +1239,23 @@ async def run_generation(
         # regime variants in parallel (yfinance + numpy is I/O-bound), then
         # upsert the BacktestResult row + updated passport metrics so the
         # next /api/strategies/ read surfaces empirical Sharpe/DSR/PBO/OOS.
-        # Fusion candidates already carry a real DSL backtest + rigor verdict
-        # (has_real_rigor); they emit no static weight vector, so the buy-and-hold
-        # portfolio_backtester doesn't apply. Skip them here — re-running a
-        # weight-less backtest would only emit backtest_failed and can't improve
-        # on the fusion evaluator's metrics.
+        # Fusion candidates NEVER carry a static weight vector — they emit a DSL
+        # strategy_spec (weights={}), evaluated by the fusion evaluator, not the
+        # buy-and-hold portfolio_backtester. So skip ALL fusion candidates here,
+        # keyed on generation_method — not just the has_real_rigor ones. A
+        # *text-only* fusion candidate (model emitted no machine-readable spec, so
+        # has_real_rigor stayed False) ALSO has weights={}; routing it into the
+        # static backtester only emits a misleading
+        # backtest_failed("no weights emitted by agent") — the live conversion bug
+        # in #784 (every Generate result looked broken). Keying on
+        # generation_method preserves the HONEST "no weights" signal for a genuine
+        # agent-path failure (agent emitted no allocation) while never running the
+        # static backtester on a fusion candidate that has nothing static to run.
         await asyncio.gather(
             *[
                 _backtest_and_persist(c, strategy_ids[c.candidate_id], emit, library_size)
                 for c in candidates
-                if not c.has_real_rigor
+                if c.generation_method != "fusion"
             ]
         )
 
