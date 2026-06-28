@@ -58,20 +58,27 @@ async def test_over_cap_not_allowed():
     assert used == 6
 
 
-async def test_first_use_sets_ttl():
-    r = _mock_redis(1)
-    q = GenerationQuota()
-    q._get_redis = AsyncMock(return_value=r)
-    await q.check_and_increment("1.2.3.4", 5)
-    r.expire.assert_awaited_once()  # TTL stamped exactly on the first use
-
-
-async def test_subsequent_use_does_not_reset_ttl():
+async def test_ttl_set_with_nx_every_hit():
+    # EXPIRE ... NX runs on every hit: it self-heals a missing TTL but (being NX)
+    # only applies when the key has none, so it never slides the window.
     r = _mock_redis(2)
     q = GenerationQuota()
     q._get_redis = AsyncMock(return_value=r)
     await q.check_and_increment("1.2.3.4", 5)
-    r.expire.assert_not_awaited()  # don't slide the window on every hit
+    r.expire.assert_awaited_once()
+    assert r.expire.await_args.kwargs.get("nx") is True
+
+
+async def test_expire_failure_does_not_discard_count():
+    # A failed TTL set must NOT throw away the successful INCR — the cap decision
+    # is still made from the real count. (Copilot #792)
+    r = _mock_redis(6)
+    r.expire = AsyncMock(side_effect=ConnectionError("expire blip"))
+    q = GenerationQuota()
+    q._get_redis = AsyncMock(return_value=r)
+    allowed, used = await q.check_and_increment("1.2.3.4", 5)
+    assert used == 6  # the count survived the EXPIRE failure
+    assert allowed is False  # 6 > 5 still enforced
 
 
 async def test_check_fails_open_on_redis_error():
@@ -90,9 +97,19 @@ def test_client_ip_prefers_x_real_ip():
     assert client_ip(req) == "9.9.9.9"
 
 
-def test_client_ip_xff_first_hop_fallback():
-    req = _req({"x-forwarded-for": "1.1.1.1, 2.2.2.2, 3.3.3.3"})
-    assert client_ip(req) == "1.1.1.1"
+def test_client_ip_ignores_spoofable_xff():
+    # X-Forwarded-For is client-forgeable and must NOT be used; with no X-Real-IP,
+    # fall back to the socket peer, never the XFF value. (Copilot #792)
+    req = _req({"x-forwarded-for": "1.1.1.1, 2.2.2.2"}, client_host="3.3.3.3")
+    assert client_ip(req) == "3.3.3.3"
+    # And with no socket either, it's "unknown" — never the spoofable XFF.
+    assert client_ip(_req({"x-forwarded-for": "1.1.1.1"})) == "unknown"
+
+
+def test_client_ip_rejects_malformed_x_real_ip():
+    # A non-IP header value must not become a Redis key — fall back. (Copilot #792)
+    req = _req({"x-real-ip": "not-an-ip; DROP"}, client_host="3.3.3.3")
+    assert client_ip(req) == "3.3.3.3"
 
 
 def test_client_ip_socket_fallback():
@@ -101,6 +118,10 @@ def test_client_ip_socket_fallback():
 
 def test_client_ip_unknown_when_nothing_available():
     assert client_ip(_req({})) == "unknown"
+
+
+def test_client_ip_accepts_ipv6_real_ip():
+    assert client_ip(_req({"x-real-ip": "2001:db8::1"})) == "2001:db8::1"
 
 
 # ─── enforce_generation_quota ────────────────────────────────────────────

@@ -33,6 +33,7 @@ window, and the slowapi/nginx rate limits remain in force regardless. Set
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 from datetime import UTC, datetime
@@ -61,21 +62,39 @@ def daily_cap() -> int:
         return _DEFAULT_DAILY_CAP
 
 
-def client_ip(request: Request) -> str:
-    """Resolve the real client IP behind nginx/ALB.
+def _valid_ip(value: str) -> bool:
+    """True iff ``value`` parses as an IPv4/IPv6 address."""
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
 
-    Prefers ``X-Real-IP`` (nginx-set, not client-spoofable), then the first hop of
-    ``X-Forwarded-For``, then the socket peer. Returns ``"unknown"`` if nothing is
-    available (a single shared bucket — still capped, just coarser).
+
+def client_ip(request: Request) -> str:
+    """Resolve the real client IP behind nginx/ALB for the per-IP cap key.
+
+    Uses ONLY trustworthy sources — a spoofed value must not let a caller rotate
+    the quota key:
+      1. ``X-Real-IP`` — set by nginx from its ``real_ip``-resolved ``$remote_addr``
+         (it OVERWRITES any client-supplied value and binds ``real_ip_header`` to
+         the trusted ALB CIDR), so it is not client-spoofable.
+      2. the socket peer (``request.client.host``) — for local/non-proxied runs.
+
+    ``X-Forwarded-For`` is DELIBERATELY NOT used: its first hop is the original
+    client-supplied value, which an attacker could forge to dodge the cap.
+    (Copilot #792). Every candidate is validated as a real IP before use, so a
+    malformed header can't create arbitrary Redis keys; falls back to ``"unknown"``
+    (a single shared bucket — still capped, just coarser).
     """
-    xri = request.headers.get("x-real-ip")
-    if xri and xri.strip():
-        return xri.strip()
-    xff = request.headers.get("x-forwarded-for")
-    if xff and xff.strip():
-        return xff.split(",")[0].strip()
+    xri = (request.headers.get("x-real-ip") or "").strip()
+    if xri and _valid_ip(xri):
+        return xri
     client = request.client
-    return client.host if client and client.host else "unknown"
+    host = (client.host if client and client.host else "").strip()
+    if host and _valid_ip(host):
+        return host
+    return "unknown"
 
 
 class GenerationQuota:
@@ -94,8 +113,8 @@ class GenerationQuota:
         """Atomically count this wallet-less generation for ``ip`` today.
 
         Returns ``(allowed, used)`` where ``used`` is the count *after* this
-        attempt. ``allowed`` is ``used <= cap``. **Fails open** — on any Redis
-        error returns ``(True, 0)`` so a cache outage never blocks generation
+        attempt. ``allowed`` is ``used <= cap``. **Fails open** — a Redis error on
+        the INCR returns ``(True, 0)`` so a cache outage never blocks generation
         (the slowapi/nginx rate limits remain the backstop).
         """
         try:
@@ -103,13 +122,22 @@ class GenerationQuota:
             day = datetime.now(UTC).strftime("%Y-%m-%d")
             key = f"archimedes:genquota:{day}:{ip}"
             count = await r.incr(key)
-            if count == 1:
-                # First use today — stamp the TTL so the bucket self-expires.
-                await r.expire(key, _QUOTA_TTL_SECONDS)
-            return (count <= cap, int(count))
         except Exception as exc:
             logger.warning("generation quota check failed for ip=%s — FAILING OPEN: %s", ip, exc)
             return (True, 0)
+
+        # TTL is BEST-EFFORT and must not discard the already-successful INCR.
+        # ``EXPIRE ... NX`` sets the TTL only when the key has none, so it
+        # (a) self-heals a key whose prior EXPIRE failed / was interrupted between
+        # the INCR and EXPIRE — no key is left without a TTL to grow unbounded —
+        # and (b) does NOT slide the window on every hit. A failure here is logged
+        # and retried (NX) on the next hit, never swallowing the count. (Copilot #792)
+        try:
+            await r.expire(key, _QUOTA_TTL_SECONDS, nx=True)
+        except Exception as exc:
+            logger.debug("genquota TTL set failed for %s (retried NX next hit): %s", key, exc)
+
+        return (count <= cap, int(count))
 
     async def close(self) -> None:
         if self._redis:
