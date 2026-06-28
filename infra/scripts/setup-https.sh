@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Idempotent HTTPS setup for archimedes-arc.app on EC2
-# Usage: ssh ubuntu@<host> 'bash -s' < infra/scripts/setup-https.sh
+# DEPRECATED / LEGACY — retained for reference only (T3.7).
+# Production TLS now terminates UPSTREAM at CloudFront + the ALB (ACM certs); the
+# EC2 serves plain HTTP on :8080 and runs NO certbot (see nginx/nginx.conf). This
+# in-instance Let's Encrypt path is from the pre-CloudFront era on the now-
+# decommissioned archimedes-arc.app domain and is NOT part of the current
+# architecture. Do not run it against prod.
+# Usage (historical): ssh ubuntu@<host> 'bash -s' < infra/scripts/setup-https.sh
 set -euo pipefail
 
-DOMAIN="archimedes-arc.app"
-EMAIL="chuan@gyld.fi"
+DOMAIN="archimedes-arc.com"
+EMAIL="dbrowne.up@gmail.com"
 COMPOSE_DIR="/opt/archimedes"
 
 echo "=== [1/4] Install certbot ==="
