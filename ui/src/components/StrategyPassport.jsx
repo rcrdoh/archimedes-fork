@@ -180,20 +180,24 @@ export default function StrategyPassport({ strategyId, onNavigate, walletAddr })
             Time-bound, non-custodial execution. Funds stay in an ERC-4626 vault
             you control; the agent has rebalance authority only, no withdraw.
             {!walletAddr && <> Connect a wallet (top right) to enable deployment.</>}
-            {s.passes_rigor_gate === false && <> This strategy did not pass the rigor gate — deploy at your own risk.</>}
+            {s.passes_rigor_gate === false && (
+              <> This strategy did not pass the rigor gate — deployment is disabled.
+              Generate a strategy that passes DSR / PBO / OOS / look-ahead to deploy.</>
+            )}
           </p>
         </div>
         <button
           className="btn btn-primary"
           onClick={() => setDeployOpen(true)}
-          disabled={!walletAddr}
+          disabled={!walletAddr || s.passes_rigor_gate === false}
           style={
-            !walletAddr
+            !walletAddr || s.passes_rigor_gate === false
               ? { opacity: 0.45, cursor: 'not-allowed', filter: 'grayscale(0.6)' }
               : undefined
           }
           title={
             !walletAddr ? 'Connect wallet to deploy' :
+            s.passes_rigor_gate === false ? 'Strategy did not pass the rigor gate — cannot deploy' :
             'Open deploy modal'
           }
         >
