@@ -60,12 +60,25 @@ bootstrap + a `/health` check.
 
 The live EC2 currently still has the idle `postgres`/`redis` containers running
 (left intact as the cutover rollback). After this PR merges and you're confident
-the managed stores are stable, reclaim the resources:
+the managed stores are stable, reclaim the resources.
 
-```bash
-aws ssm start-session --target i-01803d3abc271d39b --region us-east-1
-cd /opt/archimedes && docker compose stop postgres redis   # or: docker rm -f
-```
+**These are two separate steps. The second command runs _inside_ the interactive
+SSM session, on the EC2 — do NOT run `docker compose stop` on your laptop.**
+
+1. Open an interactive shell on the live box (substitute the real instance id /
+   region — the current values are in the `prod-infra-reality` notes / `CLAUDE.md`
+   AWS section):
+
+   ```bash
+   aws ssm start-session --target <INSTANCE_ID> --region <REGION>
+   ```
+
+2. **Now at the EC2 shell prompt** (the prompt changes to the instance's
+   hostname), stop the idle containers:
+
+   ```bash
+   cd /opt/archimedes && docker compose stop postgres redis   # or: docker rm -f
+   ```
 
 (The `pgdata` volume persists — data isn't deleted — but once the cutover is
 trusted it's just dead weight. Keep it until then as the rollback path.)
