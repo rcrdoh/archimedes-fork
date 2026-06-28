@@ -341,6 +341,45 @@ async def health():
     except Exception:
         logger.debug("telemetry counts read failed", exc_info=True)
 
+    # Claim-integrity: corpus honesty fields (issue #778).
+    # The `corpus_papers` / `corpus_db_count` counts above are *metadata records*
+    # seeded from the JSONL manifest into the `papers` table — they do NOT imply
+    # the corpus has been embedded, clustered, or graphed. These three fields make
+    # the real state machine-readable so no surface can present manifest metadata
+    # as "embedded / knowledge-graphed". Each is driven from actual state, never a
+    # constant:
+    #   corpus_embedded         — live sentence-transformer embeddings active
+    #                             (paper_rag == "live"; "degraded" => TF-IDF, NOT embedded)
+    #   corpus_kg_built         — at least one KG entity exists (REBEL/SciSpacy output)
+    #   corpus_artifact_present — a real KB-pipeline artifact (S3/local manifest) exists
+    corpus_embedded = paper_rag_status == "live"
+    kg_entity_count = 0
+    kg_relation_count = 0
+    try:
+        from sqlalchemy import func
+
+        from archimedes.db import get_session
+        from archimedes.models.kg import KGEntity, KGRelation
+
+        with get_session() as session:
+            kg_entity_count = session.query(func.count(KGEntity.id)).scalar() or 0
+            kg_relation_count = session.query(func.count(KGRelation.id)).scalar() or 0
+    except Exception:
+        logger.debug("kg counts read failed", exc_info=True)
+    corpus_kg_built = kg_entity_count > 0
+
+    corpus_artifact_present = False
+    try:
+        from archimedes.services.kb_artifacts import ArtifactNotFound, load_manifest
+
+        try:
+            load_manifest()
+            corpus_artifact_present = True
+        except ArtifactNotFound:
+            corpus_artifact_present = False
+    except Exception:
+        logger.debug("kb artifact probe failed", exc_info=True)
+
     return {
         "status": "ok" if connected else "degraded",
         "service": "archimedes-backend",
@@ -352,6 +391,15 @@ async def health():
         "corpus_source": corpus_source,
         "corpus_last_intake": corpus_last_intake,
         "artifact_hash": artifact_hash,
+        # Claim-integrity honesty fields (issue #778). The counts above are
+        # manifest-seeded *metadata records*; these say what has actually been
+        # built on top of them. New keys only — existing keys are unchanged so
+        # current UI/monitoring consumers don't break.
+        "corpus_embedded": corpus_embedded,
+        "corpus_kg_built": corpus_kg_built,
+        "corpus_kg_entities": kg_entity_count,
+        "corpus_kg_relations": kg_relation_count,
+        "corpus_artifact_present": corpus_artifact_present,
         "fusion_enabled": _fusion_on,
         "llm_provider": llm_provider,
         "llm_backend": llm_backend,

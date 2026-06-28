@@ -307,8 +307,9 @@ export default function Generate({ onNavigate }) {
               <div className="label mb-2 mt-3">Architecture</div>
               <p className="body mb-3">
                 <strong>Strategy Generation Agent</strong> retrieves relevant papers from a
-                1,014-paper q-fin corpus (SPECTER2 embeddings + clusters), reads current market
-                context, and synthesizes a candidate strategy. <strong>Portfolio Construction
+                1,014-record q-fin metadata corpus (keyword/TF-IDF ranking today; SPECTER2
+                embeddings + clusters are the build target), reads current market context, and
+                synthesizes a candidate strategy. <strong>Portfolio Construction
                 Agent</strong> picks assets, sizes them with Kelly + risk parity, and stress-tests
                 across six scenarios. After you sign to deploy, the <strong>Live Execution
                 Agent</strong> runs the rebalance loop on-chain — every decision anchored on Arc

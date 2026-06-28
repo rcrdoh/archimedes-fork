@@ -7,9 +7,9 @@ const AGENTS = [
   {
     name: 'Strategy Generation Agent',
     role: 'What should be done?',
-    desc: 'Retrieves relevant papers from a 1,014-paper q-fin corpus, reads current market context, and synthesizes a candidate strategy that passes the rigor gate.',
+    desc: 'Retrieves relevant papers from a 1,014-record q-fin metadata corpus, reads current market context, and synthesizes a candidate strategy that passes the rigor gate.',
     subagents: [
-      { name: 'Paper Retrieval', detail: 'SPECTER2 nearest-neighbour + KG entity walk' },
+      { name: 'Paper Retrieval', detail: 'Keyword + TF-IDF ranking (SPECTER2 / KG walk: build target)' },
       { name: 'Market Context', detail: 'Regime classifier + on-chain oracle + price history' },
       { name: 'Strategy Synthesis', detail: 'LLM fusion: brief × papers × market' },
       { name: 'Rigor Gate', detail: 'DSR + PBO + chronological OOS + look-ahead audit' },
@@ -84,15 +84,15 @@ const MEMORY_LAYERS = [
   {
     tag: 'E',
     name: 'Semantic knowledge',
-    substrate: 'q-fin corpus (1,014 papers, SPECTER2 + clusters + KG)',
+    substrate: 'q-fin corpus (1,014 metadata records; embeddings + clusters + KG pending)',
     lifetime: 'Persistent',
-    why: 'The substrate the Strategy Generation Agent retrieves from.',
+    why: 'The substrate the Strategy Generation Agent retrieves from (keyword/TF-IDF today).',
   },
 ]
 
 const PROTOCOLS = [
   { name: 'Outcome Embargo', what: 'Papers retrieved at decision time are filtered to those published before the decision; on-chain anchor proves the filter held.' },
-  { name: 'Time-Aware Retrieval', what: 'SPECTER2 similarity decays by paper age; higher decay in volatile regimes.' },
+  { name: 'Time-Aware Retrieval', what: 'Retrieval relevance decays by paper age; higher decay in volatile regimes. (Today over keyword/TF-IDF scores; SPECTER2 similarity once the KB pipeline runs.)' },
   { name: 'Hierarchy of Truth', what: 'Chain state outranks LLM narrative; curated academic literature outranks uncurated sources.' },
   { name: 'Source Tracking', what: 'Every cited paper carries (arxiv_id, version, content_hash). Anchored on Arc; anyone can recompute.' },
 ]
@@ -117,7 +117,7 @@ function HeroStrip() {
   const stats = [
     { n: '3', l: 'Top-level agents', s: 'Generation · Construction · Execution' },
     { n: '6', l: 'Memory layers', s: 'KV cache → on-chain ground truth' },
-    { n: '1,014', l: 'q-fin papers', s: 'SPECTER2 + clusters + KG' },
+    { n: '1,014', l: 'q-fin metadata records', s: 'embeddings + clusters + KG: build target' },
     { n: '10', l: 'Smart contracts', s: 'Deployed on Arc testnet' },
   ]
   return (
@@ -317,11 +317,12 @@ function CorpusPanel() {
     <div className="card p-5 mb-7">
       <div className="label mb-3">The q-fin corpus — Layer E in detail</div>
       <p className="body mb-4">
-        1,014 academic papers (arXiv preprints across q-fin, ML, math, and agentic AI),
-        ingested via PyMuPDF, embedded with SPECTER2, clustered with HDBSCAN, and linked
-        with REBEL + SciSpacy into a knowledge graph. The Strategy Generation Agent's{' '}
-        <strong>Paper Retrieval</strong> sub-agent uses this substrate every time you submit
-        a brief.
+        1,014 paper <strong>metadata records</strong> (arXiv preprints across q-fin, ML, math,
+        and agentic AI) seeded from a JSONL manifest into Postgres. The Strategy Generation Agent's{' '}
+        <strong>Paper Retrieval</strong> sub-agent ranks these records by keyword/TF-IDF relevance
+        when you submit a brief. The full KB pipeline — PyMuPDF full-text extraction, SPECTER2
+        embeddings, HDBSCAN clusters, and a REBEL + SciSpacy knowledge graph — is the build target;
+        it has not run yet, so embeddings, clusters, and graph edges are not live.
       </p>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
@@ -338,9 +339,10 @@ function CorpusPanel() {
         ))}
       </div>
       <p className="caption mt-3" style={{ color: 'var(--text-3)' }}>
-        1,014 papers ingested across 41 categories (top four shown above). Manifest seed
+        1,014 metadata records across 41 categories (top four shown above). Manifest seed
         target is ~10,000 — the remainder hydrate into Postgres incrementally as we expand
-        the corpus.
+        the corpus. Counts are metadata only; they do not imply the records have been
+        embedded or graphed.
       </p>
     </div>
   )

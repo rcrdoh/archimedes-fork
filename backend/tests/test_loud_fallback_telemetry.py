@@ -197,3 +197,44 @@ async def test_health_surfaces_regime_and_risk_flags() -> None:
     assert "regime_detector_reason" in body
     assert body["risk_data"] == "mock"
     assert body["risk_data_reason"] == "test mock"
+
+
+# ── /health corpus honesty fields (claim-integrity, issue #778) ──────
+
+
+@pytest.mark.asyncio
+async def test_health_surfaces_corpus_honesty_fields() -> None:
+    """/health exposes machine-readable corpus honesty fields (issue #778).
+
+    The ``corpus_papers`` / ``corpus_db_count`` counts are manifest-seeded
+    *metadata records* — they must not be read as "embedded / graphed". These
+    boolean + count fields make the real state explicit. Hermetic: no DB/KG, so
+    every field reflects the un-built default (no embeddings, no KG, no artifact).
+    """
+    from archimedes.main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/health")
+
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # The honesty fields are present and machine-readable booleans / ints.
+    for key in ("corpus_embedded", "corpus_kg_built", "corpus_artifact_present"):
+        assert key in body, f"missing honesty field {key!r}"
+        assert isinstance(body[key], bool)
+    for key in ("corpus_kg_entities", "corpus_kg_relations"):
+        assert key in body
+        assert isinstance(body[key], int)
+
+    # With no KB pipeline run / KG store, every honesty field reads "not built".
+    assert body["corpus_kg_built"] is False
+    assert body["corpus_kg_entities"] == 0
+    assert body["corpus_kg_relations"] == 0
+    assert body["corpus_artifact_present"] is False
+    # corpus_embedded tracks paper_rag: "live" => embedded; anything else => not.
+    assert body["corpus_embedded"] == (body.get("paper_rag") == "live")
+
+    # The legacy count keys are untouched (no consumer breakage).
+    assert "corpus_papers" in body
+    assert "corpus_db_count" in body
