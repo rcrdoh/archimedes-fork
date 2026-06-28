@@ -81,7 +81,7 @@ async def list_vaults(
 @limiter.limit("5/minute")
 async def create_vault(
     req: VaultCreateRequest,
-    request: Request,  # noqa: ARG001 — slowapi @limiter.limit inspects param name
+    request: Request,  # used for slowapi rate-limit keying AND funnel attribution (#787)
     response: Response,  # noqa: ARG001 — slowapi @limiter.limit inspects param name
     wallet: str = Depends(require_verified_wallet),
 ):
@@ -115,6 +115,12 @@ async def create_vault(
         # log the full detail server-side and return a generic message.
         logger.exception("Vault deployment failed")
         raise HTTPException(status_code=500, detail="Vault deployment failed") from exc
+
+    # Conversion funnel (#787): the bottom of funnel — a vault was actually
+    # deployed for this visitor. Fail-safe; never blocks the response.
+    from archimedes.api.funnel_middleware import record_funnel
+
+    await record_funnel(request, "vault_deployed")
 
     return VaultCreateResponse(vault_address=vault_address, strategy_ids=req.strategy_ids)
 

@@ -306,6 +306,12 @@ async def verify_signature(request: Request, response: Response):
 
     logger.info("SIWE session issued for wallet %s", recovered_lower[:10])
 
+    # Conversion funnel (#787): the visitor connected a wallet — the trust step
+    # we most need to move. Fail-safe; never blocks the auth response.
+    from archimedes.api.funnel_middleware import record_funnel
+
+    await record_funnel(request, "wallet_connected")
+
     return {
         "status": "authenticated",
         "wallet": recovered_lower,

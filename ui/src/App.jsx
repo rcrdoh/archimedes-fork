@@ -18,6 +18,7 @@ import VaultDetail from './components/VaultDetail'
 import OnboardingTour, { hasCompletedOnboarding } from './components/OnboardingTour'
 import WalletGate from './components/WalletGate'
 import MobileBanner from './components/MobileBanner'
+import { apiPost } from './api'
 import './App.css'
 
 const openConnectModal = () => window.dispatchEvent(new Event('open-wallet-modal'))
@@ -114,6 +115,21 @@ export default function App() {
     const handler = (e) => setWalletAddr(e.detail.address)
     window.addEventListener('wallet-changed', handler)
     return () => window.removeEventListener('wallet-changed', handler)
+  }, [])
+
+  // Conversion funnel (#787): emit the top-of-funnel "landed" beacon once per
+  // browser session. This is JS-only, so crawlers (which dominate raw request
+  // counts but don't run JS) are naturally excluded — the funnel is a truer
+  // human signal than the cumulative request counters. Best-effort: a failed
+  // beacon must never affect the page.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('archimedes_landed')) return
+      sessionStorage.setItem('archimedes_landed', '1')
+    } catch {
+      // sessionStorage unavailable (private mode / blocked) — still try once.
+    }
+    apiPost('/api/metrics/funnel/event', { stage: 'landed' }).catch(() => {})
   }, [])
 
   const handleConnect = (addr) => setWalletAddr(addr)

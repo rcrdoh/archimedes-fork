@@ -14,12 +14,45 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query, Request
 
-from archimedes.models.telemetry import MetricsResponse
+from archimedes.api.funnel_middleware import record_funnel
+from archimedes.models.telemetry import (
+    FunnelEventRequest,
+    FunnelResponse,
+    FunnelStageCount,
+    MetricsResponse,
+)
+from archimedes.services.funnel_store import CLIENT_EMITTABLE_STAGES, STAGES, FunnelStore
 from archimedes.services.telemetry_store import TelemetryStore
 
 metrics_router = APIRouter(prefix="/api", tags=["metrics"])
+
+
+def _build_funnel(counts: dict[str, int], window: str) -> FunnelResponse:
+    """Turn an ordered stage->count map into a funnel with ratios.
+
+    ``pct_of_landed`` is each stage vs the first stage; ``step_conversion`` is
+    each stage vs the previous one. Both default to 0.0 when the denominator is
+    zero so the response is always well-formed (no divide-by-zero).
+    """
+    landed = counts.get(STAGES[0], 0)
+    stages: list[FunnelStageCount] = []
+    prev = landed
+    for i, stage in enumerate(STAGES):
+        n = counts.get(stage, 0)
+        pct = (n / landed) if landed else 0.0
+        step = 1.0 if i == 0 else ((n / prev) if prev else 0.0)
+        stages.append(
+            FunnelStageCount(
+                stage=stage,
+                distinct_visitors=n,
+                pct_of_landed=round(pct, 4),
+                step_conversion=round(step, 4),
+            )
+        )
+        prev = n
+    return FunnelResponse(window=window, stages=stages, timestamp=datetime.now(UTC).isoformat())
 
 
 @metrics_router.get("/metrics", response_model=MetricsResponse)
@@ -41,3 +74,44 @@ async def get_metrics() -> MetricsResponse:
         total_requests=human_count + agent_count,
         timestamp=datetime.now(UTC).isoformat(),
     )
+
+
+@metrics_router.get("/metrics/funnel", response_model=FunnelResponse)
+async def get_funnel(
+    day: str | None = Query(
+        default=None,
+        description="ISO date (YYYY-MM-DD) for a single-day window; omit for the all-time funnel.",
+    ),
+) -> FunnelResponse:
+    """Return the distinct-visitor conversion funnel (issue #787).
+
+    Stages: ``landed -> generation_started -> wallet_connected -> vault_deployed``.
+    Fail-safe: ``FunnelStore`` returns zeros when Redis is unreachable, so this
+    endpoint always responds 200 with a well-formed funnel.
+    """
+    store = FunnelStore()
+    try:
+        if day:
+            counts = await store.get_day(day)
+            window = day
+        else:
+            counts = await store.get_totals()
+            window = "all-time"
+    finally:
+        await store.close()
+    return _build_funnel(counts, window)
+
+
+@metrics_router.post("/metrics/funnel/event")
+async def record_funnel_event(req: FunnelEventRequest, request: Request) -> dict[str, bool]:
+    """Client beacon for top-of-funnel stages (issue #787).
+
+    Only ``CLIENT_EMITTABLE_STAGES`` (today: ``landed``) are accepted — every
+    downstream stage is recorded server-side at its authoritative transition so a
+    client cannot inflate it. Always 200 (``recorded`` flags whether it counted);
+    the visitor id is read from the ``archimedes_vid`` cookie via request state.
+    """
+    if req.stage not in CLIENT_EMITTABLE_STAGES:
+        return {"recorded": False}
+    await record_funnel(request, req.stage)
+    return {"recorded": True}

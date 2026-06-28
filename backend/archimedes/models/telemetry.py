@@ -32,3 +32,41 @@ class MetricsResponse(BaseModel):
     agent_count: int = Field(..., description="Requests classified as agent (internal key / bot UA).")
     total_requests: int = Field(..., description="human_count + agent_count.")
     timestamp: str = Field(..., description="ISO-8601 UTC timestamp this snapshot was read.")
+
+
+class FunnelStageCount(BaseModel):
+    """One stage of the conversion funnel (issue #787).
+
+    ``distinct_visitors`` is an HLL estimate of unique visitors that reached this
+    stage. ``pct_of_landed`` is this stage vs the top of funnel; ``step_conversion``
+    is this stage vs the immediately preceding stage — the drop-off we care about.
+    """
+
+    stage: str = Field(..., description="Funnel stage name.")
+    distinct_visitors: int = Field(..., description="Distinct visitors that reached this stage (HLL estimate).")
+    pct_of_landed: float = Field(..., description="distinct_visitors / landed, as a fraction (0.0-1.0).")
+    step_conversion: float = Field(..., description="distinct_visitors / previous-stage count (0.0-1.0).")
+
+
+class FunnelResponse(BaseModel):
+    """Distinct-visitor conversion funnel over the live deployment (issue #787).
+
+    Served by ``GET /api/metrics/funnel``. Stages are ordered
+    ``landed -> generation_started -> wallet_connected -> vault_deployed``.
+    """
+
+    window: str = Field(..., description='"all-time" or the ISO date (YYYY-MM-DD) the counts are for.')
+    stages: list[FunnelStageCount] = Field(..., description="Ordered funnel stages with counts + ratios.")
+    timestamp: str = Field(..., description="ISO-8601 UTC timestamp this snapshot was read.")
+
+
+class FunnelEventRequest(BaseModel):
+    """Client beacon body for ``POST /api/metrics/funnel/event`` (issue #787).
+
+    Only top-of-funnel stages are client-emittable (see
+    ``services.funnel_store.CLIENT_EMITTABLE_STAGES``); every downstream stage is
+    recorded server-side at its authoritative transition so a client can't
+    inflate it.
+    """
+
+    stage: str = Field(..., description="The funnel stage the browser is reporting (e.g. 'landed').")
