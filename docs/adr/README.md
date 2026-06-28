@@ -1,9 +1,11 @@
 # Architecture Decision Records
 
-> **Status:** Day-10 (2026-05-22; updated 2026-06-26). Two ADRs currently. The ADR pattern is:
-> capture a non-trivial technical decision once, with the alternatives considered
-> and the reasoning, so future contributors can understand the choice without
-> needing to relitigate it.
+> **Status:** Day-10 (2026-05-22; updated 2026-06-27 — Phase-7 back-fill of historical
+> decisions). Ten ADRs. The ADR pattern is: capture a non-trivial technical decision
+> once, with the alternatives considered and the reasoning, so future contributors can
+> understand the choice without needing to relitigate it. The records below were written
+> as decisions landed; the 2026-06-27 batch back-fills decisions that shipped before the
+> ADR habit was established (each cites the PR/commit/spec it documents).
 
 ## Index
 
@@ -11,6 +13,14 @@
 |---|---|
 | [`backtrader-vs-vectorbt-decision-memo.md`](backtrader-vs-vectorbt-decision-memo.md) | Why we picked **backtrader** over **vectorbt** for the v1 backtest engine |
 | [`chainlink-primary-oracle.md`](chainlink-primary-oracle.md) | Why on-chain prices are **Chainlink-primary** with a thin, bounded admin fallback that **degrades (not reverts)** on feed outage (#724) |
+| [`build-on-deploy-main-only.md`](build-on-deploy-main-only.md) | Why `main` is the only long-lived branch and every merge auto-deploys (no `develop`) |
+| [`aws-account-migration.md`](aws-account-migration.md) | Why prod moved to Dan's own AWS account (`037613907429`/`us-east-1`) post-Agora |
+| [`k1-generation-external-rigor-gate.md`](k1-generation-external-rigor-gate.md) | Why generation emits **K=1** winner + considered-rejects, with the rigor gate run **externally** |
+| [`rigor-gate-unification.md`](rigor-gate-unification.md) | Why the four selection-bias controls run through **one** authoritative gate, surfaced honestly (post-#710) |
+| [`non-custodial-vault-owner-agent.md`](non-custodial-vault-owner-agent.md) | Why vaults separate **owner (withdrawal)** from **agent (rebalance-only)** so a compromised agent key can't drain (#731) |
+| [`fusion-primary-generation.md`](fusion-primary-generation.md) | Why strategy generation is **fusion-primary** (paper-grounded), not free-form LLM (#751) |
+| [`glm-to-bedrock-llm-migration.md`](glm-to-bedrock-llm-migration.md) | Why the live LLM moved from **GLM to AWS Bedrock** (Nova Micro default, Converse backend) (#717) |
+| [`portfolio-constructor-consolidation.md`](portfolio-constructor-consolidation.md) | Why legacy constructors were retired and a **dual-signal** (regime × consensus) sizer activated (#131, #662) |
 
 ## When to add an ADR
 

@@ -13,12 +13,6 @@ For repo-level setup + operations, start at the **repo root**:
 - [`../ARC-OSS-SHOWCASE.md`](../ARC-OSS-SHOWCASE.md) — Arc OSS Showcase positioning + forkable primitives
 - [`../CLAUDE.md`](../CLAUDE.md) — project context for Claude Code sessions
 
-## Submission-day status (read FIRST for "where are we right now?")
-
-| Doc | What it is |
-|---|---|
-| [`dead-code-audit-2026-05-24-v2.md`](dead-code-audit-2026-05-24-v2.md) | **Day-13 dead-code audit + Work Remaining Inventory + Submission-day execution plan.** Authoritative "done / unverified / missing" matrix; paste-ready `t2o2` issue specs (appended bottom); Dan submission-day checklist; live-state snapshot. **Start here.** |
-
 ## Product spine (canonical — read these first)
 
 | Doc | What it is |
