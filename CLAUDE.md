@@ -917,6 +917,38 @@ the message (code snippets) will terminate a 3-backtick outer fence and
 produce a fragmented copy-block. The 4-backtick outer fence keeps it as one
 contiguous copy region.
 
+### Shell quoting in zsh — a recurring agent gotcha (added 2026-06-28)
+
+The interactive shell here is **zsh**, and its quoting/word-splitting rules
+differ from bash in ways that have repeatedly bitten agents building commands
+on the fly. Two failure modes and their fixes:
+
+- **zsh does NOT word-split unquoted variables.** In bash, `P="--profile X";
+  aws s3 ls $P` splits `$P` into two args; in zsh it passes the whole string as
+  one arg and the command errors ("Unknown options: --profile X"). **Fix:** never
+  stuff multi-token flags into a single var. For AWS, set the environment instead:
+  `export AWS_PROFILE=ArchimedesDanAdmin AWS_REGION=us-east-1` and drop the
+  per-command `--profile/--region` flags entirely.
+- **Inline command-building hits parse errors fast.** Nested `$( … )`, escaped
+  `\$(...)`, globs like `--include=*.py` (zsh tries to glob `*.py` → "no matches
+  found"), and especially building an `aws ssm send-command --parameters
+  'commands=[...]'` payload inline produce `parse error near ')'`-class failures
+  that waste turns. **Fix:** for anything non-trivial, write the script to a file
+  and feed it in opaquely rather than escaping through the shell:
+  ```bash
+  # robust: build the remote command + tool input as data, not shell text
+  cat > /tmp/remote.sh <<'EOF'      # quoted heredoc → no local expansion
+  …multi-line script runs verbatim on the target…
+  EOF
+  python3 -c "import json,base64;b=base64.b64encode(open('/tmp/remote.sh','rb').read()).decode();\
+  json.dump({'InstanceIds':['i-…'],'DocumentName':'AWS-RunShellScript',\
+  'Parameters':{'commands':[f'echo {b}|base64 -d|bash']}},open('/tmp/ssm.json','w'))"
+  aws ssm send-command --cli-input-json file:///tmp/ssm.json   # no quoting hell
+  ```
+  Quote globs (`--include='*.py'`) or use `rg`. When a command must interpolate a
+  value with special characters, build it in Python (proper escaping) and write a
+  `--cli-input-json` / file argument rather than hand-escaping in zsh.
+
 ## Architectural primitives we want to get right
 
 These five architectural commitments are load-bearing for the pitch's defensibility.
