@@ -63,7 +63,12 @@ def _get(client: httpx.Client, path: str, *, required: bool = False) -> object |
     try:
         return r.json()
     except ValueError:
-        print(f"  ✗ GET {path} — non-JSON body")
+        # A 200 with a non-JSON body (e.g. an nginx/proxy HTML page) is a hard
+        # failure for a required surface like /health — don't let it slip through
+        # as a soft None and continue the journey on misleading output. (Copilot #790)
+        print(f"  ✗ GET {path} — 200 but non-JSON body")
+        if required:
+            raise SystemExit(2) from None
         return None
 
 
@@ -85,7 +90,7 @@ def step_read(client: httpx.Client) -> None:
         summary = ", ".join(f"{s['stage']}={s['distinct_visitors']}" for s in stages)
         print(f"  ✓ /api/metrics/funnel [{funnel.get('window')}] — {summary}")
     else:
-        print("  · /api/metrics/funnel — not deployed yet (PR #789); skipping")
+        print("  · /api/metrics/funnel — unavailable; skipping")
 
     strategies = _get(client, "/api/strategies/")
     if isinstance(strategies, list):
@@ -112,9 +117,16 @@ def step_generate(client: httpx.Client, intent: str, risk: str, timeout_s: float
         print(f"  ✗ POST /api/generate/start — HTTP {r.status_code}: {r.text[:200]}")
         return None
 
-    start = r.json()
-    job_id = start["job_id"]
-    stream_url = start["stream_url"]
+    # Don't assume a well-formed JSON body with the expected keys — a non-JSON
+    # body or an error shape behind a 200/202 should produce a clean failure +
+    # message, not a traceback (the whole point of the harness). (Copilot #790)
+    try:
+        start = r.json()
+        job_id = start["job_id"]
+        stream_url = start["stream_url"]
+    except (ValueError, KeyError, TypeError) as exc:
+        print(f"  ✗ POST /api/generate/start — unexpected response shape ({exc}): {r.text[:200]}")
+        return None
     print(f"  ✓ job_id={job_id}  stream={stream_url}")
 
     _hr("STREAM — live reasoning events")
@@ -125,8 +137,10 @@ def step_generate(client: httpx.Client, intent: str, risk: str, timeout_s: float
     # when a new event arrives, so a long quiet gap (a slow LLM/tool call) would
     # trip a ReadTimeout even though the overall journey isn't over. We bound the
     # stream with the explicit `deadline` check inside the loop instead. Keep a
-    # finite connect timeout so a dead endpoint still fails fast. (Copilot, #790)
-    stream_timeout = httpx.Timeout(timeout_s, read=None)
+    # SHORT, finite connect/write/pool timeout so a dead endpoint still fails fast
+    # (read=None alone would otherwise inherit the full generation timeout on the
+    # connect phase too — the opposite of fail-fast). (Copilot, #790)
+    stream_timeout = httpx.Timeout(read=None, connect=10.0, write=10.0, pool=10.0)
     try:
         with client.stream("GET", stream_url, timeout=stream_timeout) as resp:
             if resp.status_code != 200:
