@@ -171,7 +171,18 @@ resource "aws_cloudfront_origin_request_policy" "all_viewer" {
   headers_config {
     header_behavior = "allViewerAndWhitelistCloudFront"
     headers {
-      items = ["CloudFront-Forwarded-Proto"]
+      # CloudFront-Viewer-Country + device headers feed the visitor-insights
+      # instrument (#787): the backend can't see the real client IP (CloudFront
+      # masks it), so these CloudFront-derived headers are the only clean source
+      # for visitor geography + device class. Forwarded to origin here.
+      items = [
+        "CloudFront-Forwarded-Proto",
+        "CloudFront-Viewer-Country",
+        "CloudFront-Is-Mobile-Viewer",
+        "CloudFront-Is-Tablet-Viewer",
+        "CloudFront-Is-Desktop-Viewer",
+        "CloudFront-Is-SmartTV-Viewer",
+      ]
     }
   }
   query_strings_config {

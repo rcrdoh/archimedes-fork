@@ -70,3 +70,25 @@ class FunnelEventRequest(BaseModel):
     """
 
     stage: str = Field(..., description="The funnel stage the browser is reporting (e.g. 'landed').")
+
+
+class CountryCount(BaseModel):
+    """Distinct human visitors from one country (issue #787)."""
+
+    code: str = Field(..., description="ISO-3166 alpha-2 country code, or 'ZZ' when unknown.")
+    distinct_visitors: int = Field(..., description="Distinct human visitors from this country (HLL estimate).")
+
+
+class VisitorInsightsResponse(BaseModel):
+    """Where our (un-promoted) human traffic comes from + on what device (issue #787).
+
+    Served by ``GET /api/metrics/visitors``. Counts are distinct HUMAN visitors
+    (agents/crawlers excluded) keyed on the anonymous visitor id. Country comes
+    from CloudFront's viewer-country geolocation; device from CloudFront device
+    headers (UA fallback).
+    """
+
+    window: str = Field(..., description='"all-time" snapshot window.')
+    countries: list[CountryCount] = Field(..., description="Countries, sorted by distinct visitors (desc).")
+    devices: dict[str, int] = Field(..., description="Distinct visitors per device class (mobile/tablet/desktop/tv).")
+    timestamp: str = Field(..., description="ISO-8601 UTC timestamp this snapshot was read.")

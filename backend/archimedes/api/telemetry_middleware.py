@@ -126,6 +126,14 @@ async def telemetry_middleware(request: Request, call_next):
                 await store.increment_human()
         finally:
             await store.close()
+
+        # Visitor insights (#787): record country + device for HUMAN visitors so we
+        # can see where our (un-promoted) traffic comes from. Fail-safe + humans-only
+        # (skips agents/crawlers). Uses request.state.visitor_id, set by the
+        # visitor-id middleware which runs outermost (before this one).
+        from archimedes.api.visitor_insights import record_visitor_insight
+
+        await record_visitor_insight(request, is_agent)
     except Exception as exc:
         # Fail-safe: never let telemetry raise into the request path.
         logger.debug("telemetry middleware classify/count failed: %s", exc)
