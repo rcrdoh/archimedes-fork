@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse
 
 from archimedes.agents.generation_pipeline import run_generation
 from archimedes.api.auth_siwe import gate_generation, get_verified_wallet
+from archimedes.api.funnel_middleware import record_funnel
 from archimedes.api.generate_schemas import (
     CandidatesListResponse,
     CandidateSummary,
@@ -62,7 +63,7 @@ def _register_task(job_id: str, task: asyncio.Task) -> None:
 @limiter.limit("5/minute")
 async def start_generation(
     req: GenerateStartRequest,
-    request: Request,  # noqa: ARG001 — slowapi @limiter.limit inspects param name
+    request: Request,  # used for slowapi rate-limit keying AND funnel attribution (#787)
     response: Response,  # noqa: ARG001
     _wallet: str | None = Depends(gate_generation),  # 401 when REQUIRE_SIWE_FOR_GENERATION is on
 ) -> GenerateStartResponse:
@@ -109,6 +110,10 @@ async def start_generation(
     # below tails the event log written by the pipeline as it runs.
     task = asyncio.create_task(_run_with_cleanup(job_id, req.brief, req.n_candidates, req.mode, selected_model))
     _register_task(job_id, task)
+
+    # Conversion funnel (#787): a generation actually started for this visitor —
+    # the key "tried the product" transition. Fail-safe; never blocks the response.
+    await record_funnel(request, "generation_started")
 
     return GenerateStartResponse(
         job_id=job_id,

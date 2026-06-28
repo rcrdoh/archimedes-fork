@@ -158,6 +158,18 @@ from archimedes.api.telemetry_middleware import telemetry_middleware
 app.middleware("http")(telemetry_middleware)
 
 
+# ── Visitor-id middleware: anonymous funnel attribution (issue #787) ────
+# Registered LAST so it is the OUTERMOST middleware: it guarantees every request
+# carries a stable anonymous `archimedes_vid` cookie and exposes it as
+# request.state.visitor_id BEFORE any route or downstream middleware runs. This
+# is what lets the conversion funnel (landed → generation_started →
+# wallet_connected → vault_deployed) join stages for the same visitor. Fail-safe
+# — never turns a request into a 5xx.
+from archimedes.api.funnel_middleware import ensure_visitor_id_middleware
+
+app.middleware("http")(ensure_visitor_id_middleware)
+
+
 # Initialize database (creates chat tables if needed)
 init_db()
 
