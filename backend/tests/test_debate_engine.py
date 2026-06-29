@@ -410,3 +410,79 @@ def test_build_leaderboard_caps_to_top_n(monkeypatch):
     # Highest-DSR leader kept its base id; the cap takes the top-3 by score.
     assert board[0].candidate_id == "cand_1"
     assert all(e.has_real_rigor for e in board)
+# ── Phase 2 — C-regime non-votable Hierarchy-of-Truth gate ────────────────────
+
+
+def _patch_regime(monkeypatch, regime, *, confidence=0.9, status="live"):
+    """Patch the GMM regime read at its lazy-import boundary."""
+    from types import SimpleNamespace as NS
+
+    class _FakeDetector:
+        def __init__(self, *a, **k):
+            pass
+
+        def get_current_regime(self):
+            return NS(regime=regime, confidence=confidence) if regime is not None else None
+
+    monkeypatch.setattr("archimedes.services.gmm_regime_detector.GmmRegimeDetector", _FakeDetector)
+    monkeypatch.setattr(
+        "archimedes.services.gmm_regime_detector.gmm_regime_health",
+        lambda: NS(status=status, reason="test"),
+    )
+
+
+def test_critic_regime_crisis_forces_abstain(monkeypatch):
+    from archimedes.models.regime import Regime
+
+    _patch_regime(monkeypatch, Regime.CRISIS)
+    gate = de._critic_regime()
+    assert gate["force_abstain"] is True
+    assert gate["regime"] == "crisis"
+    assert "CRISIS" in gate["reason"]
+
+
+def test_critic_regime_risk_on_does_not_gate(monkeypatch):
+    from archimedes.models.regime import Regime
+
+    _patch_regime(monkeypatch, Regime.RISK_ON)
+    gate = de._critic_regime()
+    assert gate["force_abstain"] is False
+    assert gate["regime"] == "risk_on"
+
+
+def test_critic_regime_unavailable_fails_safe_to_no_gate(monkeypatch):
+    # No regime read (None) must NEVER force-approve and must not crash — it simply
+    # does not gate (the critic can only ABSTAIN, never spuriously APPROVE).
+    _patch_regime(monkeypatch, None)
+    gate = de._critic_regime()
+    assert gate["force_abstain"] is False
+    assert gate["regime"] is None
+
+
+def test_regime_degraded_does_not_force_abstain(monkeypatch):
+    # DEGRADED (VIX fallback) on a non-crisis regime must not force abstain — else
+    # the society would always abstain whenever the GMM artifact is missing.
+    from archimedes.models.regime import Regime
+
+    _patch_regime(monkeypatch, Regime.RISK_OFF, status="degraded")
+    gate = de._critic_regime()
+    assert gate["force_abstain"] is False
+    assert gate["degraded"] is True
+
+
+def test_build_leaderboard_regime_gate_overrides_strong_survivors():
+    # Even with candidates that clear C-null, a non-votable CRISIS gate abstains.
+    rigor_results = [
+        (_fake_proposal("A", ["2401.00001", "2402.00001"]), _fake_ev(cagr=0.3, dsr=3.0)),
+        (_fake_proposal("B", ["2401.00002", "2402.00002"]), _fake_ev(cagr=0.2, dsr=2.0)),
+    ]
+    board = de.build_leaderboard(
+        rigor_results,
+        regime="neutral",
+        base_id="cand_1",
+        regime_force_abstain=True,
+        regime_reason="CRISIS regime (confidence=0.90) — non-votable ABSTAIN",
+    )
+    assert len(board) == 1
+    assert board[0].generation_method == "debate_abstain"
+    assert "Hierarchy-of-Truth" in board[0].thesis or "Regime gate" in board[0].reasoning

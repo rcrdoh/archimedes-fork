@@ -465,13 +465,85 @@ def _abstain_result(candidate_id: str, *, regime: str, reason: str) -> _Candidat
     )
 
 
-def build_leaderboard(rigor_results: list[tuple[Any, Any]], *, regime: str, base_id: str) -> list[_CandidateResult]:
-    """Deterministic C-null cull + rank → the top-N leaderboard (leader first).
+def _critic_regime() -> dict[str, Any]:
+    """C-regime (Xia §4.4 Hierarchy-of-Truth) — read the live exogenous regime.
 
-    Returns ``[abstain]`` when no candidate clears the passive null. The leader
-    keeps ``base_id``; alternatives get ``base_id_alt{n}`` so the persist tail can
-    distinguish them. Pure + deterministic — directly unit-tested.
+    **Non-votable.** A live CRISIS read forces ABSTAIN regardless of how good the
+    candidates look — crisis is exactly when you do NOT deploy a fresh strategy,
+    and no bull argument can override it. DEGRADED (GMM artifact missing → VIX
+    rule-based fallback) is surfaced honestly and lowers confidence, but does not
+    by itself force abstain (else the society would always abstain when the model
+    is unavailable). Never raises — any failure degrades to "unavailable, don't
+    force" so the regime critic can only ABSTAIN, never spuriously APPROVE.
+
+    Returns a dict: ``regime`` (str|None), ``confidence`` (float), ``degraded``
+    (bool), ``force_abstain`` (bool), ``reason`` (str).
     """
+    out: dict[str, Any] = {
+        "regime": None,
+        "confidence": 0.0,
+        "degraded": True,
+        "force_abstain": False,
+        "reason": "regime detector unavailable — not gating",
+    }
+    try:
+        from archimedes.models.regime import Regime
+        from archimedes.services.gmm_regime_detector import GmmRegimeDetector, gmm_regime_health
+
+        health = gmm_regime_health()
+        degraded = health.status != "live"
+        rc = GmmRegimeDetector().get_current_regime()
+        regime = rc.regime if rc is not None else None
+        confidence = float(rc.confidence) if rc is not None else 0.0
+        force_abstain = regime == Regime.CRISIS
+        if regime is None:
+            reason = "no regime read — not gating"
+        elif force_abstain:
+            reason = (
+                f"CRISIS regime (confidence={confidence:.2f}"
+                f"{', GMM degraded → VIX fallback' if degraded else ''}) — non-votable ABSTAIN"
+            )
+        else:
+            reason = (
+                f"regime={regime.value} confidence={confidence:.2f}"
+                f"{' (GMM degraded → VIX rule-based fallback)' if degraded else ''}"
+            )
+        out = {
+            "regime": regime.value if regime is not None else None,
+            "confidence": confidence,
+            "degraded": degraded,
+            "force_abstain": force_abstain,
+            "reason": reason,
+        }
+    except Exception:
+        logger.debug("C-regime read failed; treating as unavailable (not gating)", exc_info=True)
+    return out
+
+
+def build_leaderboard(
+    rigor_results: list[tuple[Any, Any]],
+    *,
+    regime: str,
+    base_id: str,
+    regime_force_abstain: bool = False,
+    regime_reason: str = "",
+) -> list[_CandidateResult]:
+    """Deterministic C-regime gate → C-null cull + rank → top-N leaderboard.
+
+    The **non-votable C-regime gate runs first**: a live-CRISIS
+    ``regime_force_abstain`` short-circuits to ABSTAIN before C-null even runs —
+    market regime structurally overrides candidate consensus (Hierarchy-of-Truth).
+    Otherwise: C-null cull → rank → leaderboard (leader keeps ``base_id``,
+    alternatives get ``base_id_alt{n}``). Pure + deterministic — directly tested.
+    """
+    if regime_force_abstain:
+        return [
+            _abstain_result(
+                base_id,
+                regime=regime,
+                reason=f"Regime gate (non-votable, Hierarchy-of-Truth): {regime_reason}",
+            )
+        ]
     survivors = [(p, ev) for (p, ev) in rigor_results if _survives_null(ev)]
     if not survivors:
         return [
@@ -562,9 +634,24 @@ async def _run_debate_candidate(
     if not rigor_results:
         raise DebateUnavailable("debate: no candidate produced a successful backtest")
 
-    # Steps 4/5 — C-null cull + deterministic synthesize → leaderboard.
+    # Step 4 — C-regime (non-votable Hierarchy-of-Truth): read the live regime.
+    regime_gate = await asyncio.to_thread(_critic_regime)
+    await emit.emit(
+        "tool_result",
+        candidate_id=candidate_id,
+        tool_name="critic_regime",
+        result_summary=regime_gate["reason"],
+    )
+
+    # Step 5 — C-null cull + deterministic synthesize → leaderboard (C-regime gates first).
     await emit.emit("agent_iteration", candidate_id=candidate_id, iteration_n=3, max_iterations=4)
-    leaderboard = build_leaderboard(rigor_results, regime=regime, base_id=candidate_id)
+    leaderboard = build_leaderboard(
+        rigor_results,
+        regime=regime,
+        base_id=candidate_id,
+        regime_force_abstain=regime_gate["force_abstain"],
+        regime_reason=regime_gate["reason"],
+    )
     leader = leaderboard[0]
     await emit.emit(
         "tool_result",
