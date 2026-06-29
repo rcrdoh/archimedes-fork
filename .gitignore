@@ -101,3 +101,6 @@ htmlcov/
 !.loom/loom.config.json
 .venv/
 .claude/
+
+.agents/
+AGENTS.md
