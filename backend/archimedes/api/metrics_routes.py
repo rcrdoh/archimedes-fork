@@ -18,13 +18,16 @@ from fastapi import APIRouter, Query, Request
 
 from archimedes.api.funnel_middleware import record_funnel
 from archimedes.models.telemetry import (
+    CountryCount,
     FunnelEventRequest,
     FunnelResponse,
     FunnelStageCount,
     MetricsResponse,
+    VisitorInsightsResponse,
 )
 from archimedes.services.funnel_store import CLIENT_EMITTABLE_STAGES, STAGES, FunnelStore
 from archimedes.services.telemetry_store import TelemetryStore
+from archimedes.services.visitor_insights_store import VisitorInsightsStore
 
 metrics_router = APIRouter(prefix="/api", tags=["metrics"])
 
@@ -115,3 +118,25 @@ async def record_funnel_event(req: FunnelEventRequest, request: Request) -> dict
         return {"recorded": False}
     await record_funnel(request, req.stage)
     return {"recorded": True}
+
+
+@metrics_router.get("/metrics/visitors", response_model=VisitorInsightsResponse)
+async def get_visitor_insights() -> VisitorInsightsResponse:
+    """Where our human traffic comes from + on what device (issue #787).
+
+    Distinct HUMAN visitors (agents excluded), country via CloudFront viewer-country,
+    device via CloudFront device headers (UA fallback). Fail-safe: returns empty
+    maps when Redis is unreachable, so this always responds 200.
+    """
+    store = VisitorInsightsStore()
+    try:
+        countries, devices = await store.get_insights()
+    finally:
+        await store.close()
+    ranked = sorted(countries.items(), key=lambda kv: (-kv[1], kv[0]))
+    return VisitorInsightsResponse(
+        window="all-time",
+        countries=[CountryCount(code=c, distinct_visitors=n) for c, n in ranked],
+        devices=devices,
+        timestamp=datetime.now(UTC).isoformat(),
+    )

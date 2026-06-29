@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
-# Idempotent HTTPS setup for archimedes-arc.app on EC2
-# Usage: ssh ubuntu@<host> 'bash -s' < infra/scripts/setup-https.sh
+# DEPRECATED / LEGACY — retained for reference only (T3.7).
+# Production TLS now terminates UPSTREAM at CloudFront + the ALB (ACM certs); the
+# EC2 serves plain HTTP on :8080 and does NOT run certbot for the live TLS path
+# (nginx/nginx.conf keeps an ACME `/.well-known/acme-challenge/` passthrough only
+# for optional, out-of-band renewals — it is not used on the current CloudFront path).
+# This in-instance Let's Encrypt flow is from the pre-CloudFront era on the now-
+# decommissioned archimedes-arc.app domain and is NOT part of the current
+# architecture. Do not run it against prod.
+# Usage (historical): ssh ubuntu@<host> 'bash -s' < infra/scripts/setup-https.sh
 set -euo pipefail
 
-DOMAIN="archimedes-arc.app"
-EMAIL="chuan@gyld.fi"
+# Safety guard: this legacy script provisions Let's Encrypt against a HARDCODED
+# prod domain/email below. Refuse to run unless an operator explicitly opts in,
+# so a stray `bash -s` can never fire it by accident.
+if [[ "${ALLOW_LEGACY_HTTPS_SETUP:-}" != "1" ]]; then
+  echo "DEPRECATED: in-instance certbot is not the live TLS path (CloudFront/ACM is)." >&2
+  echo "Refusing to run. Set ALLOW_LEGACY_HTTPS_SETUP=1 to override intentionally." >&2
+  exit 1
+fi
+
+DOMAIN="archimedes-arc.com"
+EMAIL="dbrowne.up@gmail.com"
 COMPOSE_DIR="/opt/archimedes"
 
 echo "=== [1/4] Install certbot ==="

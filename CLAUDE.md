@@ -55,8 +55,9 @@ May 11–25, 2026.
   core build), so rebase late and merge fast
 - Live testnet deploy: [`https://archimedes-arc.com/`](https://archimedes-arc.com/) (CloudFront → EC2,
   Chain ID `5042002` / `0x4cef52`, Arc testnet). **Prod migrated 2026-06-24 to Dan's own AWS
-  account (`037613907429` / `us-east-1`)** — see "Project / Status" below. The old `archimedes-arc.app`
-  is being decommissioned (the `.app`/`.com` split caused the Circle passkey rpId bug, now fixed)
+  account (`037613907429` / `us-east-1`)** — see "Project / Status" below. The old `.app` domain
+  was decommissioned 2026-06-24 (its `.app`/`.com` split had caused the Circle passkey rpId bug,
+  since fixed); `.com` is the sole live domain.
 - License: [Unlicense](https://unlicense.org) — full public-domain dedication
 
 ### Project / Status (refreshed 2026-06-24 — Lepton Sprint)

@@ -29,7 +29,7 @@ configuration.
 
 ### 1. Application host (EC2) down / unhealthy
 **Detect:** `archimedes-ec2-status-check-failed` or `archimedes-alb-unhealthy-hosts`
-alarm (see `infra/cloudwatch.tf`), or `https://archimedes-arc.app/` 502/503.
+alarm (see `infra/cloudwatch.tf`), or `https://archimedes-arc.com/` 502/503.
 
 **Respond:**
 1. Confirm the target health:
