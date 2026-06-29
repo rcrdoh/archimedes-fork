@@ -18,6 +18,7 @@ Router files:
 from archimedes.api.agent_routes import agent_router
 from archimedes.api.assets_routes import assets_router
 from archimedes.api.config_routes import config_router
+from archimedes.api.marketplace_routes import marketplace_router
 from archimedes.api.papers_routes import papers_router
 from archimedes.api.regime_routes import regime_router
 from archimedes.api.strategies_routes import strategies_router
@@ -29,6 +30,7 @@ __all__ = [
     "agent_router",
     "assets_router",
     "config_router",
+    "marketplace_router",
     "papers_router",
     "regime_router",
     "strategies_router",

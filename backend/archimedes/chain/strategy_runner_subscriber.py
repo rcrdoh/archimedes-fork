@@ -35,6 +35,10 @@ logger = logging.getLogger(__name__)
 # ─── Env / Constants ───────────────────────────────────────────────────
 
 SUBSCRIBER_HOST = os.getenv("SUBSCRIBER_HOST", "0.0.0.0")
+SUBSCRIBER_ADVERTISE_HOST = os.getenv(
+    "SUBSCRIBER_ADVERTISE_HOST",
+    SUBSCRIBER_HOST,  # fallback to bind address when not set (local dev)
+)
 SUBSCRIBER_PORT = int(os.getenv("SUBSCRIBER_PORT", "8081"))
 SUBSCRIBER_WALLET_ADDRESS = os.getenv("SUBSCRIBER_WALLET_ADDRESS", "")
 SUBSCRIBER_SUB_ID = os.getenv("SUBSCRIBER_SUB_ID", "")
@@ -93,7 +97,7 @@ class SubscriberAgent:
         self.sub_id = SUBSCRIBER_SUB_ID
         self.vault_address = SUBSCRIBER_VAULT_ADDRESS
         self.pool_id = SUBSCRIBER_POOL_ID
-        self.webhook_url = f"http://{SUBSCRIBER_HOST}:{SUBSCRIBER_PORT}/events"
+        self.webhook_url = f"http://{SUBSCRIBER_ADVERTISE_HOST}:{SUBSCRIBER_PORT}/events"
         self.ephemeral_wallet_address = ""
 
         # State

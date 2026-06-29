@@ -57,8 +57,8 @@ def split(pool_id: bytes32, amount: uint256):
 
     pool: Pool = self.pools[pool_id]
 
-    assert extcall IERC20(self.usdc).transferFrom(msg.sender, pool.creator, creator_share), "creator transfer failed"
-    assert extcall IERC20(self.usdc).transferFrom(msg.sender, pool.platform, platform_share), "platform transfer failed"
+    assert extcall IERC20(self.usdc).transfer(pool.creator, creator_share), "creator transfer failed"
+    assert extcall IERC20(self.usdc).transfer(pool.platform, platform_share), "platform transfer failed"
 
     self.pools[pool_id].total_collected += amount
     self.pools[pool_id].total_disbursed += amount

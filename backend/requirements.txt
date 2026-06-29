@@ -66,5 +66,8 @@ pypdf>=6.13.3
 # paper-qa>=0.70  # Apache 2.0, sentence-transformer embeddings
 # sentence-transformers>=2.7  # required by paper-qa for embeddings
 
+# Docker SDK for marketplace container spawner
+docker>=7.0.0
+
 # AWS / S3
 boto3>=1.35

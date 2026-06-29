@@ -6,6 +6,7 @@ interface IERC20:
 
 interface IPaymentSplitter:
     def split(pool_id: bytes32, amount: uint256): nonpayable
+    def pools(pool_id: bytes32) -> (address, address, uint256, uint256, bool): view
 
 struct Subscription:
     subscriber: address
@@ -61,6 +62,15 @@ def subscribe(
     initial_deposit: uint256
 ) -> bytes32:
     assert len(webhook_url) > 0, "webhook_url required"
+
+    # Validate pool exists and is active in PaymentSplitter
+    _c: address = empty(address)
+    _p: address = empty(address)
+    _tc: uint256 = 0
+    _td: uint256 = 0
+    _pool_active: bool = False
+    _c, _p, _tc, _td, _pool_active = staticcall IPaymentSplitter(self.splitter).pools(pool_id)
+    assert _pool_active, "pool not active"
 
     sub_id: bytes32 = keccak256(
         abi_encode(pool_id, msg.sender, block.timestamp, method_id=0x00000000)

@@ -35,7 +35,6 @@ from archimedes.api.explore_routes import explore_router
 from archimedes.api.generate_routes import generate_router
 from archimedes.api.limiter import limiter
 
-# marketplace_router removed — hardcoded fees + invented math (Issue #381)
 from archimedes.api.metrics_routes import metrics_router
 from archimedes.api.portfolio_routes import portfolio_router
 from archimedes.api.proposals_routes import proposals_router
@@ -44,6 +43,7 @@ from archimedes.api.routes import (
     agent_router,
     assets_router,
     config_router,
+    marketplace_router,
     papers_router,
     regime_router,
     strategies_router,
@@ -250,7 +250,6 @@ app.include_router(chat_router)
 app.include_router(corpus_router)
 app.include_router(explore_router)
 app.include_router(generate_router)
-# marketplace_router removed (Issue #381)
 app.include_router(risk_router)
 app.include_router(portfolio_router)
 app.include_router(selection_bias_router)
@@ -259,6 +258,7 @@ app.include_router(user_router)
 app.include_router(auth_router)
 app.include_router(proposals_router)
 app.include_router(metrics_router)
+app.include_router(marketplace_router)
 
 
 @app.get("/health")

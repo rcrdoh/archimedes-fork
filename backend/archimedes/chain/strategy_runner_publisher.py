@@ -94,8 +94,7 @@ def _eval_step_payload(step: str, tick_id: str, signals: dict[str, Any]) -> dict
     }
 
 
-def _rebalance_payload(tick_id: str, action_count: int, trades: list,
-                       target_weights: dict) -> dict:
+def _rebalance_payload(tick_id: str, action_count: int, trades: list, target_weights: dict) -> dict:
     return {
         "type": "rebalance",
         "tick_id": tick_id,
@@ -130,13 +129,8 @@ class PublisherAgent:
         self.redis = AgentStateStore()
 
         # Override contract addresses from env vars (not in ChainSettings)
-        self.payment_splitter_address = (
-            PAYMENT_SPLITTER_ADDRESS or self.settings.payment_splitter_address
-        )
-        self.subscription_manager_address = (
-            SUBSCRIPTION_MANAGER_ADDRESS
-            or self.settings.subscription_manager_address
-        )
+        self.payment_splitter_address = PAYMENT_SPLITTER_ADDRESS or self.settings.payment_splitter_address
+        self.subscription_manager_address = SUBSCRIPTION_MANAGER_ADDRESS or self.settings.subscription_manager_address
 
         # Strategy identity
         self.strategy_id = PUBLISHER_STRATEGY_ID
@@ -179,7 +173,9 @@ class PublisherAgent:
         self._initialized = True
         logger.info(
             "Publisher initialized: strategy=%s vault=%s pool=%s",
-            self.strategy_id, self.vault_address, self.pool_id,
+            self.strategy_id,
+            self.vault_address,
+            self.pool_id,
         )
 
     async def _load_or_create_vault(self) -> str:
@@ -215,9 +211,7 @@ class PublisherAgent:
             logger.info("DRY RUN: would create pool %s", pool_id)
             return pool_id
 
-        contract = self.loader._contract(
-            self.payment_splitter_address, "PaymentSplitter"
-        )
+        contract = self.loader._contract(self.payment_splitter_address, "PaymentSplitter")
         try:
             pool_data = await contract.functions.pools(pool_id).call()
             if pool_data[4]:  # active
@@ -233,14 +227,14 @@ class PublisherAgent:
                 [pool_id, CREATOR_ADDRESS, PLATFORM_WALLET],
             )
         else:
-            tx = await contract.functions.createPool(
-                pool_id, CREATOR_ADDRESS, PLATFORM_WALLET
-            ).build_transaction({
-                "from": self.settings.agent_account.address,
-                "nonce": await self._get_nonce(),
-                "gas": 200_000,
-                "gasPrice": await self._get_gas_price(),
-            })
+            tx = await contract.functions.createPool(pool_id, CREATOR_ADDRESS, PLATFORM_WALLET).build_transaction(
+                {
+                    "from": self.settings.agent_account.address,
+                    "nonce": await self._get_nonce(),
+                    "gas": 200_000,
+                    "gasPrice": await self._get_gas_price(),
+                }
+            )
             signed = self.settings.agent_account.sign_transaction(tx)
             await self._send_raw(signed.raw_transaction)
 
@@ -252,9 +246,7 @@ class PublisherAgent:
         data = await self.redis.redis.get(redis_key)
         if data:
             raw = json.loads(data.decode())
-            self.subscribers = {
-                sid: SubscriberInfo(**info) for sid, info in raw.items()
-            }
+            self.subscribers = {sid: SubscriberInfo(**info) for sid, info in raw.items()}
             logger.info("Restored %d subscribers from Redis", len(self.subscribers))
 
     async def _persist_subscribers(self):
@@ -283,18 +275,26 @@ class PublisherAgent:
         for attempt in range(1, MAX_WEBHOOK_RETRIES + 1):
             try:
                 async with self._http_session.post(
-                    url, json=payload, timeout=aiohttp.ClientTimeout(total=10),
+                    url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     if resp.status == 200:
                         return True
                     logger.warning(
                         "Webhook %s returned %d (attempt %d/%d)",
-                        url, resp.status, attempt, MAX_WEBHOOK_RETRIES,
+                        url,
+                        resp.status,
+                        attempt,
+                        MAX_WEBHOOK_RETRIES,
                     )
             except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
                 logger.warning(
                     "Webhook %s failed: %s (attempt %d/%d)",
-                    url, exc, attempt, MAX_WEBHOOK_RETRIES,
+                    url,
+                    exc,
+                    attempt,
+                    MAX_WEBHOOK_RETRIES,
                 )
             if attempt < MAX_WEBHOOK_RETRIES:
                 await asyncio.sleep(WEBHOOK_BACKOFF * (2 ** (attempt - 1)))
@@ -310,8 +310,7 @@ class PublisherAgent:
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for (sub_id, info), ok in zip(
-                [(s, i) for s, i in self.subscribers.items()
-                 if not only_active or i.active],
+                [(s, i) for s, i in self.subscribers.items() if not only_active or i.active],
                 results,
             ):
                 if isinstance(ok, Exception) or not ok:
@@ -329,11 +328,9 @@ class PublisherAgent:
 
     # ─── On-chain Helpers ──────────────────────────────────────────
 
-    def _get_nonce(self):
-        from web3 import Web3
-        return (
-            self.settings.web3_provider or Web3(Web3.HTTPProvider(self.settings.arc_rpc_url))
-        ).eth.get_transaction_count(self.settings.agent_account.address)
+    async def _get_nonce(self):
+        w3 = self.loader.client.w3
+        return await w3.eth.get_transaction_count(self.settings.agent_account.address)
 
     async def _get_gas_price(self):
         w3 = self.loader.client.w3
@@ -354,9 +351,7 @@ class PublisherAgent:
             logger.info("DRY RUN: charge %s for %d actions", sub_id, action_count)
             return True
 
-        contract = self.loader._contract(
-            self.subscription_manager_address, "SubscriptionManager"
-        )
+        contract = self.loader._contract(self.subscription_manager_address, "SubscriptionManager")
         try:
             if self.circle_signer.is_configured:
                 await self.circle_signer.execute_contract(
@@ -365,14 +360,14 @@ class PublisherAgent:
                     [sub_id, action_count],
                 )
             else:
-                tx = await contract.functions.chargeActions(
-                    sub_id, action_count
-                ).build_transaction({
-                    "from": self.settings.agent_account.address,
-                    "nonce": await self._get_nonce(),
-                    "gas": 200_000,
-                    "gasPrice": await self._get_gas_price(),
-                })
+                tx = await contract.functions.chargeActions(sub_id, action_count).build_transaction(
+                    {
+                        "from": self.settings.agent_account.address,
+                        "nonce": await self._get_nonce(),
+                        "gas": 200_000,
+                        "gasPrice": await self._get_gas_price(),
+                    }
+                )
                 signed = self.settings.agent_account.sign_transaction(tx)
                 await self._send_raw(signed.raw_transaction)
             return True
@@ -403,8 +398,7 @@ class PublisherAgent:
         self._tick_counter += 1
         tick_id = f"{TICK_ID_PREFIX}_{int(time.time())}_{self._tick_counter}"
 
-        logger.info("Tick %d (%s) — %d subscribers",
-                     self._tick_counter, tick_id, len(self.subscribers))
+        logger.info("Tick %d (%s) — %d subscribers", self._tick_counter, tick_id, len(self.subscribers))
 
         # 1. Load & evaluate strategy (simplified — single strategy)
         signals = await self._evaluate_strategy()
@@ -432,8 +426,7 @@ class PublisherAgent:
                 logger.warning("Halted at %s: %s", step_name, step_msg)
                 return
 
-            pl = _eval_step_payload(step_name, tick_id,
-                                    {"status": "ok", "signals_count": len(signals)})
+            pl = _eval_step_payload(step_name, tick_id, {"status": "ok", "signals_count": len(signals)})
             await self._notify_all(pl)
 
         # 4. Determine if rebalance needed
@@ -453,7 +446,8 @@ class PublisherAgent:
             if not charged:
                 info.active = False
                 halt_pl = _halt_payload(
-                    tick_id, "pre_rebalance",
+                    tick_id,
+                    "pre_rebalance",
                     "insufficient_balance",
                     f"Subscriber {sub_id} has insufficient balance",
                 )
@@ -477,6 +471,7 @@ class PublisherAgent:
         """Evaluate a single strategy. Simplified for publisher context."""
         try:
             from archimedes.strategies.registry import StrategyRegistry
+
             registry = StrategyRegistry()
             strategy = registry.get(self.strategy_id)
             if not strategy:
@@ -485,6 +480,7 @@ class PublisherAgent:
 
             # Evaluate signals (simplified)
             from archimedes.chain.strategy_signal_evaluator import evaluate_strategy_signals
+
             signals = await evaluate_strategy_signals(
                 self.strategy_id,
                 strategy.parameters,
@@ -518,9 +514,7 @@ class PublisherAgent:
         if DRY_RUN:
             logger.info("DRY RUN: would validate sub_id %s on-chain", req.sub_id)
         else:
-            contract = self.loader._contract(
-                self.subscription_manager_address, "SubscriptionManager"
-            )
+            contract = self.loader._contract(self.subscription_manager_address, "SubscriptionManager")
             try:
                 sub_data = await contract.functions.subscriptions(req.sub_id).call()
                 if not sub_data[5]:  # active field
@@ -575,10 +569,7 @@ class PublisherAgent:
 
     async def handle_subscribers_list(self) -> list[dict]:
         """GET /subscribers — return active sub_ids (no webhook URLs)."""
-        return [
-            {"sub_id": sid, "active": info.active}
-            for sid, info in self.subscribers.items()
-        ]
+        return [{"sub_id": sid, "active": info.active} for sid, info in self.subscribers.items()]
 
     # ─── Lifecycle ─────────────────────────────────────────────────
 
@@ -643,12 +634,14 @@ async def _run_loop():
 
 # ─── Main ──────────────────────────────────────────────────────────────
 
+
 def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     import uvicorn
+
     uvicorn.run(app, host=PUBLISHER_HOST, port=PUBLISHER_PORT)
 
 

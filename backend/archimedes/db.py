@@ -68,6 +68,7 @@ def init_db() -> None:
     # appear if some other code path imports archimedes.models.kg first.
     from archimedes.models import (
         kg,  # noqa: F401
+        marketplace,  # noqa: F401
         strategy_passport_record,  # noqa: F401
     )
 

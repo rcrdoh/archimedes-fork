@@ -3,5 +3,6 @@ WORKDIR /app
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
+COPY contracts/abis/ /contracts/abis/
 ENV PYTHONPATH=/app
 CMD ["python", "-m", "archimedes.chain.strategy_runner_subscriber"]
