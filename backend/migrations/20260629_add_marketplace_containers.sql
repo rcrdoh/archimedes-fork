@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS marketplace_containers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     container_id   VARCHAR(72)  NOT NULL UNIQUE,
     container_name VARCHAR(128) NOT NULL UNIQUE,
     role           VARCHAR(16)  NOT NULL,

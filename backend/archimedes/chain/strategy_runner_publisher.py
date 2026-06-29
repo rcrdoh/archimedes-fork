@@ -248,6 +248,12 @@ class PublisherAgent:
             raw = json.loads(data.decode())
             self.subscribers = {sid: SubscriberInfo(**info) for sid, info in raw.items()}
             logger.info("Restored %d subscribers from Redis", len(self.subscribers))
+        else:
+            logger.warning(
+                "Subscriber registry is empty after restore for strategy %s. "
+                "Existing subscribers must re-register or no Redis state was found.",
+                self.strategy_id,
+            )
 
     async def _persist_subscribers(self):
         """Save subscriber registry to Redis."""
@@ -557,6 +563,16 @@ class PublisherAgent:
         logger.info("Updated ephemeral wallet for %s", req.sub_id)
         return {"status": "updated"}
 
+    async def handle_unsubscribe(self, sub_id: str) -> dict:
+        """POST /unsubscribe — remove a subscriber from the registry."""
+        if sub_id not in self.subscribers:
+            raise HTTPException(status_code=404, detail="Subscriber not found")
+
+        info = self.subscribers.pop(sub_id)
+        await self._persist_subscribers()
+        logger.info("Unsubscribed %s (webhook: %s)", sub_id, info.webhook_url)
+        return {"status": "unsubscribed", "sub_id": sub_id}
+
     async def handle_health(self) -> dict:
         """GET /health."""
         return {
@@ -610,6 +626,15 @@ async def subscribe(req: SubscribeRequest):
 @app.post("/update-ephemeral")
 async def update_ephemeral(req: UpdateEphemeralRequest):
     return await agent.handle_update_ephemeral(req)
+
+
+class UnsubscribeRequest(BaseModel):
+    sub_id: str = Field(..., description="Hex-encoded bytes32 sub_id to remove")
+
+
+@app.post("/unsubscribe")
+async def unsubscribe(req: UnsubscribeRequest):
+    return await agent.handle_unsubscribe(req.sub_id)
 
 
 @app.get("/health")

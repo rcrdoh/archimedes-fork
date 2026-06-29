@@ -5,21 +5,20 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from archimedes.api.auth_siwe import require_verified_wallet
 from archimedes.db import get_session
 from archimedes.models.marketplace import MarketplaceContainer
 from archimedes.services.container_spawner import (
-    ContainerAlreadyRunningError,
     ContainerSpawnError,
     DockerUnavailableError,
-    PublisherNotRunningError,
     spawn_publisher,
     spawn_subscriber,
     stop_container,
 )
-from archimedes.api.auth_siwe import require_verified_wallet
 
 logger = logging.getLogger(__name__)
 
@@ -151,60 +150,62 @@ async def publish_strategy(
 ):
     """Publish a strategy — spawns a publisher agent container."""
     db = get_session()
-
-    # Check for existing running publisher
-    existing = (
-        db.query(MarketplaceContainer)
-        .filter(
-            MarketplaceContainer.strategy_id == body.strategy_id,
-            MarketplaceContainer.role == "publisher",
-            MarketplaceContainer.status == "running",
-        )
-        .first()
-    )
-    if existing is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="Publisher already running for this strategy",
-        )
-
     try:
-        result = spawn_publisher(
+        # Check for existing running publisher
+        existing = (
+            db.query(MarketplaceContainer)
+            .filter(
+                MarketplaceContainer.strategy_id == body.strategy_id,
+                MarketplaceContainer.role == "publisher",
+                MarketplaceContainer.status == "running",
+            )
+            .first()
+        )
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Publisher already running for this strategy",
+            )
+
+        try:
+            result = spawn_publisher(
+                strategy_id=body.strategy_id,
+                creator_wallet=wallet,
+                pool_id=body.pool_id,
+                vault_address=body.vault_address,
+                platform_wallet=body.platform_wallet,
+            )
+        except DockerUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ContainerSpawnError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        # Persist
+        row = MarketplaceContainer(
+            container_id=result["container_id"],
+            container_name=result["container_name"],
+            role="publisher",
             strategy_id=body.strategy_id,
             creator_wallet=wallet,
-            pool_id=body.pool_id,
+            sub_id=body.pool_id,  # store pool_id in sub_id field for publisher rows
             vault_address=body.vault_address,
-            platform_wallet=body.platform_wallet,
+            publisher_endpoint=result["publisher_endpoint"],
+            status="running",
+            created_at=datetime.now(UTC),
         )
-    except DockerUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ContainerSpawnError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        db.add(row)
+        db.commit()
 
-    # Persist
-    row = MarketplaceContainer(
-        container_id=result["container_id"],
-        container_name=result["container_name"],
-        role="publisher",
-        strategy_id=body.strategy_id,
-        creator_wallet=wallet,
-        sub_id=body.pool_id,  # store pool_id in sub_id field for publisher rows
-        vault_address=body.vault_address,
-        publisher_endpoint=result["publisher_endpoint"],
-        status="running",
-        created_at=datetime.now(UTC),
-    )
-    db.add(row)
-    db.commit()
-
-    return PublishResponse(
-        container_id=result["container_id"],
-        container_name=result["container_name"],
-        publisher_endpoint=result["publisher_endpoint"],
-        strategy_id=body.strategy_id,
-        vault_address=body.vault_address,
-        status="spawned",
-    )
+        return PublishResponse(
+            container_id=result["container_id"],
+            container_name=result["container_name"],
+            publisher_endpoint=result["publisher_endpoint"],
+            strategy_id=body.strategy_id,
+            vault_address=body.vault_address,
+            status="spawned",
+        )
+    finally:
+        db.close()
 
 
 # ── POST /subscribe ───────────────────────────────────────────────────────
@@ -218,77 +219,79 @@ async def subscribe_strategy(
 ):
     """Subscribe to a published strategy — spawns a subscriber agent container."""
     db = get_session()
-
-    # Find running publisher
-    publisher = (
-        db.query(MarketplaceContainer)
-        .filter(
-            MarketplaceContainer.strategy_id == body.strategy_id,
-            MarketplaceContainer.role == "publisher",
-            MarketplaceContainer.status == "running",
-        )
-        .first()
-    )
-    if publisher is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No running publisher for this strategy",
-        )
-
-    # Check for existing running subscriber for this wallet
-    existing_sub = (
-        db.query(MarketplaceContainer)
-        .filter(
-            MarketplaceContainer.strategy_id == body.strategy_id,
-            MarketplaceContainer.role == "subscriber",
-            MarketplaceContainer.subscriber_wallet == wallet,
-            MarketplaceContainer.status == "running",
-        )
-        .first()
-    )
-    if existing_sub is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="Already subscribed to this strategy",
-        )
-
     try:
-        result = spawn_subscriber(
+        # Find running publisher
+        publisher = (
+            db.query(MarketplaceContainer)
+            .filter(
+                MarketplaceContainer.strategy_id == body.strategy_id,
+                MarketplaceContainer.role == "publisher",
+                MarketplaceContainer.status == "running",
+            )
+            .first()
+        )
+        if publisher is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No running publisher for this strategy",
+            )
+
+        # Check for existing running subscriber for this wallet
+        existing_sub = (
+            db.query(MarketplaceContainer)
+            .filter(
+                MarketplaceContainer.strategy_id == body.strategy_id,
+                MarketplaceContainer.role == "subscriber",
+                MarketplaceContainer.subscriber_wallet == wallet,
+                MarketplaceContainer.status == "running",
+            )
+            .first()
+        )
+        if existing_sub is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Already subscribed to this strategy",
+            )
+
+        try:
+            result = spawn_subscriber(
+                strategy_id=body.strategy_id,
+                subscriber_wallet=wallet,
+                pool_id=body.pool_id,
+                sub_id=body.sub_id,
+                publisher_container_name=publisher.container_name,
+                initial_deposit_usdc=body.initial_deposit_usdc,
+            )
+        except DockerUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ContainerSpawnError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        # Persist
+        row = MarketplaceContainer(
+            container_id=result["container_id"],
+            container_name=result["container_name"],
+            role="subscriber",
             strategy_id=body.strategy_id,
             subscriber_wallet=wallet,
-            pool_id=body.pool_id,
             sub_id=body.sub_id,
-            publisher_container_name=publisher.container_name,
-            initial_deposit_usdc=body.initial_deposit_usdc,
+            publisher_endpoint=publisher.publisher_endpoint,
+            status="running",
+            created_at=datetime.now(UTC),
         )
-    except DockerUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ContainerSpawnError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        db.add(row)
+        db.commit()
 
-    # Persist
-    row = MarketplaceContainer(
-        container_id=result["container_id"],
-        container_name=result["container_name"],
-        role="subscriber",
-        strategy_id=body.strategy_id,
-        subscriber_wallet=wallet,
-        sub_id=body.sub_id,
-        publisher_endpoint=publisher.publisher_endpoint,
-        status="running",
-        created_at=datetime.now(UTC),
-    )
-    db.add(row)
-    db.commit()
-
-    return SubscribeResponse(
-        container_id=result["container_id"],
-        container_name=result["container_name"],
-        strategy_id=body.strategy_id,
-        sub_id=body.sub_id,
-        publisher_endpoint=publisher.publisher_endpoint,
-        status="spawned",
-    )
+        return SubscribeResponse(
+            container_id=result["container_id"],
+            container_name=result["container_name"],
+            strategy_id=body.strategy_id,
+            sub_id=body.sub_id,
+            publisher_endpoint=publisher.publisher_endpoint,
+            status="spawned",
+        )
+    finally:
+        db.close()
 
 
 # ── DELETE /publish/{strategy_id} ────────────────────────────────────────
@@ -302,34 +305,37 @@ async def stop_publish(
 ):
     """Stop a publisher container. Only the creator_wallet may stop it."""
     db = get_session()
-    row = (
-        db.query(MarketplaceContainer)
-        .filter(
-            MarketplaceContainer.strategy_id == strategy_id,
-            MarketplaceContainer.role == "publisher",
-            MarketplaceContainer.status == "running",
-        )
-        .first()
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="No running publisher found")
-
-    if row.creator_wallet != wallet:
-        raise HTTPException(
-            status_code=403,
-            detail="Only the creator may stop this publisher",
-        )
-
     try:
-        stop_container(row.container_name)
-    except DockerUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        row = (
+            db.query(MarketplaceContainer)
+            .filter(
+                MarketplaceContainer.strategy_id == strategy_id,
+                MarketplaceContainer.role == "publisher",
+                MarketplaceContainer.status == "running",
+            )
+            .first()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="No running publisher found")
 
-    row.status = "stopped"
-    row.stopped_at = datetime.now(UTC)
-    db.commit()
+        if row.creator_wallet != wallet:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the creator may stop this publisher",
+            )
 
-    return StopResponse(status="stopped", container_name=row.container_name)
+        try:
+            stop_container(row.container_name)
+        except DockerUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        row.status = "stopped"
+        row.stopped_at = datetime.now(UTC)
+        db.commit()
+
+        return StopResponse(status="stopped", container_name=row.container_name)
+    finally:
+        db.close()
 
 
 # ── DELETE /subscribe/{strategy_id} ──────────────────────────────────────
@@ -341,31 +347,56 @@ async def stop_subscription(
     request: Request,
     wallet: str = Depends(require_verified_wallet),
 ):
-    """Stop a subscriber container. Only the subscriber_wallet may stop it."""
+    """Stop a subscriber container. Only the subscriber_wallet may stop it.
+    Before stopping, forwards unsubscribe to the publisher (best-effort).
+    """
     db = get_session()
-    row = (
-        db.query(MarketplaceContainer)
-        .filter(
-            MarketplaceContainer.strategy_id == strategy_id,
-            MarketplaceContainer.role == "subscriber",
-            MarketplaceContainer.subscriber_wallet == wallet,
-            MarketplaceContainer.status == "running",
-        )
-        .first()
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="No running subscription found")
-
     try:
-        stop_container(row.container_name)
-    except DockerUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        row = (
+            db.query(MarketplaceContainer)
+            .filter(
+                MarketplaceContainer.strategy_id == strategy_id,
+                MarketplaceContainer.role == "subscriber",
+                MarketplaceContainer.subscriber_wallet == wallet,
+                MarketplaceContainer.status == "running",
+            )
+            .first()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="No running subscription found")
 
-    row.status = "stopped"
-    row.stopped_at = datetime.now(UTC)
-    db.commit()
+        # F1: Forward unsubscribe to publisher (best-effort, never blocks stop)
+        pub_row = (
+            db.query(MarketplaceContainer)
+            .filter(
+                MarketplaceContainer.strategy_id == row.strategy_id,
+                MarketplaceContainer.role == "publisher",
+                MarketplaceContainer.status == "running",
+            )
+            .first()
+        )
+        if pub_row and pub_row.publisher_endpoint and row.sub_id:
+            try:
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    await client.post(
+                        f"{pub_row.publisher_endpoint}/unsubscribe",
+                        json={"sub_id": row.sub_id},
+                    )
+            except Exception:
+                pass  # best-effort — container stop proceeds regardless
 
-    return StopResponse(status="stopped", container_name=row.container_name)
+        try:
+            stop_container(row.container_name)
+        except DockerUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        row.status = "stopped"
+        row.stopped_at = datetime.now(UTC)
+        db.commit()
+
+        return StopResponse(status="stopped", container_name=row.container_name)
+    finally:
+        db.close()
 
 
 # ── GET /published ────────────────────────────────────────────────────────
@@ -382,33 +413,35 @@ async def list_published(
     No auth required — this is the primary feed endpoint for the UI.
     """
     db = get_session()
-
-    query = db.query(MarketplaceContainer).filter(
-        MarketplaceContainer.role == "publisher",
-    )
-
-    if status != "all":
-        query = query.filter(MarketplaceContainer.status == status)
-
-    total = query.count()
-    publishers = query.order_by(MarketplaceContainer.created_at.desc()).offset(offset).limit(limit).all()
-
-    strategies = []
-    for pub in publishers:
-        subscribers = (
-            db.query(MarketplaceContainer)
-            .filter(
-                MarketplaceContainer.role == "subscriber",
-                MarketplaceContainer.strategy_id == pub.strategy_id,
-            )
-            .all()
+    try:
+        query = db.query(MarketplaceContainer).filter(
+            MarketplaceContainer.role == "publisher",
         )
-        sub_summaries = [_subscriber_from_row(s) for s in subscribers]
-        active_count = sum(1 for s in subscribers if s.status == "running")
 
-        strategies.append(_published_from_row(pub, sub_summaries, active_count))
+        if status != "all":
+            query = query.filter(MarketplaceContainer.status == status)
 
-    return PublishedStrategyListResponse(strategies=strategies, total=total)
+        total = query.count()
+        publishers = query.order_by(MarketplaceContainer.created_at.desc()).offset(offset).limit(limit).all()
+
+        strategies = []
+        for pub in publishers:
+            subscribers = (
+                db.query(MarketplaceContainer)
+                .filter(
+                    MarketplaceContainer.role == "subscriber",
+                    MarketplaceContainer.strategy_id == pub.strategy_id,
+                )
+                .all()
+            )
+            sub_summaries = [_subscriber_from_row(s) for s in subscribers]
+            active_count = sum(1 for s in subscribers if s.status == "running")
+
+            strategies.append(_published_from_row(pub, sub_summaries, active_count))
+
+        return PublishedStrategyListResponse(strategies=strategies, total=total)
+    finally:
+        db.close()
 
 
 # ── GET /published/{strategy_id} ─────────────────────────────────────────
@@ -418,30 +451,33 @@ async def list_published(
 async def published_detail(strategy_id: str):
     """Return full detail for one published strategy."""
     db = get_session()
-    pub = (
-        db.query(MarketplaceContainer)
-        .filter(
-            MarketplaceContainer.strategy_id == strategy_id,
-            MarketplaceContainer.role == "publisher",
+    try:
+        pub = (
+            db.query(MarketplaceContainer)
+            .filter(
+                MarketplaceContainer.strategy_id == strategy_id,
+                MarketplaceContainer.role == "publisher",
+            )
+            .order_by(MarketplaceContainer.created_at.desc())
+            .first()
         )
-        .order_by(MarketplaceContainer.created_at.desc())
-        .first()
-    )
-    if pub is None:
-        raise HTTPException(status_code=404, detail="Strategy not found")
+        if pub is None:
+            raise HTTPException(status_code=404, detail="Strategy not found")
 
-    subscribers = (
-        db.query(MarketplaceContainer)
-        .filter(
-            MarketplaceContainer.role == "subscriber",
-            MarketplaceContainer.strategy_id == strategy_id,
+        subscribers = (
+            db.query(MarketplaceContainer)
+            .filter(
+                MarketplaceContainer.role == "subscriber",
+                MarketplaceContainer.strategy_id == strategy_id,
+            )
+            .all()
         )
-        .all()
-    )
-    sub_summaries = [_subscriber_from_row(s) for s in subscribers]
-    active_count = sum(1 for s in subscribers if s.status == "running")
+        sub_summaries = [_subscriber_from_row(s) for s in subscribers]
+        active_count = sum(1 for s in subscribers if s.status == "running")
 
-    return _published_from_row(pub, sub_summaries, active_count)
+        return _published_from_row(pub, sub_summaries, active_count)
+    finally:
+        db.close()
 
 
 # ── GET /my-subscriptions ────────────────────────────────────────────────
@@ -454,14 +490,17 @@ async def my_subscriptions(
 ):
     """Return all subscriber containers owned by the authenticated wallet."""
     db = get_session()
-    rows = (
-        db.query(MarketplaceContainer)
-        .filter(
-            MarketplaceContainer.role == "subscriber",
-            MarketplaceContainer.subscriber_wallet == wallet,
+    try:
+        rows = (
+            db.query(MarketplaceContainer)
+            .filter(
+                MarketplaceContainer.role == "subscriber",
+                MarketplaceContainer.subscriber_wallet == wallet,
+            )
+            .order_by(MarketplaceContainer.created_at.desc())
+            .all()
         )
-        .order_by(MarketplaceContainer.created_at.desc())
-        .all()
-    )
-    summaries = [_subscriber_from_row(r) for r in rows]
-    return MySubscriptionsResponse(subscriptions=summaries, total=len(summaries))
+        summaries = [_subscriber_from_row(r) for r in rows]
+        return MySubscriptionsResponse(subscriptions=summaries, total=len(summaries))
+    finally:
+        db.close()
