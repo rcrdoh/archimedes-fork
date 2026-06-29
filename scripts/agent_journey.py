@@ -101,7 +101,15 @@ def step_read(client: httpx.Client) -> None:
 
 
 def step_generate(client: httpx.Client, intent: str, risk: str, timeout_s: float) -> str | None:
-    """Start a generation, tail the SSE stream, return the job_id (or None on failure)."""
+    """Start a generation, tail the SSE stream, return the job_id (or None on failure).
+
+    Timeout tradeoff (reference harness): the SSE read timeout is disabled (``read=None``)
+    so a slow generation that writes infrequently isn't killed mid-stream; the ``deadline``
+    is enforced per-line inside the loop. The known gap: if the backend accepts the
+    connection but never writes a *single* byte, ``iter_lines()`` blocks and the per-line
+    deadline check never runs, so the harness can hang until the process is killed. Acceptable
+    for a dogfooding harness; a production client should add a wall-clock watchdog / cancel.
+    """
     _hr("GENERATE — start + stream (no wallet)")
 
     body = {
