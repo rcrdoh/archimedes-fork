@@ -375,16 +375,51 @@ def test_leaderboard_entries_carry_cited_papers():
     assert union == {"2401.00001", "2402.00001"}
 
 
-async def test_debate_round_transcript_in_fixed_role_order(monkeypatch):
-    monkeypatch.setattr(
-        "archimedes.services.llm_backend.make_llm_backend", lambda model=None, **k: _CannedFusionBackend(model=model)
-    )
+class _DebateBackend:
+    """Records prompts; returns role-appropriate claims so the rebuttal is testable."""
+
+    model_id = "x"
+    served_model = "x"
+    available = True
+
+    def __init__(self):
+        self.prompts = []
+
+    def complete(self, system, user):
+        self.prompts.append(system)
+        role = "bull" if "bull researcher" in system else "bear"
+        return json.dumps(
+            {
+                "verdict": "act" if role == "bull" else "decline",
+                "confidence": 0.7,
+                "key_claims": [f"{role}-claim"],
+            }
+        )
+
+
+async def test_debate_round_two_rounds_with_visible_rebuttal(monkeypatch):
+    backend = _DebateBackend()
+    monkeypatch.setattr("archimedes.services.llm_backend.make_llm_backend", lambda model=None, **k: backend)
     monkeypatch.setattr(de.asyncio, "to_thread", _passthrough_to_thread)
 
     pool = [_fake_proposal("A", ["2401.00001", "2402.00001"])]
     transcript = await de._debate_round(pool, "m", _FakeEmit(), "cand_1")
-    # Best-effort round still produces a deterministic [bull, bear] ordering.
-    assert [t["role"] for t in transcript] == ["bull", "bear"]
+    # Fixed [bull-r1, bear-r1, bull-r2, bear-r2] order (R3 determinism).
+    assert [(t["role"], t["round"]) for t in transcript] == [("bull", 1), ("bear", 1), ("bull", 2), ("bear", 2)]
+    # The visible rebuttal: each round-2 prompt carries the OTHER side's round-1 claim.
+    bull_r2_prompt, bear_r2_prompt = backend.prompts[2], backend.prompts[3]
+    assert "bear-claim" in bull_r2_prompt  # bull rebuts the bear
+    assert "bull-claim" in bear_r2_prompt  # bear rebuts the bull
+
+
+async def test_debate_round_degrades_when_backend_unavailable(monkeypatch):
+    class _Down:
+        available = False
+
+    monkeypatch.setattr("archimedes.services.llm_backend.make_llm_backend", lambda model=None, **k: _Down())
+    monkeypatch.setattr(de.asyncio, "to_thread", _passthrough_to_thread)
+    transcript = await de._debate_round([_fake_proposal("A", ["1", "2"])], "m", _FakeEmit(), "cand_1")
+    assert transcript == []  # never gates; no backend → empty best-effort transcript
 
 
 # ── Review fixes: pool-max bound + leaderboard top-N cap ──────────────────────

@@ -279,18 +279,26 @@ async def _propose_pool(brief: GenerateBrief, model: str | None, corpus: list[An
 # ── Step 2 — best-effort adversarial round (transcript only, never gates) ─────
 
 _DEBATE_SYSTEM = (
-    "You are the {role} researcher in a quant strategy debate. {stance}. "
-    "Cite ONLY the listed candidate strategies. Reply with ONE JSON object: "
-    '{{"verdict": "act"|"decline", "confidence": <0..1>, "key_claims": [<str>...]}}.'
+    "You are the {role} researcher in a quant strategy debate, round {rnd}. {stance}. "
+    "Cite ONLY the listed candidate strategies. {rebuttal}"
+    'Reply with ONE JSON object: {{"verdict": "act"|"decline", "confidence": <0..1>, "key_claims": [<str>...]}}.'
 )
+
+_DEBATE_STANCES = {
+    "bull": "Argue FOR acting on the strongest candidate",
+    "bear": "Argue for ABSTENTION — the null is buy-and-hold; attack overfit/cost",
+}
 
 
 async def _debate_round(pool: list[Any], model: str | None, emit: _Emitter, candidate_id: str) -> list[dict[str, Any]]:
-    """Thin best-effort bull/bear round — transcript only, never gates (Phase 1).
+    """Best-effort bull/bear research debate with ONE visible rebuttal round.
 
-    Surfaces the adversarial topology on the SSE stream. Any failure (no backend,
-    unparseable output) degrades to a neutral transcript entry. The transcript is
-    built in fixed [bull, bear] role order for R3 determinism (sort-before-hash).
+    Round 1: bull + bear state initial positions. Round 2: each REBUTS the other's
+    round-1 claims (the visible adversarial turn — the "debate" the roadmap names).
+    Transcript ONLY — it never gates; the deterministic critics do the real culling.
+    Built in fixed ``[bull-r1, bear-r1, bull-r2, bear-r2]`` order for R3 determinism
+    (sort-before-hash). Any failure (no backend, unparseable output) degrades to a
+    neutral entry; the whole round is skipped if no backend is available.
     """
     from archimedes.agents.strategy_architect import extract_json
     from archimedes.services.llm_backend import make_llm_backend
@@ -305,28 +313,43 @@ async def _debate_round(pool: list[Any], model: str | None, emit: _Emitter, cand
     if not getattr(backend, "available", False):
         return transcript
 
-    for role, stance in (
-        ("bull", "Argue FOR acting on the strongest candidate"),
-        ("bear", "Argue for ABSTENTION — the null is buy-and-hold; attack overfit/cost"),
-    ):
-        await emit.emit(
-            "tool_called",
-            candidate_id=candidate_id,
-            tool_name=f"debate_{role}",
-            args_summary=f"candidates: {names[:120]}",
-        )
-        try:
-            raw = await asyncio.to_thread(backend.complete, _DEBATE_SYSTEM.format(role=role, stance=stance), names)
-            parsed = extract_json(raw)
-            transcript.append(
-                {
-                    "role": role,
-                    "verdict": str(parsed.get("verdict", "n/a")),
-                    "claims": list(parsed.get("key_claims") or parsed.get("fatal_flaws") or []),
-                }
+    def _turn(role: str, rnd: int, opponent_claims: list[str]) -> dict[str, Any]:
+        rebuttal = ""
+        if opponent_claims:
+            rebuttal = (
+                f"The opposing researcher argued: {'; '.join(str(c) for c in opponent_claims[:3])}. "
+                "Directly rebut their strongest point. "
             )
+        try:
+            raw = backend.complete(
+                _DEBATE_SYSTEM.format(role=role, rnd=rnd, stance=_DEBATE_STANCES[role], rebuttal=rebuttal),
+                names,
+            )
+            parsed = extract_json(raw)
+            return {
+                "role": role,
+                "round": rnd,
+                "verdict": str(parsed.get("verdict", "n/a")),
+                "claims": list(parsed.get("key_claims") or parsed.get("fatal_flaws") or []),
+            }
         except Exception:
-            transcript.append({"role": role, "verdict": "n/a", "claims": []})
+            return {"role": role, "round": rnd, "verdict": "n/a", "claims": []}
+
+    # Round 1 — initial positions (fixed bull→bear order).
+    for role in ("bull", "bear"):
+        await emit.emit(
+            "tool_called", candidate_id=candidate_id, tool_name=f"debate_{role}_r1", args_summary=names[:120]
+        )
+        transcript.append(await asyncio.to_thread(_turn, role, 1, []))
+
+    # Round 2 — visible rebuttal: each researcher sees the other's round-1 claims.
+    claims_by_role = {t["role"]: t["claims"] for t in transcript}
+    for role, opponent in (("bull", "bear"), ("bear", "bull")):
+        await emit.emit(
+            "tool_called", candidate_id=candidate_id, tool_name=f"debate_{role}_r2", args_summary="rebuttal"
+        )
+        transcript.append(await asyncio.to_thread(_turn, role, 2, claims_by_role.get(opponent, [])))
+
     return transcript
 
 
