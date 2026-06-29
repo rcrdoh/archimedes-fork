@@ -174,6 +174,10 @@ async def evaluate_rigor_gate():
     valid_returns = {k: v for k, v in returns_by_strategy.items() if len(v) >= 10}
     pbo_scores = compute_pbo(valid_returns) if len(valid_returns) >= 2 else {}
 
+    # num_trials = library size here (#770). This route grades the EXISTING persisted
+    # library, so the selection set is the library itself — there is no fresh
+    # N-candidate society pool to add (that additive correction, N + library_size,
+    # applies only on the live society generation path in generation_pipeline.py).
     num_trials = max(len(valid_returns), 1)
 
     # The strategy library is the multiple-testing selection set; correlated
