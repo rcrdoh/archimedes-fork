@@ -602,6 +602,7 @@ class StrategyFusion:
         self,
         backend: LLMBackend | None = None,
         corpus: list[CorpusPaper] | None = None,
+        model: str | None = None,
     ) -> None:
         # Backend/corpus are injectable for offline tests. They are resolved
         # lazily in `propose` so constructing the service never triggers an
@@ -609,11 +610,18 @@ class StrategyFusion:
         # and dependency-light import sites).
         self._backend = backend
         self._corpus = corpus
+        # Model id to thread into the lazily-resolved backend (A3 seam, T1.1).
+        # When set (and no explicit backend was injected), `_resolve_backend`
+        # builds `make_llm_backend(model=...)` so the user's Generate-page model
+        # pick is honored and `served_model` reports the TRUE model rather than
+        # the env default. Was the gap that let the debate proposer silently run
+        # on Nova regardless of the user's pick (spec §8 item 10 / fix A3).
+        self._model = model
 
     def _resolve_backend(self) -> LLMBackend:
         if self._backend is not None:
             return self._backend
-        self._backend = default_backend()
+        self._backend = default_backend(self._model)
         return self._backend
 
     def _resolve_corpus(self) -> list[CorpusPaper]:
@@ -717,18 +725,25 @@ class StrategyFusion:
         )
 
 
-def default_backend() -> LLMBackend:
+def default_backend(model: str | None = None) -> LLMBackend:
     """Claude or GLM when credentials are present; canned fallback otherwise.
 
     Delegates to the provider-agnostic ``llm_backend.make_llm_backend()`` factory.
+    ``model`` threads the user's Generate-page model pick through to the factory
+    (A3 seam, T1.1); ``None`` keeps the env default — behavior unchanged.
     """
-    backend = make_llm_backend()
+    backend = make_llm_backend(model=model)
     if backend.available:
         return backend  # type: ignore[return-value]
     logger.warning("No LLM credentials (LLM_* or ANTHROPIC_* env vars) — strategy fusion using canned fallback")
     return FusionCannedBackend()
 
 
-def default_fusion() -> StrategyFusion:
-    """Factory mirroring `default_architect()`. Not yet route-wired."""
-    return StrategyFusion()
+def default_fusion(model: str | None = None) -> StrategyFusion:
+    """Factory mirroring `default_architect()`. Not yet route-wired.
+
+    ``model`` threads the user's selected model through to the lazily-resolved
+    backend (A3 seam, T1.1) so ``served_model`` provenance is truthful; ``None``
+    preserves the env-default behavior.
+    """
+    return StrategyFusion(model=model)

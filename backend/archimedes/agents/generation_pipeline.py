@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import hashlib
 import json
 import logging
@@ -80,6 +81,17 @@ def _pick_pipeline(
        brief's inferred asset classes.
     3. **agent** (SSE streaming portfolio-advisor path) as the fallback.
     """
+    # ── Debate society (flag-gated, additive — T1.1) ──
+    # When ARCHIMEDES_DEBATE_ENABLED is set, the debate society IS the generation
+    # pipeline (staged replacement). While the flag is OFF the legacy decision
+    # tree below runs UNCHANGED — so the flag-OFF live path stays byte-identical
+    # even if a client passes mode="debate". The legacy-runner deletions are
+    # deferred to the Phase-3 cutover PR.
+    from archimedes.agents.debate_engine import debate_enabled
+
+    if debate_enabled():
+        return "debate", "debate society pipeline (ARCHIMEDES_DEBATE_ENABLED)"
+
     # ── User-selected mode override (#290) ──
     if mode_override and mode_override in ("fusion", "architect", "agent"):
         return mode_override, f"user selected {mode_override} mode"
@@ -1057,9 +1069,14 @@ async def run_generation(
         # ── Auto-route to the best pipeline ──
         pipeline_name, pipeline_reason = _pick_pipeline(brief, mode_override=mode)
 
-        # Determine regime plan: dual_regime emits both bull + bear (Issue #163)
-        if dual_regime:
-            regimes: list[str] = ["bull", "bear"]
+        # Determine regime plan: dual_regime emits both bull + bear (Issue #163).
+        # The debate society owns its OWN internal regime/mechanism split, so its
+        # per-regime loop runs ONCE ("neutral") and the expensive PBO/persist tail
+        # stays a single self-contained unit (spec §5b).
+        if pipeline_name == "debate":
+            regimes: list[str] = ["neutral"]
+        elif dual_regime:
+            regimes = ["bull", "bear"]
         else:
             regimes = ["neutral"] * n_candidates
 
@@ -1087,6 +1104,24 @@ async def run_generation(
                 pipeline_name = "agent"
                 pipeline_reason = (
                     "fusion selected but not runnable "
+                    f"({'no LLM backend' if not use_live else 'corpus yielded <2 papers for the steer'})"
+                    " — falling back to streaming agent"
+                )
+                runner = agent_runner
+        elif pipeline_name == "debate":
+            # Flag-gated debate society (T1.1). model is bound now via partial so
+            # the proposer threads the user's pick (A3); the loop calls runner()
+            # with the same kwargs as every other runner (signature parity). A
+            # DebateUnavailable raised at runtime is a FusionUnavailable subclass,
+            # so the existing fallback below relabels it to the agent path.
+            from archimedes.agents.debate_engine import _debate_can_run, _run_debate_candidate
+
+            if use_live and _debate_can_run(brief):
+                runner = functools.partial(_run_debate_candidate, model=model)
+            else:
+                pipeline_name = "agent"
+                pipeline_reason = (
+                    "debate selected but not runnable "
                     f"({'no LLM backend' if not use_live else 'corpus yielded <2 papers for the steer'})"
                     " — falling back to streaming agent"
                 )
@@ -1313,10 +1348,16 @@ async def run_generation(
             for cand in candidates:
                 persist_proposal(
                     generation_id=job_id,
-                    # "fusion" for fused candidates, "agent" otherwise — the
-                    # episodic record now reflects which engine produced the
-                    # proposal rather than always claiming "agent".
-                    agent="fusion" if cand.generation_method == "fusion" else "agent",
+                    # "debate" for society candidates, "fusion" for fused, "agent"
+                    # otherwise — the episodic record reflects which engine produced
+                    # the proposal rather than always claiming "agent".
+                    agent=(
+                        "debate"
+                        if cand.generation_method in ("debate", "debate_abstain")
+                        else "fusion"
+                        if cand.generation_method == "fusion"
+                        else "agent"
+                    ),
                     intent=brief.intent,
                     strategy_spec={
                         "strategy_name": cand.strategy_name,
