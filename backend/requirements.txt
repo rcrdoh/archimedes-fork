@@ -46,7 +46,7 @@ urllib3>=2.7.0
 backtrader>=1.9.78.123
 
 # LLM
-anthropic>=0.104.1
+anthropic>=0.112.0
 
 # On-chain / Web3
 web3>=7.16.0
