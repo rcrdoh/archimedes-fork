@@ -455,6 +455,7 @@ async def _run_debate_candidate(
     regime: str = "neutral",
     agent: Any = None,  # noqa: ARG001 — signature parity with the other runners
     model: str | None = None,
+    selection_pool_size: int = 1,  # noqa: ARG001 — parity with the #770 runner contract; the debate computes its OWN pool_size (the real selection count) internally
 ) -> _CandidateResult:
     """Run the debate society once and return the leader ``_CandidateResult``.
 
@@ -463,6 +464,12 @@ async def _run_debate_candidate(
     the Considered-Alternatives fan-out is Phase 2. Raises ``DebateUnavailable``
     (a ``FusionUnavailable`` subclass) when no candidate survives, so the existing
     run_generation fallback relabels to the agent path.
+
+    ``selection_pool_size`` is accepted for parity with the #770 runner contract
+    (the dispatch threads it to every runner), but the society ignores the passed
+    value and uses its OWN internally-computed ``pool_size = len(POOL)`` — the
+    actual count of conformant proposed specs, which is the correct DSR
+    selection set, not the user's ``n_candidates``.
     """
     from archimedes.agents.strategy_fusion import load_corpus
 
