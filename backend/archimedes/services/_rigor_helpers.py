@@ -105,6 +105,40 @@ def _sharpe_influence_lrv(
     return max(lrv, 1e-12)  # Bartlett kernel ⇒ PSD; clip guards only FP error
 
 
+def _sharpe_dsr_inputs(
+    daily_returns: list[float] | np.ndarray,
+) -> tuple[np.ndarray, int, float, float, float, float, float] | None:
+    """Validate the return series and extract the DSR's moments exactly once.
+
+    Returns ``(arr, T, SR_hat, sigma, mean, gamma_3, gamma_4)`` — the per-bar
+    excess Sharpe plus the skew / raw-kurtosis consumed by ``_dsr_from_stats`` —
+    or ``None`` when the series is too short (T < 4) or degenerate (zero range /
+    zero volatility). Shared by ``compute_dsr`` and ``compute_dsr_hac_and_iid``
+    so the numpy coercion + SciPy moment computation runs once on the rigor
+    gate's hot path.
+
+    γ₄ is RAW (Pearson) kurtosis (= 3 for normal), matching Bailey-LdP (2014)
+    eq. 8; passing Fisher excess here would shift the denominator by a constant
+    (3/4)·ŜR² and bias every DSR.
+    """
+    arr = np.asarray(daily_returns, dtype=float)
+    T = len(arr)
+    if T < 4:
+        return None
+    # numpy std(ddof=1) can be a tiny non-zero float for identical values due to
+    # floating-point cancellation; check range first to catch constant series.
+    if float(np.ptp(arr)) == 0.0:
+        return None
+    sigma = float(arr.std(ddof=1))
+    if sigma <= 0.0:
+        return None
+    mean = float(arr.mean())
+    SR_hat = (mean - _RF_DAILY) / sigma  # excess return per bar, un-annualized
+    gamma_3 = float(sp_skew(arr))
+    gamma_4 = float(sp_kurtosis(arr, fisher=False))  # raw (Pearson) kurtosis
+    return arr, T, SR_hat, sigma, mean, gamma_3, gamma_4
+
+
 def compute_dsr(
     daily_returns: list[float] | np.ndarray,
     num_trials: int,
@@ -145,28 +179,10 @@ def compute_dsr(
     if num_trials < 1:
         raise ValueError("num_trials must be >= 1")
 
-    arr = np.asarray(daily_returns, dtype=float)
-    T = len(arr)
-    if T < 4:
+    inputs = _sharpe_dsr_inputs(daily_returns)
+    if inputs is None:
         return None, None
-
-    # numpy std(ddof=1) can be a tiny non-zero float for identical values due
-    # to floating-point cancellation; check range first to catch constant series.
-    if float(np.ptp(arr)) == 0.0:
-        return None, None
-
-    sigma = float(arr.std(ddof=1))
-    if sigma <= 0.0:
-        return None, None
-
-    mean = float(arr.mean())
-    SR_hat = (mean - _RF_DAILY) / sigma  # excess return per bar, un-annualized
-    gamma_3 = float(sp_skew(arr))
-    # Bailey-LdP (2014) eq. 8 uses raw (Pearson) kurtosis (γ₄ = 3 for normal),
-    # NOT Fisher excess kurtosis. The coefficient (γ₄ − 1)/4 in _dsr_from_stats
-    # is derived for the raw-kurtosis convention; using fisher=True here would
-    # shift the denominator by a constant (3/4)·ŜR² and bias every DSR.
-    gamma_4 = float(sp_kurtosis(arr, fisher=False))  # raw (Pearson) kurtosis
+    arr, T, SR_hat, sigma, mean, gamma_3, gamma_4 = inputs
 
     if math.isnan(average_correlation):
         average_correlation = 0.0
@@ -179,10 +195,48 @@ def compute_dsr(
     if hac_lags is not None:
         variance_override = _sharpe_influence_lrv(arr, SR_hat, mean, sigma, hac_lags)
 
-    dsr, p_val = _dsr_from_stats(
+    return _dsr_from_stats(
         SR_hat, T, gamma_3, gamma_4, num_trials, average_correlation, variance_override=variance_override
     )
-    return dsr, p_val
+
+
+def compute_dsr_hac_and_iid(
+    daily_returns: list[float] | np.ndarray,
+    num_trials: int,
+    average_correlation: float = 0.0,
+    hac_lags: int | str = "auto",
+) -> tuple[float | None, float | None, float | None, float | None]:
+    """HAC-robust DSR and the IID-SE DSR in a single pass.
+
+    Returns ``(dsr_hac, p_hac, dsr_iid, p_iid)``. The series validation, the
+    SciPy moments (skew/kurtosis), and the influence-function long-run variance
+    are computed **once** and shared between the two verdicts, so this is roughly
+    half the work of two separate ``compute_dsr`` calls — the rigor gate's hot
+    path may evaluate many candidate strategies. ``run_rigor_gate`` gates on the
+    HAC p-value and surfaces the IID-SE p-value as the advisory delta. All four
+    values are ``None`` when the series is too short / degenerate.
+
+    Equivalent (to the bit) to calling ``compute_dsr`` twice — with and without
+    ``hac_lags`` — at the same arguments; the only saving is the shared inputs.
+    """
+    if num_trials < 1:
+        raise ValueError("num_trials must be >= 1")
+
+    inputs = _sharpe_dsr_inputs(daily_returns)
+    if inputs is None:
+        return None, None, None, None
+    arr, T, SR_hat, sigma, mean, gamma_3, gamma_4 = inputs
+
+    if math.isnan(average_correlation):
+        average_correlation = 0.0
+    average_correlation = max(0.0, min(1.0, average_correlation))
+
+    lrv = _sharpe_influence_lrv(arr, SR_hat, mean, sigma, hac_lags) if hac_lags is not None else None
+    dsr_hac, p_hac = _dsr_from_stats(
+        SR_hat, T, gamma_3, gamma_4, num_trials, average_correlation, variance_override=lrv
+    )
+    dsr_iid, p_iid = _dsr_from_stats(SR_hat, T, gamma_3, gamma_4, num_trials, average_correlation)
+    return dsr_hac, p_hac, dsr_iid, p_iid
 
 
 def _dsr_from_stats(

@@ -35,7 +35,8 @@ from archimedes.services._rigor_helpers import (
     classify_regimes,  # used by run_rigor_gate (regime-robustness) + re-exported for test_rigor_regime
     compute_average_pairwise_correlation,  # noqa: F401 - re-exported for fusion_evaluator/selection_bias_routes
     compute_cpcv_oos_sharpe,
-    compute_dsr,
+    compute_dsr,  # noqa: F401 - re-exported for portfolio_backtester / stockbench adapter
+    compute_dsr_hac_and_iid,
     compute_in_sample_sharpe,  # noqa: F401 - re-exported for fusion_evaluator
     compute_oos_sharpe,
     compute_pbo,  # used by compute_library_pbo below + re-exported (fusion/generation/test_pbo_parity)
@@ -600,11 +601,15 @@ def run_rigor_gate(
     #    swapping SEs only when the IID flag fires (Leeb & Pötscher 2005). The
     #    effective-N correction (average_correlation) still relaxes the
     #    multiple-testing penalty when the trials themselves are correlated.
-    deflated_sharpe, dsr_p_value = compute_dsr(daily_returns, num_trials, average_correlation, hac_lags="auto")
-    # Advisory companion: the IID-SE p-value, surfaced as a delta (never gates)
-    # so the passport shows how much the serial-dependence correction moved the
-    # verdict relative to the classical Bailey-LdP IID standard error.
-    _, dsr_p_value_iid = compute_dsr(daily_returns, num_trials, average_correlation)
+    #    The HAC-robust verdict (gating) and the IID-SE verdict (advisory) are
+    #    computed in a single pass — one numpy coercion, one SciPy moment
+    #    computation, one influence-function LRV — so this is ~half the work of
+    #    two compute_dsr calls on a path that may evaluate many candidates. The
+    #    IID-SE p-value is surfaced as a delta (never gates) so the passport
+    #    shows how much the serial-dependence correction moved the verdict.
+    deflated_sharpe, dsr_p_value, _, dsr_p_value_iid = compute_dsr_hac_and_iid(
+        daily_returns, num_trials, average_correlation, hac_lags="auto"
+    )
 
     # 2. PBO (criterion 4 in the gate ordering) — prefer the full-library CSCV
     #    PBO when supplied (#546). PBO is a property of the selection set, not of

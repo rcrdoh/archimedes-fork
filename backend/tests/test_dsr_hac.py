@@ -29,6 +29,7 @@ from archimedes.services._rigor_helpers import (
     _nw_auto_bandwidth,
     _sharpe_influence_lrv,
     compute_dsr,
+    compute_dsr_hac_and_iid,
 )
 from archimedes.services.rigor_evaluator import run_rigor_gate
 
@@ -162,7 +163,23 @@ def test_hac_lags_none_is_exact_iid_default():
     assert compute_dsr(r, num_trials=5) == compute_dsr(r, num_trials=5, hac_lags=None)
 
 
-# ─── 5. run_rigor_gate integration surface ───────────────────────────────
+# ─── 5. Single-pass helper (shared-moment optimization) ──────────────────
+
+
+def test_compute_dsr_hac_and_iid_matches_separate_calls():
+    """The single-pass helper is bit-for-bit equal to two compute_dsr calls — it
+    only shares the moment/LRV computation, it does not change any number."""
+    r = _ar1(800, phi=0.3, mu=0.0008, sigma=0.01, seed=6)
+    dsr_hac, p_hac, dsr_iid, p_iid = compute_dsr_hac_and_iid(r, num_trials=5, hac_lags="auto")
+    assert (dsr_hac, p_hac) == compute_dsr(r, num_trials=5, average_correlation=0.0, hac_lags="auto")
+    assert (dsr_iid, p_iid) == compute_dsr(r, num_trials=5, average_correlation=0.0)
+
+
+def test_compute_dsr_hac_and_iid_none_for_short_series():
+    assert compute_dsr_hac_and_iid([0.01, 0.02, 0.0], num_trials=5) == (None, None, None, None)
+
+
+# ─── 6. run_rigor_gate integration surface ───────────────────────────────
 
 
 def test_gate_uses_hac_and_surfaces_iid_delta():
