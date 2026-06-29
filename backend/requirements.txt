@@ -19,7 +19,7 @@ python-dotenv>=1.2.2
 
 # Data + numerics
 numpy>=2.4.6,<3.0
-pandas>=3.0.3
+pandas>=3.0.4
 scipy>=1.13
 scikit-learn>=1.5  # GaussianMixture + StandardScaler for the data-driven GmmRegimeDetector (issue #661); BSD-3-Clause
 
