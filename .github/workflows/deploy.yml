@@ -121,7 +121,7 @@ jobs:
               "# hits a name Conflict and fails the whole deploy (run 28382331990: the",
               "# oracle orphan fbdabd2fa619_archimedes-oracle-1). The prior",
               "# `docker ps --filter name=^...` never matched it because the filter anchor",
-              "# is unreliable against Docker's internal slash-prefixed names (/<hex>_...).",
+              "# is unreliable against the slash-prefixed names Docker stores (/<hex>_...).",
               "# Grep the clean `--format {{.Names}}` output (no leading slash) so ^ fires.",
               "docker ps -a --format '"'"'{{.Names}}'"'"' | grep -E '"'"'^[0-9a-f]+_archimedes-'"'"' | xargs -r docker rm -f 2>/dev/null || true",
               "docker compose up -d --force-recreate --remove-orphans",
