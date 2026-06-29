@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -35,6 +36,7 @@ from archimedes.api.generate_schemas import (
     JobSummary,
 )
 from archimedes.api.limiter import limiter
+from archimedes.services.generation_quota import enforce_generation_quota
 from archimedes.services.job_queue import EVENT_LOG_TTL, get_job_store
 from archimedes.services.llm_backend import is_allowed_model
 from archimedes.services.log_scrubber import sanitize_log_value
@@ -68,6 +70,17 @@ async def start_generation(
     _wallet: str | None = Depends(gate_generation),  # 401 when REQUIRE_SIWE_FOR_GENERATION is on
 ) -> GenerateStartResponse:
     """Create a generation job and start the pipeline in the background."""
+    # Anti-abuse (Dan, 2026-06-28): a STRICT per-IP daily cap on WALLET-LESS
+    # generations. The Generate path is open (value-before-wallet, #787), but an
+    # open LLM-spending endpoint is a flood risk — an agent in a loop could burn
+    # budget. Authenticated (SIWE) callers bypass it entirely; a wallet-less caller
+    # gets a small free daily allowance, then a 429 steering them to connect a
+    # wallet (so the cap doubles as a conversion prompt). Enforced BEFORE any work
+    # so a capped request burns nothing. Disabled under TESTING (conftest sets it),
+    # matching the slowapi limiter; the quota logic is unit-tested directly.
+    if not os.getenv("TESTING"):
+        await enforce_generation_quota(request, _wallet)
+
     # Paid-tier gating (T1.8): a premium (Anthropic) model requires a
     # wallet-connected entitlement. Enforced BEFORE the job is enqueued so a
     # non-entitled premium request is rejected (HTTP 402) without burning any

@@ -6,6 +6,7 @@ import Explore from './components/Explore'
 import Generate from './components/Generate'
 import Portfolio from './components/Portfolio'
 import Learnings from './components/Learnings'
+import Insights from './components/Insights'
 import Strategies from './components/Strategies'   // serves /library route ("Example Library")
 import StrategyPassport from './components/StrategyPassport'
 import CorpusExplorer from './components/CorpusExplorer'
@@ -37,6 +38,7 @@ const PAGE_TO_PATH = {
   portfolio: '/portfolio',
   reasoning: '/reasoning',
   learnings: '/learnings',
+  insights:  '/insights',
   about:     '/about',
   imprint:   '/imprint',
 }
@@ -289,6 +291,7 @@ export default function App() {
           <Learnings onNavigate={navigateToPage} />
         </WalletGate>
       )
+      case 'insights':     return <Insights />
       case 'vault-detail': return <VaultDetail address={selectedVault} onBack={backToPortfolio} />
       default:             return <NotFound page={page} onNavigate={navigateToPage} />
     }

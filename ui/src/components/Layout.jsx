@@ -34,6 +34,9 @@ const NAV = [
     { id: 'reasoning', label: 'Reasoning', icon: 'i-lucide-brain' },
     { id: 'learnings', label: 'Learnings', icon: 'i-lucide-graduation-cap' },
   ]},
+  { group: 'Ops', items: [
+    { id: 'insights', label: 'Insights', icon: 'i-lucide-bar-chart-3' },
+  ]},
 ]
 
 export const PAGE_LABELS = {
@@ -47,6 +50,7 @@ export const PAGE_LABELS = {
   portfolio: 'Portfolio',
   reasoning: 'Reasoning',
   learnings: 'Learnings',
+  insights: 'Insights',
   'vault-detail': 'Vault Details',
   about: 'About',
   imprint: 'Imprint',
