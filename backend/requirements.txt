@@ -58,7 +58,7 @@ cryptography>=49.0.0
 slowapi>=0.1.10
 
 # Paper ingestion
-arxiv>=2.1
+arxiv>=4.0.0
 # Floor raised to 6.13.3 to close 8 CVEs incl GHSA-jm82-fx9c-mx94 (CVE bump 2026-06-25).
 pypdf>=6.13.3
 
