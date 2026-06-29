@@ -839,12 +839,14 @@ class TestGateDetailsBranches:
         assert r.gate_details["look_ahead"] == "FAIL"
 
     def test_gate_details_returns_all_four_keys(self):
-        """gate_details must contain the four gate keys + DSR convention (#547) + the IID advisory (#621)."""
+        """gate_details must contain the four gate keys + DSR convention (#547) +
+        the DSR SE model (#621 follow-up) + the IID advisory (#621)."""
         r = RigorGateResult("s")
         keys = set(r.gate_details.keys())
         assert keys == {
             "dsr",
             "dsr_convention",
+            "dsr_se",
             "pbo",
             "oos_sharpe",
             "look_ahead",
@@ -853,6 +855,8 @@ class TestGateDetailsBranches:
             "regime_robustness",
         }
         assert r.gate_details["dsr_convention"] == "excess"
+        # Default RigorGateResult carries no HAC verdict -> classical IID SE label.
+        assert r.gate_details["dsr_se"] == "IID (classical Bailey-LdP)"
         # Advisories are unset by default (no return series) -> MISSING.
         assert r.gate_details["iid"] == "MISSING"
         assert r.gate_details["regime_robustness"] == "MISSING"
@@ -939,11 +943,13 @@ class TestRunRigorGatePaths:
         assert isinstance(result, RigorGateResult)
 
     def test_gate_details_populated_by_run_rigor_gate(self):
-        """gate_details on the returned result must have the four gate keys + DSR convention (#547) + IID (#621)."""
+        """gate_details on the returned result must have the four gate keys + DSR
+        convention (#547) + DSR SE model (#621 follow-up) + IID (#621)."""
         result = run_rigor_gate("s", _RETURNS_80)
         assert set(result.gate_details.keys()) == {
             "dsr",
             "dsr_convention",
+            "dsr_se",
             "pbo",
             "oos_sharpe",
             "look_ahead",
@@ -951,6 +957,9 @@ class TestRunRigorGatePaths:
             "iid",
             "regime_robustness",
         }
+        # run_rigor_gate computes the gating DSR with the HAC-robust SE (#621 follow-up).
+        assert result.dsr_se_method == "hac"
+        assert "HAC" in result.gate_details["dsr_se"]
 
     def test_regime_robustness_surfaced_but_advisory(self):
         """Regime-robustness is computed for a long-enough series, surfaced, and never gates."""

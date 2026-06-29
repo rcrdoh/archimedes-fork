@@ -42,10 +42,74 @@ _RF_DAILY = _RF_ANNUAL / _ANNUALIZATION
 # ─── 1. Deflated Sharpe Ratio ────────────────────────────────────────
 
 
+def _nw_auto_bandwidth(T: int) -> int:
+    """Newey & West (1994) automatic-bandwidth rule for HAC estimation.
+
+    ``L = floor(4 · (T/100)^(2/9))`` — the canonical data-independent plug-in
+    (Newey & West 1994, "Automatic Lag Selection in Covariance Matrix
+    Estimation", *Rev. Econ. Stud.* 61(4): 631–653; the default in common
+    econometric packages). For ``T = 252`` daily bars this yields ``L = 4``.
+    Floored at 1; the caller caps it at ``T − 1``.
+    """
+    return max(1, int(math.floor(4.0 * (T / 100.0) ** (2.0 / 9.0))))
+
+
+def _sharpe_influence_lrv(
+    arr: np.ndarray,
+    SR_hat: float,
+    mean: float,
+    sigma: float,
+    hac_lags: int | str,
+) -> float | None:
+    """Newey–West HAC long-run variance of the Sharpe-ratio influence function.
+
+    The Deflated-Sharpe z-statistic's denominator is the asymptotic variance of
+    the per-bar Sharpe estimator. The IID form
+    ``V_IID = 1 − γ₃·ŜR + ((γ₄−1)/4)·ŜR²`` (Bailey & López de Prado 2014 eq. 8;
+    Mertens 2002) is only valid for serially independent returns: positive
+    autocorrelation understates the standard error and inflates significance.
+
+    The influence function of the Sharpe ratio (Lo 2002, "The Statistics of
+    Sharpe Ratios", *FAJ* 58(4): 36–52 — delta method on the first two sample
+    moments) is
+
+        IF_t = z_t − (ŜR/2)(z_t² − 1),   z_t = (x_t − μ)/σ,
+
+    and its IID variance equals ``V_IID`` exactly. The heteroskedasticity- and
+    autocorrelation-consistent (HAC) variance is the Newey & West (1987,
+    *Econometrica* 55(3): 703–708) long-run variance with a Bartlett kernel:
+
+        LRV = γ₀ + 2·Σ_{k=1}^{L} (1 − k/(L+1))·γ_k,   γ_k = Cov(IF_t, IF_{t−k}).
+
+    This nests the IID case (``γ_k → 0 ⇒ LRV → γ₀ ≈ V_IID``) and the Bartlett
+    weights guarantee ``LRV ≥ 0``. ``hac_lags`` is the maximum lag ``L``, or
+    ``"auto"`` for the Newey–West (1994) plug-in bandwidth.
+
+    Returns the long-run variance (the drop-in replacement for ``denom_sq`` in
+    the z-statistic), or ``None`` when the series is too short / degenerate.
+    """
+    T = len(arr)
+    if T < 4 or sigma <= 0.0:
+        return None
+    z = (arr - mean) / sigma
+    influence = z - 0.5 * SR_hat * (z * z - 1.0)
+    influence = influence - influence.mean()  # population mean of IF_t is 0
+    g0 = float(influence @ influence) / T  # γ₀ — empirical IF variance (≈ V_IID under IID)
+    L = _nw_auto_bandwidth(T) if hac_lags == "auto" else int(hac_lags)
+    L = max(0, min(L, T - 1))
+    lrv = g0
+    for k in range(1, L + 1):
+        gamma_k = float(influence[k:] @ influence[:-k]) / T  # lag-k autocovariance of IF
+        weight = 1.0 - k / (L + 1.0)  # Bartlett kernel
+        lrv += 2.0 * weight * gamma_k
+    return max(lrv, 1e-12)  # Bartlett kernel ⇒ PSD; clip guards only FP error
+
+
 def compute_dsr(
     daily_returns: list[float] | np.ndarray,
     num_trials: int,
     average_correlation: float = 0.0,
+    hac_lags: int | str | None = None,
 ) -> tuple[float | None, float | None]:
     """Deflated Sharpe Ratio (Bailey & López de Prado 2014).
 
@@ -61,6 +125,13 @@ def compute_dsr(
         average_correlation: The average pairwise correlation between the
             trials. Used to compute the effective number of independent
             trials (Bailey-López de Prado variance-of-trials correlation model).
+        hac_lags: When not None, replaces the IID variance term with the
+            heteroskedasticity- and autocorrelation-consistent (HAC)
+            Newey–West (1987) long-run variance of the Sharpe influence
+            function (Lo 2002), so the DSR is robust to serially dependent
+            returns. Pass an int for a fixed maximum lag L, or "auto" for the
+            Newey–West (1994) plug-in bandwidth. None (default) keeps the exact
+            IID Bailey-LdP variance, which the HAC form nests.
 
     Returns:
         (deflated_sharpe_ratio, dsr_p_value)
@@ -88,7 +159,8 @@ def compute_dsr(
     if sigma <= 0.0:
         return None, None
 
-    SR_hat = (float(arr.mean()) - _RF_DAILY) / sigma  # excess return per bar, un-annualized
+    mean = float(arr.mean())
+    SR_hat = (mean - _RF_DAILY) / sigma  # excess return per bar, un-annualized
     gamma_3 = float(sp_skew(arr))
     # Bailey-LdP (2014) eq. 8 uses raw (Pearson) kurtosis (γ₄ = 3 for normal),
     # NOT Fisher excess kurtosis. The coefficient (γ₄ − 1)/4 in _dsr_from_stats
@@ -100,7 +172,16 @@ def compute_dsr(
         average_correlation = 0.0
     average_correlation = max(0.0, min(1.0, average_correlation))
 
-    dsr, p_val = _dsr_from_stats(SR_hat, T, gamma_3, gamma_4, num_trials, average_correlation)
+    # Serial-correlation-robust variance (Newey–West HAC) when requested. The
+    # HAC long-run variance of the Sharpe influence function nests the IID
+    # variance term, so hac_lags=None preserves the exact Bailey-LdP behaviour.
+    variance_override = None
+    if hac_lags is not None:
+        variance_override = _sharpe_influence_lrv(arr, SR_hat, mean, sigma, hac_lags)
+
+    dsr, p_val = _dsr_from_stats(
+        SR_hat, T, gamma_3, gamma_4, num_trials, average_correlation, variance_override=variance_override
+    )
     return dsr, p_val
 
 
@@ -111,6 +192,7 @@ def _dsr_from_stats(
     gamma_4: float,
     N: int,
     average_correlation: float = 0.0,
+    variance_override: float | None = None,
 ) -> tuple[float | None, float | None]:
     """Core DSR formula — exposed for direct unit-testing against spec cases.
 
@@ -123,6 +205,10 @@ def _dsr_from_stats(
             do NOT pass Fisher excess kurtosis here (it would bias the denom).
         N: Number of trials in the selection set.
         average_correlation: Correlation scalar for variance of trials.
+        variance_override: When provided, used as the variance term ``denom_sq``
+            in place of the IID closed form — carries the Newey–West HAC
+            long-run variance for serial-correlation-robust inference. The HAC
+            form nests the IID one, so passing the IID value is a no-op.
 
     Returns:
         (deflated_sharpe_annualized, dsr_p_value) or (None, None).
@@ -167,8 +253,15 @@ def _dsr_from_stats(
     # (under iid normal returns, per-bar SR has variance 1/(T-1))
     SR_zero = math.sqrt(1.0 / (T - 1)) * E_max_N
 
-    # Variance-adjusted z-statistic (eq. 8 in Bailey-LdP 2014)
-    denom_sq = 1.0 - gamma_3 * SR_hat + ((gamma_4 - 1.0) / 4.0) * SR_hat**2
+    # Variance-adjusted z-statistic (eq. 8 in Bailey-LdP 2014). The closed-form
+    # denominator is the IID asymptotic variance of the Sharpe estimator, equal
+    # to the variance of its influence function (Lo 2002; Mertens 2002). When a
+    # HAC long-run variance is supplied it replaces this term, leaving the rest
+    # of the statistic unchanged.
+    if variance_override is not None:
+        denom_sq = variance_override
+    else:
+        denom_sq = 1.0 - gamma_3 * SR_hat + ((gamma_4 - 1.0) / 4.0) * SR_hat**2
     if denom_sq <= 0.0:
         return None, None
 
