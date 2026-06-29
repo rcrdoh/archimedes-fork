@@ -486,3 +486,24 @@ def test_build_leaderboard_regime_gate_overrides_strong_survivors():
     assert len(board) == 1
     assert board[0].generation_method == "debate_abstain"
     assert "Hierarchy-of-Truth" in board[0].thesis or "Regime gate" in board[0].reasoning
+
+
+# ── Phase 2 — C-prov non-votable provenance/embargo gate (Xia 1/2/4) ──────────
+
+
+def test_critic_prov_drops_citations_outside_the_surface(corpus):
+    # The fixture corpus surface = {2401.0000{1,2,3}, 2402.0000{1,2,3}} (embargo-clean).
+    clean = _fake_proposal("clean", ["2401.00001", "2402.00001"])
+    dirty = _fake_proposal("dirty", ["2401.00001", "9999.99999"])  # 9999.* not in the surface
+    empty = _fake_proposal("empty", [])  # no citations → cannot verify provenance
+    kept, dropped = de._critic_prov([clean, dirty, empty], corpus)
+    assert [p.strategy_name for p in kept] == ["clean"]
+    assert {p.strategy_name for p in dropped} == {"dirty", "empty"}
+
+
+def test_critic_prov_keeps_fully_grounded_candidates(corpus):
+    a = _fake_proposal("a", ["2401.00002", "2402.00002"])
+    b = _fake_proposal("b", ["2401.00003", "2402.00003"])
+    kept, dropped = de._critic_prov([a, b], corpus)
+    assert len(kept) == 2
+    assert dropped == []

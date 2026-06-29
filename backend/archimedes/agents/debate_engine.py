@@ -358,6 +358,37 @@ async def _critic_rigor(pool: list[Any], num_trials: int) -> list[tuple[Any, Any
     return out
 
 
+# ── C-prov (deterministic provenance/embargo gate — Xia 1/2/4) ────────────────
+
+
+def _critic_prov(pool: list[Any], corpus: list[Any]) -> tuple[list[Any], list[Any]]:
+    """C-prov (Xia 1/2/4, non-votable): hard-fail any candidate citing a paper
+    OUTSIDE the shared embargo + decay-applied evidence surface.
+
+    The surface is the ``load_corpus()`` output, which already excludes post-embargo
+    papers (``apply_outcome_embargo`` runs inside ``load_papers_from_db``), so a
+    candidate whose ``source_arxiv_ids`` are all in the corpus is provenance-clean.
+    A candidate citing an id NOT in the surface (a post-embargo leak or a
+    hallucination that slipped the proposer's ``valid_ids`` filter) is dropped —
+    deterministic defense-in-depth that cannot be argued out of its position.
+
+    Does NOT change ``pool_size`` (the DSR denominator counts every conformant spec
+    we proposed/searched, per spec §5c); it only culls which survivors reach C-rigor.
+    Returns ``(kept, dropped)``.
+    """
+    surface = {getattr(p, "arxiv_id", None) for p in corpus}
+    surface.discard(None)
+    kept: list[Any] = []
+    dropped: list[Any] = []
+    for prop in pool:
+        cited = set(prop.source_arxiv_ids)
+        if cited and cited <= surface:
+            kept.append(prop)
+        else:
+            dropped.append(prop)
+    return kept, dropped
+
+
 # ── Step 4/5 — C-null + synthesize → leaderboard ──────────────────────────────
 
 
@@ -616,21 +647,34 @@ async def _run_debate_candidate(
     # Step 2 — best-effort adversarial transcript (never gates).
     await _debate_round(pool, model, emit, candidate_id)
 
-    # Step 3 — C-rigor (A1, aligned with #770/#811 + Önder's #820 unification): the
-    # DSR multiple-testing count is `_society_num_trials(library_size, pool_size) =
-    # library + N`, NOT pool_size alone. The winner survived selection from the pool
-    # AND is promoted into the library, so both selection layers must deflate it —
-    # otherwise the debate "passing" badge is more permissive than the live path's.
-    # When #820 lands the shared helper, this should read from that single source.
+    # Step 3a — C-prov (non-votable, Xia 1/2/4): cull candidates citing outside the
+    # embargo+decay surface. Does NOT change pool_size (the DSR denominator counts
+    # every conformant spec we proposed; §5c) — only which survivors reach C-rigor.
+    prov_clean, prov_dropped = _critic_prov(pool, corpus)
+    if prov_dropped:
+        await emit.emit(
+            "tool_result",
+            candidate_id=candidate_id,
+            tool_name="critic_prov",
+            result_summary=f"dropped {len(prov_dropped)} candidate(s) citing outside the embargo surface",
+        )
+    if not prov_clean:
+        raise DebateUnavailable("debate: all candidates failed provenance (cited outside the embargo+decay surface)")
+
+    # Step 3b — C-rigor (A1, aligned with #770/#811 + Önder's #820): num_trials =
+    # _society_num_trials(library_size, pool_size) = library + N, NOT pool_size alone,
+    # so the debate "passing" badge is not more permissive than the live path. pool_size
+    # (the full conformant proposed count) is the selection set; C-prov only culls which
+    # survivors are backtested. When #820 lands the shared helper, read from that source.
     num_trials = await asyncio.to_thread(lambda: _society_num_trials(_library_size(), pool_size))
     await emit.emit("agent_iteration", candidate_id=candidate_id, iteration_n=2, max_iterations=4)
     await emit.emit(
         "tool_called",
         candidate_id=candidate_id,
         tool_name="evaluate_fusion_spec",
-        args_summary=f"backtest ×{pool_size}, num_trials={num_trials} (library+pool, #770/#820)",
+        args_summary=f"backtest ×{len(prov_clean)}, num_trials={num_trials} (library+pool, #770/#820)",
     )
-    rigor_results = await _critic_rigor(pool, num_trials)
+    rigor_results = await _critic_rigor(prov_clean, num_trials)
     if not rigor_results:
         raise DebateUnavailable("debate: no candidate produced a successful backtest")
 
