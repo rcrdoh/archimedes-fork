@@ -23,7 +23,8 @@ RUN npm run build
 # Pinned to a specific version: nginx.conf's upstream `server … resolve` directive
 # (runtime DNS re-resolution) REQUIRES nginx >= 1.27.3. An unpinned `:alpine` tag
 # (or a stale cached layer) could resolve to an older nginx and make `nginx -t`
-# fail at deploy time, taking the proxy down. Bump this tag deliberately. (#780)
-FROM nginxinc/nginx-unprivileged:1.27.3-alpine
+# fail at deploy time, taking the proxy down. Pinned to 1.31.2 to MATCH the live
+# box (`Server: nginx/1.31.2`) — never downgrade prod. Bump this tag deliberately. (#780)
+FROM nginxinc/nginx-unprivileged:1.31.2-alpine
 COPY --from=ui-build /app/dist /usr/share/nginx/html
 COPY nginx/nginx.conf /etc/nginx/conf.d/default.conf
