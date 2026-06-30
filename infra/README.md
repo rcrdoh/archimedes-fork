@@ -36,8 +36,8 @@ with Terraform). No DynamoDB table needed.
 # S3 bucket — versioned, encrypted, no public access
 aws s3api create-bucket \
   --bucket archimedes-tfstate-159903201072 \
-  --region eu-west-2 \
-  --create-bucket-configuration LocationConstraint=eu-west-2
+  --region us-east-1 \
+  --create-bucket-configuration LocationConstraint=us-east-1
 
 aws s3api put-bucket-versioning \
   --bucket archimedes-tfstate-159903201072 \
@@ -70,12 +70,68 @@ aws s3api put-bucket-policy \
 
 ### Working with Terraform
 
+**Prereqs (every session):** the S3 backend + provider use your SSO credentials,
+so Terraform needs `AWS_PROFILE` exported — without it, it falls through to
+EC2-instance-metadata and dies with *"No valid credential sources found / no EC2
+IMDS role found."*
+
 ```bash
-cd infra/
-terraform init          # Downloads providers, connects to S3 backend
-terraform plan          # Preview changes (always do this first)
-terraform apply         # Apply changes (requires confirmation)
+aws sso login --profile ArchimedesDanAdmin           # refresh the SSO session
+export AWS_PROFILE=ArchimedesDanAdmin AWS_REGION=us-east-1
+aws sts get-caller-identity                          # smoke-test (account 037613907429)
 ```
+
+**The Aurora master password** is required by the config (`var.aurora_master_password`).
+It lives in SSM as a SecureString — pipe it straight into the TF var so it never
+prints to screen or shell history:
+
+```bash
+export TF_VAR_aurora_master_password="$(aws ssm get-parameter \
+  --name /archimedes/prod/AURORA_MASTER_PASSWORD \
+  --with-decryption --query Parameter.Value --output text)"
+```
+
+**The core loop:**
+
+```bash
+cd infra/                # the LIVE stack (NOT infra/terraform/ — that's a separate, unwired module)
+terraform init           # downloads providers, connects to the S3 backend
+terraform plan           # ALWAYS preview first — scrutinize for `destroy` / route deletions
+terraform apply          # type `yes` to confirm
+```
+
+**If a plan/apply was interrupted (Ctrl-C), the S3 state lock can go stale** —
+you'll see `Error acquiring the state lock … PreconditionFailed`. Clear it (only
+when you're sure no other terraform is actually running):
+
+```bash
+terraform force-unlock <LOCK_ID>     # the ID is printed in the error
+```
+
+**Adopting a live-but-unmanaged resource (drift) — import, don't recreate.** If a
+resource exists in AWS but Terraform wants to *create* it (→ would error
+`…AlreadyExists`), import it into state first. Example (the private-subnet NAT routes):
+
+```bash
+terraform import 'aws_route.private_nat[0]' rtb-<id>_0.0.0.0/0
+terraform import 'aws_route.private_nat[1]' rtb-<id>_0.0.0.0/0
+```
+
+> **Route-table gotcha (load-bearing).** Terraform forbids mixing an **inline
+> `route {}` block** on `aws_route_table` with **standalone `aws_route` resources**
+> on the same table — the inline block claims the whole route set and will silently
+> DELETE routes managed by `aws_route` (this once tried to delete the VPC-peering
+> return route and would have severed app↔Aurora/Redis — see PR #836). The private
+> route tables therefore use **all standalone `aws_route`** (NAT + peering); do not
+> add inline `route {}` blocks to them.
+
+> **`user_data` edits reboot the box.** Changing the EC2 `user_data` (e.g. editing
+> `user-data.sh`) makes Terraform **stop/start** the instance (AWS can't modify
+> user_data on a running instance) → a ~1–2 min outage. The EIP keeps the IP and
+> `restart: unless-stopped` brings the app back, but the *running* instance never
+> needs a user_data refresh (it only runs at first boot). To apply other changes
+> without the reboot, `-target` them; to stop Terraform proposing the reboot for a
+> bootstrap-script edit, add `lifecycle { ignore_changes = [user_data] }`.
 
 ### Admin Access (SSM Session Manager)
 
@@ -83,12 +139,12 @@ Once VPC migration is complete, admin access is via AWS SSM:
 
 ```bash
 # Terminal session (replaces SSH)
-aws ssm start-session --target i-<instance-id> --region eu-west-2
+aws ssm start-session --target i-<instance-id> --region us-east-1
 
 # Port forwarding to Aurora (database access from laptop)
 aws ssm start-session \
   --target i-<instance-id> \
-  --region eu-west-2 \
+  --region us-east-1 \
   --document-name AWS-StartPortForwardingSessionToRemoteHost \
   --parameters host=<aurora-endpoint>,portNumber=5432,localPortNumber=5432
 ```
