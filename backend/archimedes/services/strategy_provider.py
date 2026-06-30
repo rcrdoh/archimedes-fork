@@ -285,10 +285,14 @@ def _to_strategy(
         logger.warning("unknown STATUS=%s in %s, defaulting to candidate", status_raw, path)
         status = StrategyStatus.CANDIDATE
 
-    # Promote status from fixture when the strategy passes the rigor gate,
-    # unless the file already declares a more advanced state (live/retired).
-    if fixture and fixture.get("passes_rigor_gate") and status == StrategyStatus.CANDIDATE:
-        status = StrategyStatus.VALIDATED
+    # CANDIDATE → VALIDATED promotion is NOT driven by the fixture boolean (#821).
+    # The fixture's ``passes_rigor_gate`` is a stored value the live gate never
+    # re-derives — exactly the cached-pass pattern the #1 rule forbids. Promotion
+    # is now driven off the LIVE gate verdict computed on persisted real returns
+    # (see api/strategies_routes.py + services/live_rigor_gate.py): the served
+    # status is overlaid there from the live verdict. Here we keep only the file's
+    # declared STATUS (so a curator can still hand-declare live/retired); the
+    # fixture boolean no longer promotes anything.
 
     paper_claimed_sharpe = metadata.get("PAPER_CLAIMED_SHARPE")
     paper_claimed_cagr = metadata.get("PAPER_CLAIMED_CAGR")
@@ -319,7 +323,15 @@ def _to_strategy(
     num_trials_in_selection = fx.get("num_trials_in_selection")
     pbo_score = fx.get("pbo_score")
     out_of_sample_sharpe = fx.get("out_of_sample_sharpe")
-    passes_rigor_gate = bool(fx.get("passes_rigor_gate", False))
+    # NOTE (#821): the badge ``passes_rigor_gate`` is NOT sourced from the fixture
+    # boolean. The fixture value (``fx.get("passes_rigor_gate")``) is a stored
+    # constant the live gate never re-derives — the cached-pass anti-pattern the
+    # #1 rule forbids. The served badge is overlaid from the LIVE gate verdict
+    # computed on persisted real returns in api/strategies_routes (single source of
+    # truth via services/live_rigor_gate). We initialise to False (fail-closed) here
+    # so nothing downstream that reads ``Strategy.passes_rigor_gate`` directly can
+    # leak a fixture pass; the served path replaces it with the live verdict.
+    passes_rigor_gate = False
     kelly_fraction = fx.get("kelly_fraction")
     n_obs_daily = fx.get("n_obs_daily")
 
