@@ -385,3 +385,28 @@ async def test_debate_round_transcript_in_fixed_role_order(monkeypatch):
     transcript = await de._debate_round(pool, "m", _FakeEmit(), "cand_1")
     # Best-effort round still produces a deterministic [bull, bear] ordering.
     assert [t["role"] for t in transcript] == ["bull", "bear"]
+
+
+# ── Review fixes: pool-max bound + leaderboard top-N cap ──────────────────────
+
+
+def test_pool_max_meaningfully_bounds_the_steer_grid(monkeypatch):
+    # The steer grid is regime×mechanism (18), so DEBATE_POOL_MAX can actually cap
+    # the fan-out (the prior 5-element _STEERS made the knob a no-op above 5).
+    assert len(de._STEERS) == 18
+    monkeypatch.setenv("DEBATE_POOL_MAX", "6")
+    assert de._pool_max() == 6
+    monkeypatch.setenv("DEBATE_POOL_MAX", "99")
+    assert de._pool_max() == len(de._STEERS)  # clamped to the grid size, not unbounded
+
+
+def test_build_leaderboard_caps_to_top_n(monkeypatch):
+    monkeypatch.setenv("DEBATE_LEADERBOARD_MAX", "3")
+    rigor_results = [
+        (_fake_proposal(f"c{i}", [f"24{i}.0001", f"24{i}.0002"]), _fake_ev(cagr=0.2, dsr=float(i))) for i in range(8)
+    ]
+    board = de.build_leaderboard(rigor_results, regime="neutral", base_id="cand_1")
+    assert len(board) == 3  # capped, not all 8 survivors
+    # Highest-DSR leader kept its base id; the cap takes the top-3 by score.
+    assert board[0].candidate_id == "cand_1"
+    assert all(e.has_real_rigor for e in board)

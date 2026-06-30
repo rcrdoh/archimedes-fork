@@ -51,6 +51,7 @@ from typing import TYPE_CHECKING, Any
 from archimedes.agents.generation_pipeline import (
     FusionUnavailable,
     _CandidateResult,
+    _society_num_trials,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -62,10 +63,24 @@ logger = logging.getLogger(__name__)
 # ── Env knobs ───────────────────────────────────────────────────────────────
 _TRUE = {"1", "true", "yes", "on"}
 
-# Phase-1 leaner steer set (regime axis). Phase 2 scales to ~15-20 across
-# regime × mechanism × risk-appetite. None = unbiased; "bull"/"bear" map to
-# strategy_fusion._REGIME_BIAS_TERMS.
-_STEERS: tuple[str | None, ...] = ("bull", "bear", "bull", "bear", None)
+# Steer grid = regime × mechanism. Each (regime_bias, mechanism) pair gives the
+# proposer a distinct evidence ranking (regime_bias → select_candidates) AND a
+# distinct mechanism hint (appended to strategic_direction), so the pool diverges
+# on TWO axes — not just the 3 regime_bias values. This is the non-corpus diversity
+# dimension that mitigates the "diversity theater" risk when the corpus is degraded
+# (a degraded reranker can collapse regime steers; the mechanism hint still varies
+# the proposer prompt). `_pool_max()` bounds how many of these steers actually fan out.
+_REGIME_AXIS: tuple[str | None, ...] = ("bull", "bear", None)
+_MECHANISM_AXIS: tuple[str, ...] = (
+    "momentum / trend-following",
+    "volatility-managed / defensive",
+    "carry",
+    "breakout",
+    "mean-reversion",
+    "minimum-variance",
+)
+# Cartesian product (regime × mechanism) = 18 distinct steers; `_pool_max()` caps the fan-out.
+_STEERS: tuple[tuple[str | None, str], ...] = tuple((r, m) for r in _REGIME_AXIS for m in _MECHANISM_AXIS)
 
 # Indicator stems interpret_spec actually supports. ``realized_vol_N`` *validates*
 # via validate_strategy_spec but raises DSLError("unsupported indicator") inside
@@ -89,11 +104,36 @@ def debate_enabled() -> bool:
 
 
 def _pool_max() -> int:
-    """``DEBATE_POOL_MAX`` clamped to [2, 24] (default 10 for Phase 1)."""
+    """``DEBATE_POOL_MAX`` clamped to [2, 24] (default 10 for Phase 1).
+
+    Bounds how many of the regime×mechanism ``_STEERS`` (18 total) actually fan out
+    as proposer calls — so the env knob meaningfully caps the LLM cost.
+    """
     try:
-        return max(2, min(24, int(os.getenv("DEBATE_POOL_MAX", "10"))))
+        return max(2, min(len(_STEERS), int(os.getenv("DEBATE_POOL_MAX", "10"))))
     except ValueError:
         return 10
+
+
+def _leaderboard_max() -> int:
+    """``DEBATE_LEADERBOARD_MAX`` clamped to [1, 24] (default 10 — the spec's top-10)."""
+    try:
+        return max(1, min(24, int(os.getenv("DEBATE_LEADERBOARD_MAX", "10"))))
+    except ValueError:
+        return 10
+
+
+def _library_size() -> int:
+    """Curated strategy-library size — the library-context selection layer for the
+    DSR deflation (mirrors the live path's ``len(strategies)``). Never raises;
+    degrades to 1 (the minimum), which can only UNDER-count, never over-deflate."""
+    try:
+        from archimedes.services.strategy_provider import default_provider
+
+        return max(1, len(default_provider().list_strategies()))
+    except Exception:
+        logger.debug("debate: library-size lookup failed; defaulting to 1", exc_info=True)
+        return 1
 
 
 class DebateUnavailable(FusionUnavailable):
@@ -201,25 +241,29 @@ async def _propose_pool(brief: GenerateBrief, model: str | None, corpus: list[An
         select_candidates,
     )
 
-    fb = FusionBrief(
-        asset_classes=list(brief.asset_classes or []),
-        risk_appetite=brief.risk_appetite,
-        strategic_direction=brief.intent or "",
-        max_papers=brief.max_papers,
-    )
     steers = list(_STEERS)[: _pool_max()]
 
-    def _propose_one(regime_bias: str | None) -> Any:
-        # Pre-build the steered evidence set (the caller-gap fix: select_candidates
-        # accepts regime_bias but StrategyFusion.propose never threads it). The
-        # proposer fuses over THIS steered set via the injected corpus.
+    def _propose_one(steer: tuple[str | None, str]) -> Any:
+        regime_bias, mechanism = steer
+        # Thread BOTH axes: regime_bias steers select_candidates' evidence ranking,
+        # and the mechanism hint (appended to strategic_direction) steers the proposer
+        # prompt so the same evidence + a different mechanism yields a genuinely
+        # different spec — not an LLM-noise duplicate. (The caller-gap fix:
+        # select_candidates accepts regime_bias but StrategyFusion.propose never
+        # threads it; the proposer fuses over THIS steered set via the injected corpus.)
+        fb = FusionBrief(
+            asset_classes=list(brief.asset_classes or []),
+            risk_appetite=brief.risk_appetite,
+            strategic_direction=f"{brief.intent or ''} — favor {mechanism} mechanisms".strip(" —"),
+            max_papers=brief.max_papers,
+        )
         evidence = select_candidates(fb, corpus, regime_bias=regime_bias)
         if len(evidence) < MIN_PAPERS:
             return None
         return StrategyFusion(model=model, corpus=evidence).propose(fb)
 
     proposals = await asyncio.gather(
-        *(asyncio.to_thread(_propose_one, r) for r in steers),
+        *(asyncio.to_thread(_propose_one, s) for s in steers),
         return_exceptions=True,
     )
 
@@ -438,6 +482,9 @@ def build_leaderboard(rigor_results: list[tuple[Any, Any]], *, regime: str, base
             )
         ]
     survivors.sort(key=lambda pe: _score(pe[1]), reverse=True)
+    # Cap to the top-N leaderboard (spec's top-10 contract) so the persisted/streamed
+    # candidate set can't balloon when the pool is large.
+    survivors = survivors[: _leaderboard_max()]
     return [
         _make_entry(base_id if i == 0 else f"{base_id}_alt{i}", p, ev, regime=regime)
         for i, (p, ev) in enumerate(survivors)
@@ -497,15 +544,21 @@ async def _run_debate_candidate(
     # Step 2 — best-effort adversarial transcript (never gates).
     await _debate_round(pool, model, emit, candidate_id)
 
-    # Step 3 — C-rigor: backtest every survivor with num_trials = pool_size (A1).
+    # Step 3 — C-rigor (A1, aligned with #770/#811 + Önder's #820 unification): the
+    # DSR multiple-testing count is `_society_num_trials(library_size, pool_size) =
+    # library + N`, NOT pool_size alone. The winner survived selection from the pool
+    # AND is promoted into the library, so both selection layers must deflate it —
+    # otherwise the debate "passing" badge is more permissive than the live path's.
+    # When #820 lands the shared helper, this should read from that single source.
+    num_trials = await asyncio.to_thread(lambda: _society_num_trials(_library_size(), pool_size))
     await emit.emit("agent_iteration", candidate_id=candidate_id, iteration_n=2, max_iterations=4)
     await emit.emit(
         "tool_called",
         candidate_id=candidate_id,
         tool_name="evaluate_fusion_spec",
-        args_summary=f"backtest ×{pool_size}, num_trials={pool_size}",
+        args_summary=f"backtest ×{pool_size}, num_trials={num_trials} (library+pool, #770/#820)",
     )
-    rigor_results = await _critic_rigor(pool, pool_size)
+    rigor_results = await _critic_rigor(pool, num_trials)
     if not rigor_results:
         raise DebateUnavailable("debate: no candidate produced a successful backtest")
 

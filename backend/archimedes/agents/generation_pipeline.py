@@ -1330,6 +1330,10 @@ async def run_generation(
         # generation_method preserves the HONEST "no weights" signal for a genuine
         # agent-path failure (agent emitted no allocation) while never running the
         # static backtester on a fusion candidate that has nothing static to run.
+        # Debate candidates ("debate"/"debate_abstain") are the same shape — they
+        # emit a DSL spec (weights={}) scored by evaluate_fusion_spec, or are a
+        # populated ABSTAIN — so they skip the static backtester too (T1.1).
+        _static_skip = ("fusion", "debate", "debate_abstain")
         await asyncio.gather(
             *[
                 # num_trials = N candidates + library context (#770), not library alone.
@@ -1337,7 +1341,7 @@ async def run_generation(
                     c, strategy_ids[c.candidate_id], emit, _society_num_trials(library_size, n_candidates)
                 )
                 for c in candidates
-                if c.generation_method != "fusion"
+                if c.generation_method not in _static_skip
             ]
         )
 
