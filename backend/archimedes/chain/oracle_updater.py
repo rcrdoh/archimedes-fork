@@ -97,23 +97,68 @@ class OracleUpdater:
     # ─── Public API ──────────────────────────────────────────────
 
     async def fetch_prices(self) -> list[AssetPrice]:
-        """Fetch current prices for all synthetic assets via yfinance + CoinGecko."""
-        prices: list[AssetPrice] = []
+        """Fetch current prices for all synthetic assets.
+
+        The source is governed by the ``PRICE_SOURCE`` env (North Star §10.5):
+          • ``yfinance`` (default) — legacy behavior, unchanged; a deploy of this
+            change is a no-op until the flag is flipped.
+          • ``cascade`` — Pyth Hermes for the symbols it covers, yfinance for the
+            rest, CoinGecko for crypto Pyth misses.
+          • ``pyth_hermes`` — Pyth only (no yfinance/CoinGecko fallback).
+        Admin overrides (``ADMIN_PRICES_JSON``) apply on top in every mode.
+
+        The cascade is the safety net: any Pyth miss/error falls back
+        transparently, and every price keeps its true ``source`` + upstream
+        timestamp so the on-chain push staleness/deviation gates stay meaningful.
+        Zero contract change — only *where* the price comes from differs.
+        """
+        # Lazy import: keep the `archimedes.services` package (and its import-time
+        # cycle) off oracle_updater's module-load path so the standalone oracle
+        # runner imports cleanly.
+        from archimedes.services.price_source import load_admin_prices, price_source_mode
+
         now = datetime.now(UTC)
-
-        # Fetch equity/ETF/futures prices via yfinance (in thread pool — yfinance is sync)
+        mode = price_source_mode()
         equity_symbols = {k: v for k, v in YFINANCE_MAP.items() if k.startswith("s")}
-        equity_prices = await asyncio.to_thread(self._fetch_yfinance, equity_symbols, now)
-        prices.extend(equity_prices)
 
-        # Fetch crypto prices via CoinGecko API
-        crypto_prices = await self._fetch_crypto(now)
-        prices.extend(crypto_prices)
+        if mode in ("cascade", "pyth_hermes"):
+            prices = await self._fetch_cascade(equity_symbols, now, strict_pyth=(mode == "pyth_hermes"))
+        else:
+            prices = list(await asyncio.to_thread(self._fetch_yfinance, equity_symbols, now))
+            prices.extend(await self._fetch_crypto(now))
+
+        # Manual admin overrides (pin/demo) win over the fetched price, in any mode.
+        admin = load_admin_prices()
+        if admin:
+            prices = [admin.get(p.symbol, p) for p in prices]
+            have = {p.symbol for p in prices}
+            prices.extend(ap for sym, ap in admin.items() if sym not in have)
 
         for p in prices:
             self._price_cache[p.symbol] = p
 
-        logger.info(f"Fetched {len(prices)} prices")
+        logger.info("Fetched %d prices (source=%s)", len(prices), mode)
+        return prices
+
+    async def _fetch_cascade(
+        self, equity_symbols: dict[str, str], now: datetime, *, strict_pyth: bool
+    ) -> list[AssetPrice]:
+        """Pyth-first cascade: Pyth for covered symbols, yfinance/CoinGecko for the
+        rest (unless ``strict_pyth``). Pyth failures degrade gracefully to fallback."""
+        from archimedes.services.price_source import PYTH_FEED_IDS, fetch_pyth_prices
+
+        pyth_targets = [s for s in (*equity_symbols, *CRYPTO_MAP) if s in PYTH_FEED_IDS]
+        pyth = await fetch_pyth_prices(pyth_targets)
+        covered = set(pyth)
+        prices: list[AssetPrice] = list(pyth.values())
+
+        if not strict_pyth:
+            remaining_equity = {k: v for k, v in equity_symbols.items() if k not in covered}
+            if remaining_equity:
+                prices.extend(await asyncio.to_thread(self._fetch_yfinance, remaining_equity, now))
+            if any(s not in covered for s in CRYPTO_MAP):
+                prices.extend(await self._fetch_crypto(now))
+
         return prices
 
     async def push_prices_on_chain(self, prices: list[AssetPrice]) -> str | None:
