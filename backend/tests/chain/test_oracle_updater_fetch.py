@@ -53,9 +53,8 @@ class TestFetchYfinance:
         assert by_symbol["sSPY"] == 500.0
 
     def test_import_error_returns_empty(self, updater):
-        fake_yf = MagicMock()
-        fake_yf.download = MagicMock(side_effect=ImportError("yfinance missing"))
-        # Force the `import yfinance as yf` inside to raise.
+        # Force the `import yfinance as yf` inside to raise (no mock object needed —
+        # mapping the module to None makes the import statement itself raise).
         with patch.dict(sys.modules, {"yfinance": None}):
             results = updater._fetch_yfinance({"sTSLA": "TSLA"}, datetime.now(UTC))
         assert results == []
