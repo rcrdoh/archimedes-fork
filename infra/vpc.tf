@@ -101,20 +101,28 @@ resource "aws_subnet" "private" {
   }
 }
 
-# Each private subnet routes outbound through its AZ's NAT instance
+# Each private subnet routes outbound through its AZ's NAT instance.
+# IMPORTANT: routes are defined as standalone aws_route resources (the NAT default
+# route below + aws_route.main_to_default in aurora.tf for the VPC-peering return
+# path to the app EC2 in the default VPC). Do NOT add inline `route` blocks to this
+# table — Terraform forbids mixing inline routes with aws_route resources on the same
+# table, and doing so makes it churn/DELETE the peering route on every apply (which
+# severs Aurora/ElastiCache → app connectivity).
 resource "aws_route_table" "private" {
   count  = 2
   vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block           = "0.0.0.0/0"
-    network_interface_id = aws_instance.nat[count.index].primary_network_interface_id
-  }
 
   tags = {
     Name    = "${var.project_name}-private-rt-${local.azs[count.index]}"
     Project = var.project_name
   }
+}
+
+resource "aws_route" "private_nat" {
+  count                  = 2
+  route_table_id         = aws_route_table.private[count.index].id
+  destination_cidr_block = "0.0.0.0/0"
+  network_interface_id   = aws_instance.nat[count.index].primary_network_interface_id
 }
 
 resource "aws_route_table_association" "private" {
