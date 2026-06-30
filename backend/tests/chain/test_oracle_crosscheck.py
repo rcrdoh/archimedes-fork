@@ -46,6 +46,16 @@ async def test_yfinance_primary_is_noop():
     m.assert_not_called()
 
 
+async def test_admin_source_is_noop():
+    # An admin pin (ADMIN_PRICES_JSON last-resort operator override) must NOT be
+    # second-guessed by the secondary guardrail — the whole point is to override
+    # upstream. yfinance must not even be fetched.
+    u = _updater()
+    with patch.object(u, "_fetch_yfinance_single", AsyncMock()) as m:
+        assert await u._cross_check_secondary(_price(source="admin")) is None
+    m.assert_not_called()
+
+
 async def test_unmapped_symbol_is_noop():
     # A symbol with no yfinance ticker can't be cross-checked → proceed.
     u = _updater()
