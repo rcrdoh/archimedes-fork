@@ -20,6 +20,7 @@ const NAV = [
     { id: 'landing', label: 'Home', icon: 'i-lucide-home' },
   ]},
   { group: 'Discover', items: [
+    { id: 'marketplace',  label: 'Marketplace',  icon: 'i-lucide-store' },
     { id: 'explore',      label: 'Explore',      icon: 'i-lucide-compass' },
     { id: 'corpus',       label: 'Corpus',       icon: 'i-lucide-library' },
     { id: 'architecture', label: 'Architecture', icon: 'i-lucide-network' },
@@ -52,6 +53,10 @@ export const PAGE_LABELS = {
   learnings: 'Learnings',
   insights: 'Insights',
   'vault-detail': 'Vault Details',
+  marketplace: 'Marketplace',
+  publish: 'Publish',
+  subscriptions: 'My Subscriptions',
+  'strategy-detail': 'Strategy Details',
   about: 'About',
   imprint: 'Imprint',
 }
@@ -154,7 +159,13 @@ export default function Layout({ page, setPage, walletAddr, onConnect, onDisconn
                   key={item.id}
                   type="button"
                   data-tour={item.id}
-                  className={`nav-link${page === item.id || (item.id === 'portfolio' && page === 'vault-detail') ? ' active' : ''}`}
+                  className={`nav-link${
+                    page === item.id ||
+                    (item.id === 'portfolio' && page === 'vault-detail') ||
+                    (item.id === 'marketplace' && ['strategy-detail', 'publish', 'subscriptions'].includes(page))
+                      ? ' active'
+                      : ''
+                  }`}
                   onClick={() => handleNav(item.id)}
                   aria-label={item.label}
                   title={sidebarCollapsed ? item.label : undefined}
