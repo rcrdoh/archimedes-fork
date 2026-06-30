@@ -149,15 +149,39 @@ class OracleUpdater:
 
         pyth_targets = [s for s in (*equity_symbols, *CRYPTO_MAP) if s in PYTH_FEED_IDS]
         pyth = await fetch_pyth_prices(pyth_targets)
-        covered = set(pyth)
-        prices: list[AssetPrice] = list(pyth.values())
 
-        if not strict_pyth:
-            remaining_equity = {k: v for k, v in equity_symbols.items() if k not in covered}
-            if remaining_equity:
-                prices.extend(await asyncio.to_thread(self._fetch_yfinance, remaining_equity, now))
-            if any(s not in covered for s in CRYPTO_MAP):
-                prices.extend(await self._fetch_crypto(now))
+        if strict_pyth:
+            # Strict Pyth: no fallback by contract. Keep every observation — stale
+            # ones are rejected downstream by _validate_for_push and no source fills
+            # the gap (that's the strict-mode promise).
+            return list(pyth.values())
+
+        # Cascade: a STALE Pyth observation must NOT count as "covered". Otherwise the
+        # symbol is dropped downstream by the staleness gate (_validate_for_push) with
+        # no yfinance/CoinGecko fallback to fill it — the exact gap the cascade exists
+        # to close (e.g. off-hours equity feeds). Only FRESH Pyth prices count as
+        # covered; stale ones fall through to the fallback sources below.
+        cap = self._max_upstream_staleness_s
+
+        def _is_fresh(p: AssetPrice) -> bool:
+            observed = p.timestamp if p.timestamp.tzinfo else p.timestamp.replace(tzinfo=UTC)
+            return (now - observed).total_seconds() <= cap
+
+        fresh_pyth = {sym: p for sym, p in pyth.items() if _is_fresh(p)}
+        covered = set(fresh_pyth)
+        prices: list[AssetPrice] = list(fresh_pyth.values())
+
+        remaining_equity = {k: v for k, v in equity_symbols.items() if k not in covered}
+        if remaining_equity:
+            prices.extend(await asyncio.to_thread(self._fetch_yfinance, remaining_equity, now))
+
+        # Only fill crypto symbols Pyth didn't freshly cover. _fetch_crypto fetches the
+        # whole CRYPTO_MAP, so filter its result to the uncovered set — otherwise a
+        # symbol Pyth already covered would be pushed twice.
+        uncovered_crypto = {s for s in CRYPTO_MAP if s not in covered}
+        if uncovered_crypto:
+            crypto = await self._fetch_crypto(now)
+            prices.extend(p for p in crypto if p.symbol in uncovered_crypto)
 
         return prices
 

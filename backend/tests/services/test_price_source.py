@@ -9,7 +9,7 @@ DEFAULT mode is byte-for-byte the legacy path.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 from archimedes.models.asset import AssetPrice
@@ -215,14 +215,17 @@ async def test_cascade_mode_prefers_pyth_then_yfinance(monkeypatch):
     from archimedes.chain.oracle_updater import OracleUpdater
 
     upd = OracleUpdater()
-    # Pyth covers sBTC + sSPY; yfinance must fill the rest (sOIL/sNKY/sTSLA/sNVDA/sGOLD).
+    # Pyth covers sBTC + sSPY (FRESH observations); yfinance must fill the rest
+    # (sOIL/sNKY/sTSLA/sNVDA/sGOLD). Use a real-fresh timestamp: a fresh Pyth read is
+    # what counts as "covered" now that stale observations fall through (below).
+    fresh = datetime.now(UTC)
     pyth_ret = {
-        "sBTC": AssetPrice("sBTC", 58000, NOW, "pyth_hermes"),
-        "sSPY": AssetPrice("sSPY", 512, NOW, "pyth_hermes"),
+        "sBTC": AssetPrice("sBTC", 58000, fresh, "pyth_hermes"),
+        "sSPY": AssetPrice("sSPY", 512, fresh, "pyth_hermes"),
     }
     with (
         patch("archimedes.services.price_source.fetch_pyth_prices", AsyncMock(return_value=pyth_ret)),
-        patch.object(upd, "_fetch_yfinance", return_value=[AssetPrice("sOIL", 70, NOW, "yfinance")]) as yf_mock,
+        patch.object(upd, "_fetch_yfinance", return_value=[AssetPrice("sOIL", 70, fresh, "yfinance")]) as yf_mock,
         patch.object(upd, "_fetch_crypto", AsyncMock(return_value=[])) as crypto_mock,
     ):
         prices = await upd.fetch_prices()
@@ -234,6 +237,34 @@ async def test_cascade_mode_prefers_pyth_then_yfinance(monkeypatch):
     called_symbols = set(yf_mock.call_args[0][0].keys())
     assert "sSPY" not in called_symbols and "sGOLD" in called_symbols
     crypto_mock.assert_not_called()  # sBTC came from Pyth → no CoinGecko
+
+
+async def test_cascade_stale_pyth_falls_back_to_yfinance(monkeypatch):
+    # A Pyth observation older than the upstream-staleness cap must NOT count as
+    # "covered" — the symbol falls through to yfinance instead of being silently
+    # dropped later by the on-chain staleness gate with nothing to fill the gap.
+    monkeypatch.setenv("PRICE_SOURCE", "cascade")
+    monkeypatch.delenv("ADMIN_PRICES_JSON", raising=False)
+    from archimedes.chain.oracle_updater import OracleUpdater
+
+    upd = OracleUpdater()
+    fresh = datetime.now(UTC)
+    stale = fresh - timedelta(seconds=upd._max_upstream_staleness_s + 600)
+    pyth_ret = {
+        "sBTC": AssetPrice("sBTC", 58000, fresh, "pyth_hermes"),  # fresh → covered
+        "sSPY": AssetPrice("sSPY", 512, stale, "pyth_hermes"),  # STALE → must fall through
+    }
+    with (
+        patch("archimedes.services.price_source.fetch_pyth_prices", AsyncMock(return_value=pyth_ret)),
+        patch.object(upd, "_fetch_yfinance", return_value=[AssetPrice("sSPY", 515, fresh, "yfinance")]) as yf_mock,
+        patch.object(upd, "_fetch_crypto", AsyncMock(return_value=[])),
+    ):
+        prices = await upd.fetch_prices()
+    by = {p.symbol: p for p in prices}
+    assert by["sBTC"].source == "pyth_hermes"  # fresh Pyth still wins
+    assert by["sSPY"].source == "yfinance"  # stale Pyth → yfinance fallback filled it
+    # yfinance was asked for sSPY precisely because its Pyth read was stale.
+    assert "sSPY" in set(yf_mock.call_args[0][0].keys())
 
 
 async def test_admin_override_wins_in_any_mode(monkeypatch):
