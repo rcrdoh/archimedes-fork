@@ -21,6 +21,7 @@ const NAV = [
   ]},
   { group: 'Discover', items: [
     { id: 'explore',      label: 'Explore',      icon: 'i-lucide-compass' },
+    { id: 'leaderboard',  label: 'Leaderboard',  icon: 'i-lucide-trophy' },
     { id: 'corpus',       label: 'Corpus',       icon: 'i-lucide-library' },
     { id: 'architecture', label: 'Architecture', icon: 'i-lucide-network' },
   ]},
@@ -42,6 +43,7 @@ const NAV = [
 export const PAGE_LABELS = {
   landing: 'Home',
   explore: 'Explore',
+  leaderboard: 'Leaderboard',
   generate: 'Generate',
   architecture: 'Architecture',
   library: 'Library',

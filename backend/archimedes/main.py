@@ -33,6 +33,7 @@ from archimedes.api.chat_routes import chat_router
 from archimedes.api.corpus_routes import corpus_router
 from archimedes.api.explore_routes import explore_router
 from archimedes.api.generate_routes import generate_router
+from archimedes.api.leaderboard_routes import leaderboard_router
 from archimedes.api.limiter import limiter
 
 # marketplace_router removed — hardcoded fees + invented math (Issue #381)
@@ -259,6 +260,7 @@ app.include_router(user_router)
 app.include_router(auth_router)
 app.include_router(proposals_router)
 app.include_router(metrics_router)
+app.include_router(leaderboard_router)
 
 
 @app.get("/health")
