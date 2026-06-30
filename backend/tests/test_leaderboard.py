@@ -85,6 +85,25 @@ def test_gate_not_counted_when_placeholder():
     assert score == 0.0
 
 
+def test_placeholder_with_borrowed_rigor_still_sinks():
+    # Regression: a placeholder that ALSO carries DSR/OOS/PBO values (e.g. seeded
+    # numbers on a placeholder record) must NOT ride them to a non-zero score and
+    # outrank a real-but-partially-missing strategy. Every component zeros.
+    ph = _strat("ph", passes_gate=True, dsr_p=0.99, oos=1.5, pbo=0.05, placeholder=True)
+    score, comp = compute_conviction(ph)
+    assert score == 0.0
+    assert comp.gate == 0.0
+    assert comp.dsr_confidence == 0.0
+    assert comp.oos_performance == 0.0
+    assert comp.overfitting_resistance == 0.0
+    assert comp.data_completeness == 0.0
+
+    # ... and it sorts strictly below a real strategy with only partial data.
+    real_partial = _strat("real", passes_gate=True, dsr_p=0.6)  # gate + dsr only
+    real_score, _ = compute_conviction(real_partial)
+    assert real_score > score
+
+
 def test_negative_oos_clamps_to_zero():
     s = _strat("N", passes_gate=True, oos=-0.5)
     _, comp = compute_conviction(s)

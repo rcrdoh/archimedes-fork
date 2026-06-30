@@ -193,7 +193,7 @@ export default function Leaderboard() {
                   <td style={{ padding: '10px', whiteSpace: 'nowrap', color: '#d08a8a' }}>{fmtPct(e.max_drawdown)}</td>
                   <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>
                     {rigorBadge(e)}
-                    {e.dsr_p_value != null && <div style={{ fontSize: 11, color: '#8a8a92', marginTop: 2 }}>DSR p={fmt(e.dsr_p_value)}{e.pbo_score != null ? ` · PBO ${fmt(e.pbo_score)}` : ''}</div>}
+                    {e.dsr_p_value != null && <div style={{ fontSize: 11, color: '#8a8a92', marginTop: 2 }} title="DSR confidence (0–1, higher is better): probability the Sharpe survives deflation/multiple-testing. Not a classical p-value.">DSR conf={fmt(e.dsr_p_value)}{e.pbo_score != null ? ` · PBO ${fmt(e.pbo_score)}` : ''}</div>}
                   </td>
                   <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>
                     <span className="tag-muted" title="Per-strategy StockBench eval is pending">SB pending</span>{' '}

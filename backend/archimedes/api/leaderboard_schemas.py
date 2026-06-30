@@ -29,7 +29,13 @@ class LeaderboardScoreComponents(BaseModel):
 
     gate: float = Field(..., description="1.0 if passes_rigor_gate else 0.0")
     dsr_confidence: float = Field(
-        ..., description="DSR p-value, clamped [0,1] — confidence the Sharpe survives deflation/multiple-testing"
+        ...,
+        description=(
+            "DSR confidence in [0,1] — the probability the Sharpe survives "
+            "deflation/multiple-testing. HIGHER IS BETTER. (Sourced from the "
+            "`dsr_p_value` field, which despite its legacy name holds a 0–1 "
+            "confidence, NOT a classical p-value where lower is better.)"
+        ),
     )
     oos_performance: float = Field(..., description="out_of_sample_sharpe / OOS_TARGET, clamped [0,1]")
     overfitting_resistance: float = Field(..., description="1 - pbo_score, clamped [0,1]")
@@ -74,7 +80,14 @@ class LeaderboardEntry(BaseModel):
 
     # Rigor (selection-bias gate) — the credibility moat, surfaced honestly.
     deflated_sharpe_ratio: float | None = None
-    dsr_p_value: float | None = None
+    dsr_p_value: float | None = Field(
+        None,
+        description=(
+            "DSR confidence in [0,1] — HIGHER IS BETTER. Despite the legacy "
+            "`p_value` name this is a confidence (probability the Sharpe survives "
+            "deflation), not a classical p-value where lower is better."
+        ),
+    )
     pbo_score: float | None = None
     out_of_sample_sharpe: float | None = None
     passes_rigor_gate: bool = False

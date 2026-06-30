@@ -84,11 +84,23 @@ def _clamp01(x: float) -> float:
 def compute_conviction(resp: StrategyResponse) -> tuple[float, LeaderboardScoreComponents]:
     """Return (score 0–100, the four real components). Missing inputs score 0 and
     lower ``data_completeness`` — so placeholders honestly sink, never inflate."""
-    placeholder = resp.is_backtest_placeholder
+    # A placeholder backtest carries NO real validation data. Even if DSR/OOS/PBO
+    # fields happen to be populated (a seeded record can carry placeholder
+    # numbers), they are not real backtest output — so EVERY component scores 0
+    # and the entry sinks. Without this guard a placeholder could ride borrowed
+    # DSR/OOS/PBO values (75% of the weight) above a real-but-partially-missing
+    # strategy, which is exactly the inflation the docstring promises not to do.
+    if resp.is_backtest_placeholder:
+        zero = LeaderboardScoreComponents(
+            gate=0.0,
+            dsr_confidence=0.0,
+            oos_performance=0.0,
+            overfitting_resistance=0.0,
+            data_completeness=0.0,
+        )
+        return 0.0, zero
 
-    # gate is only meaningful when there's a real backtest behind it.
-    gate_real = not placeholder
-    gate = 1.0 if (resp.passes_rigor_gate and gate_real) else 0.0
+    gate = 1.0 if resp.passes_rigor_gate else 0.0
 
     dsr_real = resp.dsr_p_value is not None
     dsr_confidence = _clamp01(resp.dsr_p_value) if dsr_real else 0.0
@@ -99,7 +111,9 @@ def compute_conviction(resp: StrategyResponse) -> tuple[float, LeaderboardScoreC
     pbo_real = resp.pbo_score is not None
     overfitting_resistance = _clamp01(1.0 - resp.pbo_score) if pbo_real else 0.0
 
-    real_count = sum((gate_real, dsr_real, oos_real, pbo_real))
+    # gate is always a real signal for a non-placeholder strategy (+1); the other
+    # three count only when their field is populated.
+    real_count = 1 + int(dsr_real) + int(oos_real) + int(pbo_real)
     components = LeaderboardScoreComponents(
         gate=gate,
         dsr_confidence=dsr_confidence,

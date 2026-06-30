@@ -36,7 +36,7 @@ from archimedes.api.generate_routes import generate_router
 from archimedes.api.leaderboard_routes import leaderboard_router
 from archimedes.api.limiter import limiter
 
-# marketplace_router removed — hardcoded fees + invented math (Issue #381)
+# (the marketplace route registration was removed — hardcoded fees + invented math, Issue #381)
 from archimedes.api.metrics_routes import metrics_router
 from archimedes.api.portfolio_routes import portfolio_router
 from archimedes.api.proposals_routes import proposals_router
