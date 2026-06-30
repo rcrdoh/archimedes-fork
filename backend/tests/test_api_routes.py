@@ -255,8 +255,12 @@ class TestStrategyRoutes:
             assert "dsr_p_value" in s, f"dsr_p_value missing for {s.get('id')}"
             assert "passes_rigor_gate" in s, f"passes_rigor_gate missing for {s.get('id')}"
 
-    def test_rigor_gate_fields_correct_for_tier1(self, client, seeded_db):
-        """Moreira-Muir fixture values flow correctly: dsr_p_value ≥ 0.95, passes_rigor_gate=True."""
+    def test_rigor_gate_badge_is_live_not_fixture_for_tier1(self, client, seeded_db):
+        """#821: the served ``passes_rigor_gate`` badge for Moreira-Muir comes from
+        the LIVE gate on persisted returns — NOT the fixture boolean. ``seeded_db``
+        only seeds Buy-and-Hold's backtest, so Moreira-Muir has no live returns and
+        the badge must be ``pending`` (False), even though its fixture row says True.
+        The fixture-derived display metric (dsr_p_value) still flows for rendering."""
         strategies = _list_all_strategies(client)
         # Match Moreira-Muir specifically by its full title. A bare "Volatility"
         # substring also matches Ang-Hodrick's "The Cross-Section of Volatility
@@ -267,9 +271,9 @@ class TestStrategyRoutes:
         )
         if mm is None:
             pytest.skip("Moreira-Muir strategy not found in fixture")
-        assert mm["passes_rigor_gate"] is True
-        assert mm["dsr_p_value"] is not None
-        assert mm["dsr_p_value"] >= 0.95, f"Expected p≥0.95, got {mm['dsr_p_value']}"
+        # No live returns for this strategy → pending, NOT a fixture True/False.
+        assert mm["rigor_gate_status"] == "pending"
+        assert mm["passes_rigor_gate"] is False, "fixture boolean must NOT drive the live badge (#821)"
 
 
 class TestRiskRoutes:

@@ -37,6 +37,11 @@ from archimedes.api.schemas import (
 )
 from archimedes.models.strategy import Strategy, StrategyStatus
 from archimedes.services.construction_trace import build_construction_trace
+from archimedes.services.live_rigor_gate import (
+    RigorGateVerdict,
+    verdict_from_returns,
+    verdicts_for_strategies,
+)
 from archimedes.services.strategy_guardrail import apply_guardrail
 
 logger = logging.getLogger(__name__)
@@ -44,14 +49,34 @@ logger = logging.getLogger(__name__)
 strategies_router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
 
-def _to_strategy_response(s: Strategy) -> StrategyResponse:
-    """Map StrategyPassport + persisted BacktestResult to API schema."""
+def _to_strategy_response(s: Strategy, verdict: RigorGateVerdict | None = None) -> StrategyResponse:
+    """Map StrategyPassport + persisted BacktestResult to API schema.
+
+    ``verdict`` is the LIVE rigor-gate verdict for this strategy (#821), computed
+    on its persisted real returns via ``run_rigor_gate`` — the SAME machinery the
+    ``/api/selection-bias/gate`` route uses. The served ``passes_rigor_gate`` badge
+    and the CANDIDATE → VALIDATED promotion are derived from it, NOT from the stored
+    fixture boolean. When ``verdict is None`` (single-strategy fetch) it is computed
+    on demand here. A strategy with no real returns yields a ``pending`` verdict so
+    the badge surfaces "unknown" rather than a fixture ``True``/``False``.
+    """
     from archimedes.api.schemas import PaperRefResponse
     from archimedes.services.return_source_classifier import classify_strategy
+
+    if verdict is None:
+        verdict = _live_verdict_for_one(s)
 
     bt = strategy_provider.get_backtest_result(s.id)
     has_real = s.real_sharpe is not None
     return_source, return_source_note = classify_strategy(s)
+
+    # Served status overlays the LIVE gate verdict on the file-declared status:
+    # a CANDIDATE is promoted to VALIDATED only when the live gate PASSES on real
+    # returns (#821). The fixture boolean no longer promotes anything. Hand-declared
+    # advanced states (live/retired) are preserved.
+    served_status = s.status.value
+    if s.status == StrategyStatus.CANDIDATE and verdict.passes:
+        served_status = StrategyStatus.VALIDATED.value
 
     # Build papers list from passport
     papers_list = [
@@ -79,7 +104,7 @@ def _to_strategy_response(s: Strategy) -> StrategyResponse:
         asset_universe=s.asset_universe,
         position_sizing=s.position_sizing.value,
         rebalance_frequency=s.rebalance_frequency.value,
-        status=s.status.value,
+        status=served_status,
         paper_venue=s.paper_venue,
         paper_year=s.paper_year,
         paper_doi=s.paper_doi,
@@ -104,7 +129,11 @@ def _to_strategy_response(s: Strategy) -> StrategyResponse:
         pbo_score=s.pbo_score if has_real else (bt.pbo_score if bt else None),
         out_of_sample_sharpe=s.out_of_sample_sharpe if has_real else (bt.out_of_sample_sharpe if bt else None),
         kelly_fraction=s.kelly_fraction,
-        passes_rigor_gate=s.passes_rigor_gate if has_real else (bt.passes_rigor_gate if bt else s.passes_rigor_gate),
+        # Badge from the LIVE gate verdict (#821) — never the fixture boolean.
+        # passes_rigor_gate is the fail-closed boolean (True only when status=="pass");
+        # rigor_gate_status carries the honest tri-state ("pass"|"fail"|"pending").
+        passes_rigor_gate=verdict.passes,
+        rigor_gate_status=verdict.status,
         is_backtest_placeholder=not has_real,
         sharpe_ci_lower=s.sharpe_ci_lower,
         sharpe_ci_upper=s.sharpe_ci_upper,
@@ -124,6 +153,42 @@ def _to_strategy_response(s: Strategy) -> StrategyResponse:
     )
 
 
+def _live_verdict_for_one(s: Strategy) -> RigorGateVerdict:
+    """Live rigor-gate verdict for a single strategy (#821).
+
+    Used by the single-strategy fetch path (``get_strategy``) where there is no
+    batch to amortize over. Loads this strategy's persisted real returns and runs
+    ``run_rigor_gate`` (num_trials=1 — single-strategy context, same as the gate's
+    own no-cohort fallback). No real returns → ``pending``, never a fixture value.
+    Never raises: any failure degrades to ``pending`` (fail-closed badge).
+    """
+    try:
+        from archimedes.db import get_session, init_db
+        from archimedes.services.backtest_repository import get_daily_returns
+
+        init_db()
+        with get_session() as session:
+            daily_returns = get_daily_returns(session, s.id)
+    except Exception as exc:
+        logger.warning("live verdict DB read failed for %s (badge → pending): %s", s.id, exc)
+        return RigorGateVerdict.pending()
+
+    code = None
+    if s.strategy_code_path:
+        from archimedes.api.selection_bias_routes import _load_strategy_code
+
+        with contextlib.suppress(Exception):
+            code = _load_strategy_code(s.strategy_code_path)
+
+    return verdict_from_returns(
+        s.id,
+        daily_returns,
+        num_trials=1,
+        strategy_code=code,
+        paper_claimed_sharpe=s.paper_claimed_sharpe,
+    )
+
+
 # ── Library listing ─────────────────────────────────────────────
 
 
@@ -133,13 +198,27 @@ async def list_strategies(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """List strategies in the library. Backed by LocalStrategyProvider."""
+    """List strategies in the library. Backed by LocalStrategyProvider.
+
+    The ``passes_rigor_gate`` badge + CANDIDATE → VALIDATED promotion come from the
+    LIVE gate verdict computed on persisted real returns (#821) — the same machinery
+    the /api/selection-bias/gate route uses — NOT from the stored fixture boolean.
+    Verdicts are computed once for the page window (one DB read + one library-wide
+    PBO/num_trials context) and threaded into each serializer.
+
+    NOTE on the ``status`` filter: it filters on the file-declared status BEFORE the
+    live-gate promotion overlay, so a CANDIDATE that the live gate promotes to
+    VALIDATED still appears under ``?status=candidate`` (its stored status) with a
+    served ``status: "validated"``. This is intentional — the stored status is the
+    stable filter key; the served status reflects the live verdict.
+    """
     status_filter = StrategyStatus(status) if status else None
     strats = strategy_provider.list_strategies(status=status_filter)
     total = len(strats)
     window = strats[offset : offset + limit]
+    verdicts = verdicts_for_strategies(window)
     return StrategyListResponse(
-        strategies=[_to_strategy_response(s) for s in window],
+        strategies=[_to_strategy_response(s, verdicts.get(s.id)) for s in window],
         total=total,
     )
 
@@ -387,6 +466,14 @@ async def get_portfolio_advisor(
 
     strat_by_id = {s.id: s for s in strategies}
 
+    # Live rigor verdicts (#821): the advisor's per-pick badge must come from the
+    # LIVE gate on real persisted returns, NOT the in-memory Strategy.passes_rigor_gate
+    # (which strategy_provider initialises to False/fail-closed so no fixture leaks).
+    # Computed once here and reused by _rigor_fields so this surface matches the
+    # library list. verdicts_for_strategies is itself fail-closed (→ all "pending"),
+    # so it never raises into this route.
+    advisor_verdicts = verdicts_for_strategies(strategies)
+
     from archimedes.services.stress_engine import stress_all as _stress_all
 
     async def _build_and_anchor_trace(
@@ -491,8 +578,13 @@ async def get_portfolio_advisor(
         if st.paper_claimed_max_dd is not None and st.real_max_dd is not None:
             paper_delta_max_dd = round(st.real_max_dd - st.paper_claimed_max_dd, 4)
 
+        # Badge from the live gate (#821), not st.passes_rigor_gate (always False on
+        # the in-memory object). Fail-closed to "pending" if the strategy isn't in the
+        # verdict map (it always should be, but never claim an unearned pass).
+        _verdict = advisor_verdicts.get(st.id)
         return {
-            "passes_rigor_gate": st.passes_rigor_gate,
+            "passes_rigor_gate": _verdict.passes if _verdict else False,
+            "rigor_gate_status": _verdict.status if _verdict else "pending",
             "deflated_sharpe_ratio": st.deflated_sharpe_ratio,
             "dsr_p_value": st.dsr_p_value,
             "num_trials_in_selection": st.num_trials_in_selection,
@@ -1164,7 +1256,15 @@ def _passport_to_strategy_response(record) -> StrategyResponse:
         pbo_score=record.pbo_score,
         out_of_sample_sharpe=record.out_of_sample_sharpe,
         kelly_fraction=None,
+        # Generated/fusion strategies carry a PERSISTED live-gate verdict written by
+        # the generation pipeline (strategy_passports.passes_rigor_gate) — a stored
+        # *live* verdict, not a fixture boolean — so it is a legitimate badge source
+        # per #821 ("read a persisted live-gate verdict"). Map it to the tri-state:
+        # a passport with no real backtest (sharpe_ratio is None) is "pending".
         passes_rigor_gate=bool(record.passes_rigor_gate),
+        rigor_gate_status=(
+            "pending" if record.sharpe_ratio is None else ("pass" if bool(record.passes_rigor_gate) else "fail")
+        ),
         is_backtest_placeholder=record.sharpe_ratio is None,
         sharpe_ci_lower=None,
         sharpe_ci_upper=None,
