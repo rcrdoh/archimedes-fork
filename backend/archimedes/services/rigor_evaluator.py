@@ -35,7 +35,8 @@ from archimedes.services._rigor_helpers import (
     classify_regimes,  # used by run_rigor_gate (regime-robustness) + re-exported for test_rigor_regime
     compute_average_pairwise_correlation,  # noqa: F401 - re-exported for fusion_evaluator/selection_bias_routes
     compute_cpcv_oos_sharpe,
-    compute_dsr,
+    compute_dsr,  # noqa: F401 - re-exported for portfolio_backtester / stockbench adapter
+    compute_dsr_hac_and_iid,
     compute_in_sample_sharpe,  # noqa: F401 - re-exported for fusion_evaluator
     compute_oos_sharpe,
     compute_pbo,  # used by compute_library_pbo below + re-exported (fusion/generation/test_pbo_parity)
@@ -344,6 +345,8 @@ class RigorGateResult:
         strategy_id: str,
         deflated_sharpe: float | None = None,
         dsr_p_value: float | None = None,
+        dsr_p_value_iid: float | None = None,
+        dsr_se_method: str = "iid",
         num_trials: int = 1,
         pbo_score: float | None = None,
         oos_sharpe: float | None = None,
@@ -360,6 +363,13 @@ class RigorGateResult:
         self.strategy_id = strategy_id
         self.deflated_sharpe = deflated_sharpe
         self.dsr_p_value = dsr_p_value
+        # The gating dsr_p_value uses a serial-correlation-robust (Newey–West
+        # HAC) standard error (#621 follow-up). dsr_p_value_iid is what the IID
+        # SE would have produced — surfaced as an advisory delta so the passport
+        # shows how much serial dependence moved the verdict; dsr_se_method
+        # records which SE backs the gating p-value ("hac" or "iid").
+        self.dsr_p_value_iid = dsr_p_value_iid
+        self.dsr_se_method = dsr_se_method
         self.num_trials = num_trials
         self.pbo_score = pbo_score
         # Which selection set produced the criterion-4 PBO: "library" when the
@@ -442,6 +452,19 @@ class RigorGateResult:
         # computes excess-return Sharpe; served library fixtures carry their own
         # per-entry "dsr_convention" ("raw" for frozen legacy, "excess" for new).
         details["dsr_convention"] = "excess"
+        # Disclose the standard-error model behind the DSR (#621 follow-up): the
+        # gate uses a Newey–West HAC SE robust to serial dependence. Surface the
+        # IID-SE p-value as a delta so the reader sees the size of the correction.
+        if self.dsr_se_method == "hac":
+            if self.dsr_p_value is not None and self.dsr_p_value_iid is not None:
+                details["dsr_se"] = (
+                    f"HAC (Newey–West); IID-SE p={self.dsr_p_value_iid:.4f} "
+                    f"→ HAC p={self.dsr_p_value:.4f} (Δ={self.dsr_p_value - self.dsr_p_value_iid:+.4f})"
+                )
+            else:
+                details["dsr_se"] = "HAC (Newey–West)"
+        else:
+            details["dsr_se"] = "IID (classical Bailey-LdP)"
 
         # Criterion 4 input provenance (#546): "library" = full-library CSCV PBO
         # (the principled Bailey et al. selection-set input), "cohort" = the
@@ -485,17 +508,21 @@ class RigorGateResult:
         details["look_ahead"] = "PASS" if self.look_ahead_passed else "FAIL"
 
         # IID / random-walk diagnostic (#621) — ADVISORY, never gates pass/fail.
-        # Surfaced so a reader knows whether the Sharpe SE rests on an IID
-        # assumption that the return series actually violates (common + expected
-        # for trend/momentum strategies, where the autocorrelation IS the edge).
+        # The diagnostic no longer rests on an SE it cannot defend: the gate's
+        # DSR now uses a Newey–West HAC standard error (see details["dsr_se"]),
+        # so a detected autocorrelation is *corrected* in the verdict, not merely
+        # flagged. We still surface the diagnostic because it tells the reader
+        # WHY the HAC correction did (or did not) move the p-value — and because
+        # autocorrelation is the expected, legitimate signal for trend/momentum.
         if self.iid_assumption_violated is None:
             details["iid"] = "MISSING"
         elif self.iid_assumption_violated:
             details["iid"] = (
-                "ADVISORY: autocorrelation detected (Sharpe SE may understate risk; expected for trend/momentum)"
+                "ADVISORY: autocorrelation detected — Sharpe SE corrected via HAC (Newey–West); "
+                "expected for trend/momentum, where the autocorrelation is the edge"
             )
         else:
-            details["iid"] = "ADVISORY: returns consistent with IID / random-walk"
+            details["iid"] = "ADVISORY: returns consistent with IID / random-walk (HAC ≈ classical SE)"
 
         # Regime-robustness — ADVISORY, never gates pass/fail. Shows whether the edge
         # survives across volatility regimes or is fragile (earned in only one).
@@ -564,9 +591,25 @@ def run_rigor_gate(
             strategy_id,
         )
 
-    # 1. DSR — effective-N correction relaxes the multiple-testing penalty when
-    #    the trials are correlated (fewer independent bets than the nominal N).
-    deflated_sharpe, dsr_p_value = compute_dsr(daily_returns, num_trials, average_correlation)
+    # 1. DSR — serial-correlation-robust standard error (#621 follow-up).
+    #    The Deflated Sharpe z-statistic's IID variance term understates sampling
+    #    uncertainty when returns are autocorrelated (Lo 2002), inflating
+    #    significance — exactly the premise the IID diagnostic detects. The gate
+    #    therefore uses the Newey–West (1987) HAC long-run variance of the Sharpe
+    #    influence function, which NESTS the IID form (a no-op on serially
+    #    independent returns) and avoids the pre-test distortion of conditionally
+    #    swapping SEs only when the IID flag fires (Leeb & Pötscher 2005). The
+    #    effective-N correction (average_correlation) still relaxes the
+    #    multiple-testing penalty when the trials themselves are correlated.
+    #    The HAC-robust verdict (gating) and the IID-SE verdict (advisory) are
+    #    computed in a single pass — one numpy coercion, one SciPy moment
+    #    computation, one influence-function LRV — so this is ~half the work of
+    #    two compute_dsr calls on a path that may evaluate many candidates. The
+    #    IID-SE p-value is surfaced as a delta (never gates) so the passport
+    #    shows how much the serial-dependence correction moved the verdict.
+    deflated_sharpe, dsr_p_value, _, dsr_p_value_iid = compute_dsr_hac_and_iid(
+        daily_returns, num_trials, average_correlation, hac_lags="auto"
+    )
 
     # 2. PBO (criterion 4 in the gate ordering) — prefer the full-library CSCV
     #    PBO when supplied (#546). PBO is a property of the selection set, not of
@@ -634,6 +677,8 @@ def run_rigor_gate(
         strategy_id=strategy_id,
         deflated_sharpe=deflated_sharpe,
         dsr_p_value=dsr_p_value,
+        dsr_p_value_iid=dsr_p_value_iid,
+        dsr_se_method="hac",
         num_trials=num_trials,
         pbo_score=pbo_score,
         oos_sharpe=oos_sharpe,
