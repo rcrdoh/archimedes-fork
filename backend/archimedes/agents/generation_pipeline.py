@@ -1210,13 +1210,19 @@ async def run_generation(
             candidates.append(cand)
 
         if not candidates:
+            # Honest code + message (#818): this branch fires only when ZERO candidates
+            # were generated (an upstream generation failure) — distinct from "candidates
+            # exist but none passed rigor", which is NOT an error but is surfaced below via
+            # best_selected's deployable=False (ABSTAIN) signal. Using RIGOR_FAIL here would
+            # mislead clients/telemetry into reading a generation failure as a rigor-gate
+            # failure, so this carries its own NO_CANDIDATES code.
             await emit.emit(
                 "error",
-                message="no candidates passed rigor",
+                message="no candidates generated",
                 recoverable=True,
-                code="RIGOR_FAIL",
+                code="NO_CANDIDATES",
             )
-            await store.update_status(job_id, "error", error="no candidates passed rigor")
+            await store.update_status(job_id, "error", error="no candidates generated")
             return
 
         # Patch PBO across the candidate set (library-level metric — Bailey
@@ -1227,16 +1233,25 @@ async def run_generation(
         for c in candidates:
             c.passes_rigor = c.rigor_verdict.get("passing", False)
 
-        # Pick the best by passing-rigor first, then by a simple score.
-        passing = [c for c in candidates if c.passes_rigor] or candidates
+        # Selection: prefer rigor-passing candidates; fall back to the full set only to
+        # still surface a "considered best" for the alternatives panel. Whether that best
+        # is DEPLOYABLE is a separate, honest signal (#818): a candidate that failed the
+        # gate is persisted with passes_rigor_gate=False and the server-side vault gate
+        # refuses to deploy it — we must not imply it is validated.
+        validated = [c for c in candidates if c.passes_rigor]
+        pool = validated or candidates
         best = max(
-            passing,
+            pool,
             key=lambda c: c.rigor_verdict.get("dsr") or 0.0,
         )
         await emit.emit(
             "best_selected",
             best_candidate_id=best.candidate_id,
             considered_count=len(candidates),
+            validated_count=len(validated),
+            # deployable=False ⇒ no candidate cleared the rigor gate; the surfaced best is
+            # a considered alternative (ABSTAIN), not a validated, deployable winner.
+            deployable=best.passes_rigor,
         )
 
         # Persist ALL candidates (both regimes) as StrategyRecords.

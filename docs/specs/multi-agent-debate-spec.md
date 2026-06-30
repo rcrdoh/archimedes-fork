@@ -185,7 +185,7 @@ async def _run_debate_candidate(
 ) -> _CandidateResult: ...
 ```
 
-**Returned `_CandidateResult`:** fully populated per the existing contract. For the winner, set `has_real_rigor=True` (so `_patch_pbo:440` and the buy-and-hold gather `:1251` both correctly skip it — the CSCV PBO from `evaluate_fusion_spec` must not be clobbered). For ABSTAIN, return a populated result with empty `weights`, a passive-baseline `return_series`, and an abstain `rigor_verdict` stub — this does **not** hit the empty-guard at `:1183` (which would wrongly emit `RIGOR_FAIL`); it is a first-class SKIP.
+**Returned `_CandidateResult`:** fully populated per the existing contract. For the winner, set `has_real_rigor=True` (so `_patch_pbo:440` and the buy-and-hold gather `:1251` both correctly skip it — the CSCV PBO from `evaluate_fusion_spec` must not be clobbered). For ABSTAIN, return a populated result with empty `weights`, a passive-baseline `return_series`, and an abstain `rigor_verdict` stub — this does **not** hit the empty-guard (which would wrongly emit a `NO_CANDIDATES` error); it is a first-class SKIP.
 
 **Streaming:** emit `agent_iteration` / `tool_called` / `tool_result` per role, reusing the existing SSE vocabulary → **zero frontend changes**. (New event names would require `EventName` + listener edits; avoid.)
 

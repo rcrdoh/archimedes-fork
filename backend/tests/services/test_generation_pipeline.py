@@ -435,6 +435,36 @@ async def test_pipeline_multi_candidate_picks_best():
     assert best["data"]["considered_count"] == 3
 
 
+@pytest.mark.asyncio
+async def test_best_selected_abstains_when_no_candidate_passes_rigor():
+    # ABSTAIN semantics (#818): when NO candidate clears the gate, best_selected must
+    # honestly carry validated_count=0 and deployable=False — the surfaced best is a
+    # *considered* alternative, not a validated, deployable winner. Pins the new fields
+    # so the ABSTAIN-vs-deployable distinction can't regress silently.
+    store = _FakeStore()
+    brief = GenerateBrief(intent="aggressive crypto", risk_appetite="aggressive")
+
+    def _fail_all(cands):
+        # Stand in for _patch_pbo: force every candidate to fail the gate.
+        for c in cands:
+            c.rigor_verdict["passing"] = False
+
+    with (
+        patch("archimedes.agents.generation_pipeline._patch_pbo", side_effect=_fail_all),
+        patch(
+            "archimedes.agents.generation_pipeline._persist_candidate",
+            new=AsyncMock(return_value=("strat_abstain_001", "0xfeed")),
+        ),
+    ):
+        await run_generation(job_id="job_abstain", brief=brief, n_candidates=3, store=store, dual_regime=False)
+
+    best = next((e for e in store.events if e["event"] == "best_selected"), None)
+    assert best is not None
+    assert best["data"]["considered_count"] == 3
+    assert best["data"]["validated_count"] == 0
+    assert best["data"]["deployable"] is False
+
+
 # ── Fusion dispatch wire — hermetic end-to-end (Stack A) ───────────────────
 #
 # Proves the #1 fix: the "fusion" pipeline choice ACTUALLY drives dispatch.

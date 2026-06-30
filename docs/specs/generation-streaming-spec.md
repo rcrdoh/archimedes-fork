@@ -140,7 +140,8 @@ when the user explicitly clicks "Start over").
 |---|---|
 | Agent hits `MAX_AGENT_ITERATIONS=12` without a valid candidate | Emit `error { message: "max_iterations_exceeded", recoverable: true, code: "MAX_ITER" }`. Client offers "Regenerate" CTA. |
 | LLM API unreachable | Emit `error { message: "llm_unavailable", recoverable: true, code: "LLM_DOWN" }`. Client offers "Retry in 30s" CTA. |
-| All candidates fail rigor gate | Emit `best_selected: null` followed by `error { message: "no_candidate_passed_rigor", recoverable: true, code: "RIGOR_FAIL" }`. Client redirects to `/strategy/:id` for the **best Rejected** candidate so user can see why. |
+| All candidates fail rigor gate | **Not an error (since #818).** Emit `best_selected { deployable: false, validated_count: 0, ... }` (ABSTAIN): the best is surfaced as a *considered* candidate, persisted with `passes_rigor_gate=false`, and the server-side vault gate refuses to deploy it. Client redirects to `/strategy/:id` for the **best Rejected** candidate so the user can see why. (Legacy `code: "RIGOR_FAIL"` is no longer emitted.) |
+| No candidates generated at all | Upstream generation produced zero candidates. Emit `error { message: "no candidates generated", recoverable: true, code: "NO_CANDIDATES" }` — distinct from the all-failed-rigor ABSTAIN above, so telemetry doesn't read a generation failure as a rigor-gate failure. |
 | Brief is gibberish or out-of-scope | Brief-validation step fails; emit `error { message: "brief_invalid", recoverable: true, code: "BRIEF_INVALID", hint: "Try mentioning an asset class or risk appetite" }`. |
 | API process restarts mid-job | On restart, scan Redis for active job locks; resume jobs whose age < TTL. Lock-without-progress for > 5 min → mark errored with `code: "STALLED"`. |
 | Client disconnects + never returns | Server completes the job and writes events to Redis; on TTL expiry, GC removes them. Strategy still ends up in Library. |
