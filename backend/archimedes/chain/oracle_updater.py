@@ -58,15 +58,17 @@ DEFAULT_CROSSCHECK_BAND_BPS = 5000  # 50%
 
 
 def _int_env(name: str, default: int) -> int:
-    """Parse an integer env var, failing SAFE to ``default`` on a missing/blank/
-    non-numeric value (with a warning) rather than raising at oracle-runner startup.
+    """Parse an integer env var, failing SAFE to ``default`` rather than raising at
+    oracle-runner startup.
 
-    A bare ``int(os.getenv(...))`` turns a typo'd or empty env var into a hard
-    startup crash; the oracle runner must degrade to the documented default instead.
+    A missing or blank value silently uses ``default`` — an unset optional var is
+    normal and must not log on every startup. A value that is PRESENT but non-numeric
+    (a typo) is a real misconfiguration, so it logs a warning before falling back. A
+    bare ``int(os.getenv(...))`` would instead crash the runner on either.
     """
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
-        return default
+        return default  # unset/blank optional var → default, no warning (not a misconfig)
     try:
         return int(raw.strip())
     except ValueError:
