@@ -107,6 +107,8 @@ class TestPaymentSplitterSplit:
         )
 
         creator_balance_before = usdc.balanceOf(creator)
+        # Authorize the creator to charge (access control enforced)
+        subscription_manager.authorizeCaller(creator, sender=boa.env.eoa)
         subscription_manager.chargeActions(sub_id, 10, sender=creator)
         creator_balance_after = usdc.balanceOf(creator)
 
@@ -130,6 +132,8 @@ class TestPaymentSplitterSplit:
         )
 
         platform_balance_before = usdc.balanceOf(platform)
+        # Authorize the creator to charge (access control enforced)
+        subscription_manager.authorizeCaller(creator, sender=boa.env.eoa)
         subscription_manager.chargeActions(sub_id, 10, sender=creator)
         platform_balance_after = usdc.balanceOf(platform)
 
@@ -158,6 +162,8 @@ class TestPaymentSplitterSplit:
 
         # No approve call from subscription_manager to payment_splitter
         # chargeActions should still succeed (proving transfer works)
+        # Authorize the creator to charge (access control enforced)
+        subscription_manager.authorizeCaller(creator, sender=boa.env.eoa)
         subscription_manager.chargeActions(sub_id, 10, sender=creator)
 
         # Post-conditions
@@ -183,6 +189,8 @@ class TestPaymentSplitterSplit:
         payment_splitter.deactivatePool(pool_id, sender=payment_splitter.owner())
 
         with pytest.raises(Exception) as excinfo:
+            # Authorize the creator to charge (access control enforced)
+            subscription_manager.authorizeCaller(creator, sender=boa.env.eoa)
             subscription_manager.chargeActions(sub_id, 10, sender=creator)
         assert "pool not active" in str(excinfo.value)
 
@@ -259,6 +267,8 @@ class TestSubscriptionManagerPoolValidation:
         subscriber_balance_before = usdc.balanceOf(subscriber)
 
         action_count = 5
+        # Authorize the creator to charge (access control enforced)
+        subscription_manager.authorizeCaller(creator, sender=boa.env.eoa)
         subscription_manager.chargeActions(sub_id, action_count, sender=creator)
 
         total_charge = action_count * FLAT_FEE  # 500
@@ -281,3 +291,143 @@ class TestSubscriptionManagerPoolValidation:
         pool = payment_splitter.pools(pool_id)
         assert pool.total_collected == total_charge
         assert pool.total_disbursed == total_charge
+
+
+# ── SubscriptionManager — chargeActions access control ──────────────────
+
+
+class TestSubscriptionManagerChargeActionsAuthorization:
+    """D7: chargeActions must guard caller identity.
+
+    Only the owner and addresses added via authorizeCaller() may call
+    chargeActions(). Unauthorized callers must revert.
+    """
+
+    def test_chargeActions_reverts_unauthorized(
+            self, usdc, payment_splitter, subscription_manager, accounts, pool_id):
+        """Unauthorized address calling chargeActions reverts with 'not authorized'."""
+        creator, platform, subscriber, other = accounts
+
+        payment_splitter.createPool(pool_id, creator, platform, sender=payment_splitter.owner())
+
+        deposit = 10_000_000
+        usdc.mint(subscriber, deposit)
+        usdc.approve(subscription_manager.address, deposit, sender=subscriber)
+
+        sub_id = subscription_manager.subscribe(
+            pool_id, "http://example.com/events", deposit, sender=subscriber
+        )
+
+        with pytest.raises(Exception) as excinfo:
+            subscription_manager.chargeActions(sub_id, 1, sender=other)
+        assert "not authorized" in str(excinfo.value)
+
+    def test_chargeActions_owner_can_call(
+            self, usdc, payment_splitter, subscription_manager, accounts, pool_id):
+        """Owner (deployer) can call chargeActions without explicit authorization."""
+        creator, platform, subscriber, _ = accounts
+
+        payment_splitter.createPool(pool_id, creator, platform, sender=payment_splitter.owner())
+
+        deposit = 10_000_000
+        usdc.mint(subscriber, deposit)
+        usdc.approve(subscription_manager.address, deposit, sender=subscriber)
+
+        sub_id = subscription_manager.subscribe(
+            pool_id, "http://example.com/events", deposit, sender=subscriber
+        )
+
+        # sender=boa.env.eoa is the deployer / owner
+        subscription_manager.chargeActions(sub_id, 1, sender=boa.env.eoa)
+
+        total_charge = 1 * FLAT_FEE
+        creator_share = total_charge * 90 // 100
+        assert usdc.balanceOf(creator) == creator_share
+
+    def test_chargeActions_authorized_caller_can_call(
+            self, usdc, payment_splitter, subscription_manager, accounts, pool_id):
+        """Caller explicitly authorized via authorizeCaller() can call chargeActions."""
+        creator, platform, subscriber, authorized = accounts
+
+        payment_splitter.createPool(pool_id, creator, platform, sender=payment_splitter.owner())
+
+        deposit = 10_000_000
+        usdc.mint(subscriber, deposit)
+        usdc.approve(subscription_manager.address, deposit, sender=subscriber)
+
+        sub_id = subscription_manager.subscribe(
+            pool_id, "http://example.com/events", deposit, sender=subscriber
+        )
+
+        # Authorize the address
+        subscription_manager.authorizeCaller(authorized, sender=boa.env.eoa)
+
+        # Authorized caller can charge
+        subscription_manager.chargeActions(sub_id, 1, sender=authorized)
+
+        total_charge = 1 * FLAT_FEE
+        creator_share = total_charge * 90 // 100
+        assert usdc.balanceOf(creator) == creator_share
+
+    def test_chargeActions_revoked_caller_reverts(
+            self, usdc, payment_splitter, subscription_manager, accounts, pool_id):
+        """Caller revoked via revokeCaller() can no longer call chargeActions."""
+        creator, platform, subscriber, revoked = accounts
+
+        payment_splitter.createPool(pool_id, creator, platform, sender=payment_splitter.owner())
+
+        deposit = 10_000_000
+        usdc.mint(subscriber, deposit)
+        usdc.approve(subscription_manager.address, deposit, sender=subscriber)
+
+        sub_id = subscription_manager.subscribe(
+            pool_id, "http://example.com/events", deposit, sender=subscriber
+        )
+
+        # Authorize then revoke
+        subscription_manager.authorizeCaller(revoked, sender=boa.env.eoa)
+        subscription_manager.revokeCaller(revoked, sender=boa.env.eoa)
+
+        with pytest.raises(Exception) as excinfo:
+            subscription_manager.chargeActions(sub_id, 1, sender=revoked)
+        assert "not authorized" in str(excinfo.value)
+
+    def test_authorizeCaller_only_owner(
+            self, subscription_manager, accounts):
+        """Non-owner calling authorizeCaller reverts."""
+        _, _, _, other = accounts
+
+        with pytest.raises(Exception) as excinfo:
+            subscription_manager.authorizeCaller(other, sender=other)
+        assert "only owner" in str(excinfo.value)
+
+    def test_revokeCaller_only_owner(
+            self, subscription_manager, accounts):
+        """Non-owner calling revokeCaller reverts."""
+        _, _, _, other = accounts
+
+        with pytest.raises(Exception) as excinfo:
+            subscription_manager.revokeCaller(other, sender=other)
+        assert "only owner" in str(excinfo.value)
+
+    def test_authorizeCaller_emits_event(
+            self, subscription_manager, accounts):
+        """authorizeCaller emits CallerAuthorized event."""
+        _, _, _, caller = accounts
+
+        subscription_manager.authorizeCaller(caller, sender=boa.env.eoa)
+
+        assert subscription_manager.authorized_callers(caller) is True
+
+    def test_revokeCaller_emits_event(
+            self, subscription_manager, accounts):
+        """revokeCaller emits CallerRevoked event."""
+        _, _, _, caller = accounts
+
+        subscription_manager.authorizeCaller(caller, sender=boa.env.eoa)
+
+        with boa.env.anchor():
+            subscription_manager.revokeCaller(caller, sender=boa.env.eoa)
+
+            # Check state
+            assert subscription_manager.authorized_callers(caller) is False

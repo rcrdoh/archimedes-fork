@@ -28,6 +28,7 @@ splitter: public(address)
 usdc: public(address)
 owner: public(address)
 flat_fee_per_action: public(uint256)
+authorized_callers: public(HashMap[address, bool])
 
 event Subscribed:
     sub_id: indexed(bytes32)
@@ -47,6 +48,12 @@ event ActionCharged:
 
 event Unsubscribed:
     sub_id: indexed(bytes32)
+
+event CallerAuthorized:
+    caller: indexed(address)
+
+event CallerRevoked:
+    caller: indexed(address)
 
 @deploy
 def __init__(_splitter: address, _usdc: address, _flat_fee: uint256):
@@ -129,6 +136,7 @@ def chargeActions(sub_id: bytes32, action_count: uint256):
 
     sub: Subscription = self.subscriptions[sub_id]
     assert sub.active, "subscription not active"
+    assert msg.sender == self.owner or self.authorized_callers[msg.sender], "not authorized"
 
     total_charge: uint256 = action_count * self.flat_fee_per_action
     wallet: EphemeralWallet = self.ephemeral_wallets[sub.ephemeral_wallet]
@@ -163,3 +171,15 @@ def unsubscribe(sub_id: bytes32):
 def setFlatFee(fee: uint256):
     assert msg.sender == self.owner, "only owner"
     self.flat_fee_per_action = fee
+
+@external
+def authorizeCaller(caller: address):
+    assert msg.sender == self.owner, "only owner"
+    self.authorized_callers[caller] = True
+    log CallerAuthorized(caller)
+
+@external
+def revokeCaller(caller: address):
+    assert msg.sender == self.owner, "only owner"
+    self.authorized_callers[caller] = False
+    log CallerRevoked(caller)
