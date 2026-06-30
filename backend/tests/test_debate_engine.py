@@ -445,21 +445,22 @@ def test_build_leaderboard_caps_to_top_n(monkeypatch):
     # Highest-DSR leader kept its base id; the cap takes the top-3 by score.
     assert board[0].candidate_id == "cand_1"
     assert all(e.has_real_rigor for e in board)
+
+
 # ── Phase 2 — C-regime non-votable Hierarchy-of-Truth gate ────────────────────
 
 
 def _patch_regime(monkeypatch, regime, *, confidence=0.9, status="live"):
-    """Patch the GMM regime read at its lazy-import boundary."""
+    """Patch the SHARED live-regime read (`current_regime`) + health at the boundary.
+
+    `_critic_regime` reads the most-recently-constructed detector via the module-level
+    `current_regime()` accessor (NOT a fresh GmmRegimeDetector, which would have no
+    classification), so the test patches that accessor.
+    """
     from types import SimpleNamespace as NS
 
-    class _FakeDetector:
-        def __init__(self, *a, **k):
-            pass
-
-        def get_current_regime(self):
-            return NS(regime=regime, confidence=confidence) if regime is not None else None
-
-    monkeypatch.setattr("archimedes.services.gmm_regime_detector.GmmRegimeDetector", _FakeDetector)
+    rc = NS(regime=regime, confidence=confidence) if regime is not None else None
+    monkeypatch.setattr("archimedes.services.gmm_regime_detector.current_regime", lambda: rc)
     monkeypatch.setattr(
         "archimedes.services.gmm_regime_detector.gmm_regime_health",
         lambda: NS(status=status, reason="test"),
@@ -542,3 +543,14 @@ def test_critic_prov_keeps_fully_grounded_candidates(corpus):
     kept, dropped = de._critic_prov([a, b], corpus)
     assert len(kept) == 2
     assert dropped == []
+
+
+def test_critic_prov_robust_to_missing_citations(corpus):
+    # A proposal missing source_arxiv_ids (None / absent attr) must DROP, not raise
+    # and abort the whole run (Copilot review).
+    none_cited = SimpleNamespace(strategy_name="none", source_arxiv_ids=None)
+    no_attr = SimpleNamespace(strategy_name="noattr")  # attribute absent entirely
+    good = _fake_proposal("good", ["2401.00001", "2402.00001"])
+    kept, dropped = de._critic_prov([none_cited, no_attr, good], corpus)
+    assert [p.strategy_name for p in kept] == ["good"]
+    assert {p.strategy_name for p in dropped} == {"none", "noattr"}

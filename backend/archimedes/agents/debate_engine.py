@@ -404,7 +404,9 @@ def _critic_prov(pool: list[Any], corpus: list[Any]) -> tuple[list[Any], list[An
     kept: list[Any] = []
     dropped: list[Any] = []
     for prop in pool:
-        cited = set(prop.source_arxiv_ids)
+        # Robust to a proposal missing/None source_arxiv_ids — treat as empty (→ drop,
+        # "not provenance-verifiable"), never raise and abort the whole run (Copilot review).
+        cited = set(getattr(prop, "source_arxiv_ids", None) or [])
         if cited and cited <= surface:
             kept.append(prop)
         else:
@@ -542,11 +544,14 @@ def _critic_regime() -> dict[str, Any]:
     }
     try:
         from archimedes.models.regime import Regime
-        from archimedes.services.gmm_regime_detector import GmmRegimeDetector, gmm_regime_health
+        from archimedes.services.gmm_regime_detector import current_regime, gmm_regime_health
 
         health = gmm_regime_health()
         degraded = health.status != "live"
-        rc = GmmRegimeDetector().get_current_regime()
+        # Read the SHARED live detector (the one the oracle/agent runner feeds), NOT a
+        # fresh GmmRegimeDetector — a new instance has no current classification, so it
+        # would always read None and the gate would never fire (Copilot review).
+        rc = current_regime()
         regime = rc.regime if rc is not None else None
         confidence = float(rc.confidence) if rc is not None else 0.0
         force_abstain = regime == Regime.CRISIS
