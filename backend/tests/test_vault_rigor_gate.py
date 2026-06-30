@@ -9,13 +9,34 @@ that failed the gate or was never validated.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import contextlib
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from archimedes.api.vaults_routes import _assert_strategies_pass_rigor, _strategy_rigor_status
 from fastapi import HTTPException
 
 V = "archimedes.api.vaults_routes"
+
+
+@contextlib.contextmanager
+def _override_verified_wallet(app, wallet: str = "0x000000000000000000000000000000000000dEaD"):
+    """Override the SIWE wallet dependency, then RESTORE the prior override on exit.
+
+    Restoring (rather than a global ``app.dependency_overrides.clear()``) keeps this
+    test from wiping overrides another test/fixture set on the shared ``app`` instance.
+    """
+    from archimedes.api.auth_siwe import require_verified_wallet
+
+    prev = app.dependency_overrides.get(require_verified_wallet)
+    app.dependency_overrides[require_verified_wallet] = lambda: wallet
+    try:
+        yield
+    finally:
+        if prev is None:
+            app.dependency_overrides.pop(require_verified_wallet, None)
+        else:
+            app.dependency_overrides[require_verified_wallet] = prev
 
 
 class _Strat:
@@ -86,24 +107,46 @@ def test_assert_blocks_if_any_one_fails():
 
 
 async def test_create_vault_rejects_failing_strategy_before_deploy():
-    from archimedes.api.auth_siwe import require_verified_wallet
     from archimedes.main import app
     from httpx import ASGITransport, AsyncClient
 
-    app.dependency_overrides[require_verified_wallet] = lambda: "0x000000000000000000000000000000000000dEaD"
-    try:
-        with (
-            patch(f"{V}._strategy_rigor_status", return_value=(True, False)),
-            patch(f"{V}.chain_executor.create_vault") as mock_create,
-        ):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.post(
-                    "/api/vaults/create",
-                    json={"name": "V", "symbol": "V", "strategy_ids": ["failing"]},
-                )
-    finally:
-        app.dependency_overrides.clear()
+    with (
+        _override_verified_wallet(app),
+        patch(f"{V}._strategy_rigor_status", return_value=(True, False)),
+        patch(f"{V}.chain_executor.create_vault") as mock_create,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/vaults/create",
+                json={"name": "V", "symbol": "V", "strategy_ids": ["failing"]},
+            )
 
     assert resp.status_code == 422
     assert "rigor gate" in resp.json()["detail"]
     mock_create.assert_not_called()  # never spent gas — gate fired first
+
+
+async def test_create_vault_proceeds_when_rigor_passes():
+    # Complementary happy path: a passing strategy must NOT be blocked by the new
+    # precondition — the deploy proceeds and chain_executor.create_vault is called.
+    from archimedes.main import app
+    from httpx import ASGITransport, AsyncClient
+
+    with (
+        _override_verified_wallet(app),
+        patch(f"{V}._strategy_rigor_status", return_value=(True, True)),
+        patch(f"{V}.chain_executor.create_vault", new=AsyncMock(return_value="0xVaultDeployedAddress")) as mock_create,
+        # record_funnel touches Redis; stub it so the test stays hermetic.
+        patch("archimedes.api.funnel_middleware.record_funnel", new=AsyncMock()),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/vaults/create",
+                json={"name": "V", "symbol": "V", "strategy_ids": ["passing"]},
+            )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["vault_address"] == "0xVaultDeployedAddress"
+    assert body["strategy_ids"] == ["passing"]
+    mock_create.assert_awaited_once()  # gate let it through → gas spent

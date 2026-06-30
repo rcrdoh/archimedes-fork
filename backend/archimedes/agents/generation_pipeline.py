@@ -1210,14 +1210,17 @@ async def run_generation(
             candidates.append(cand)
 
         if not candidates:
-            # Honest message (#818): this branch fires only when ZERO candidates were
-            # generated — distinct from "candidates exist but none passed rigor", which
-            # is surfaced below via best_selected's deployable=False signal.
+            # Honest code + message (#818): this branch fires only when ZERO candidates
+            # were generated (an upstream generation failure) — distinct from "candidates
+            # exist but none passed rigor", which is NOT an error but is surfaced below via
+            # best_selected's deployable=False (ABSTAIN) signal. Using RIGOR_FAIL here would
+            # mislead clients/telemetry into reading a generation failure as a rigor-gate
+            # failure, so this carries its own NO_CANDIDATES code.
             await emit.emit(
                 "error",
                 message="no candidates generated",
                 recoverable=True,
-                code="RIGOR_FAIL",
+                code="NO_CANDIDATES",
             )
             await store.update_status(job_id, "error", error="no candidates generated")
             return
