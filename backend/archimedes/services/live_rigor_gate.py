@@ -156,11 +156,21 @@ def verdicts_for_strategies(strategies: list) -> dict[str, RigorGateVerdict]:
     valid_returns = {k: v for k, v in returns_by_strategy.items() if len(v) >= _MIN_RETURNS_FOR_GATE}
 
     # The library is the multiple-testing selection set (mirrors selection_bias_routes).
-    pbo_scores = compute_pbo(valid_returns) if len(valid_returns) >= 2 else {}
-    num_trials = max(len(valid_returns), 1)
-    avg_correlation = compute_average_pairwise_correlation(valid_returns) if len(valid_returns) >= 2 else 0.0
+    # Wrap the cohort-context compute in the same fail-closed contract the docstring
+    # promises: if compute_pbo / compute_average_pairwise_correlation raises, degrade
+    # the whole batch to pending rather than 500-ing the library list.
+    try:
+        pbo_scores = compute_pbo(valid_returns) if len(valid_returns) >= 2 else {}
+        num_trials = max(len(valid_returns), 1)
+        avg_correlation = compute_average_pairwise_correlation(valid_returns) if len(valid_returns) >= 2 else 0.0
+    except Exception as exc:
+        logger.warning("live rigor gate batch: cohort-context compute failed (all → pending): %s", exc)
+        return {sid: RigorGateVerdict.pending() for sid in strategy_ids}
 
-    code_by_id = {s.id: _load_strategy_code_safe(s) for s in strategies}
+    # Only load source for strategies that can actually run the gate (≥10 returns).
+    # A strategy with too few returns short-circuits to `pending` inside
+    # verdict_from_returns and never reads strategy_code, so loading it is wasted I/O.
+    code_by_id = {s.id: _load_strategy_code_safe(s) for s in strategies if s.id in valid_returns}
 
     verdicts: dict[str, RigorGateVerdict] = {}
     for s in strategies:

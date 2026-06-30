@@ -466,6 +466,14 @@ async def get_portfolio_advisor(
 
     strat_by_id = {s.id: s for s in strategies}
 
+    # Live rigor verdicts (#821): the advisor's per-pick badge must come from the
+    # LIVE gate on real persisted returns, NOT the in-memory Strategy.passes_rigor_gate
+    # (which strategy_provider initialises to False/fail-closed so no fixture leaks).
+    # Computed once here and reused by _rigor_fields so this surface matches the
+    # library list. verdicts_for_strategies is itself fail-closed (→ all "pending"),
+    # so it never raises into this route.
+    advisor_verdicts = verdicts_for_strategies(strategies)
+
     from archimedes.services.stress_engine import stress_all as _stress_all
 
     async def _build_and_anchor_trace(
@@ -570,8 +578,13 @@ async def get_portfolio_advisor(
         if st.paper_claimed_max_dd is not None and st.real_max_dd is not None:
             paper_delta_max_dd = round(st.real_max_dd - st.paper_claimed_max_dd, 4)
 
+        # Badge from the live gate (#821), not st.passes_rigor_gate (always False on
+        # the in-memory object). Fail-closed to "pending" if the strategy isn't in the
+        # verdict map (it always should be, but never claim an unearned pass).
+        _verdict = advisor_verdicts.get(st.id)
         return {
-            "passes_rigor_gate": st.passes_rigor_gate,
+            "passes_rigor_gate": _verdict.passes if _verdict else False,
+            "rigor_gate_status": _verdict.status if _verdict else "pending",
             "deflated_sharpe_ratio": st.deflated_sharpe_ratio,
             "dsr_p_value": st.dsr_p_value,
             "num_trials_in_selection": st.num_trials_in_selection,

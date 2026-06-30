@@ -109,13 +109,13 @@ class TestVerdictFromReturns:
 
     def test_gate_exception_fails_closed_to_pending(self, monkeypatch):
         # If run_rigor_gate raises, the badge must NOT claim a pass.
-        import archimedes.services.live_rigor_gate as lrg
-
         def _boom(*a, **k):
             raise RuntimeError("gate exploded")
 
         monkeypatch.setattr("archimedes.services.rigor_evaluator.run_rigor_gate", _boom)
-        v = lrg.verdict_from_returns("s", _passing_series(), num_trials=2)
+        # verdict_from_returns is already imported at module top; patching the source
+        # module's run_rigor_gate (which it imports locally) is what makes this work.
+        v = verdict_from_returns("s", _passing_series(), num_trials=2)
         assert v.status == PENDING
         assert v.passes is False
 
