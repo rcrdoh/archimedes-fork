@@ -35,6 +35,7 @@ from archimedes.api.explore_routes import explore_router
 from archimedes.api.generate_routes import generate_router
 from archimedes.api.leaderboard_routes import leaderboard_router
 from archimedes.api.limiter import limiter
+from archimedes.api.marketplace_routes import marketplace_router
 
 # (the marketplace route registration was removed — hardcoded fees + invented math, Issue #381)
 from archimedes.api.metrics_routes import metrics_router
@@ -238,6 +239,62 @@ async def _startup_seed_corpus():
         _logger.warning("startup: corpus seed failed (non-fatal): %s", exc)
 
 
+@app.on_event("startup")
+async def _startup_marketplace():
+    """Start the in-process marketplace engine (MarketService).
+
+    Rehydrates running publishers from Postgres on boot.
+    """
+    import os
+
+    from archimedes.marketplace.service import MarketService
+
+    _logger = logging.getLogger("archimedes.startup")
+
+    interval = int(os.getenv("AGENT_INTERVAL_SECONDS", "300"))
+    dry_run = os.getenv("AGENT_DRY_RUN", "false").lower() in ("1", "true", "yes")
+
+    market = MarketService(interval_seconds=interval, dry_run=dry_run)
+    app.state.market = market
+    _logger.info("marketplace engine started (interval=%ds, dry_run=%s)", interval, dry_run)
+
+    # Rehydrate running publishers from Postgres
+    try:
+        from archimedes.db import get_session
+        from archimedes.models.marketplace import MarketplaceAgent
+
+        with get_session() as session:
+            publishers = (
+                session.query(MarketplaceAgent)
+                .filter(MarketplaceAgent.role == "publisher", MarketplaceAgent.status == "running")
+                .all()
+            )
+
+        for row in publishers:
+            await market.start_publisher(
+                strategy_id=row.strategy_id,
+                pool_id=row.pool_id,
+                vault_address=row.vault_address,
+                creator_wallet=row.creator_wallet,
+            )
+            _logger.info("rehydrated publisher %s (vault=%s)", row.strategy_id, row.vault_address)
+    except Exception as exc:
+        _logger.warning("startup: publisher rehydration failed (non-fatal): %s", exc)
+
+
+@app.on_event("shutdown")
+async def _shutdown_marketplace():
+    """Stop all publisher loops cleanly."""
+    market = getattr(app.state, "market", None)
+    if market is None:
+        return
+    _logger = logging.getLogger("archimedes.startup")
+    market._stop.set()
+    for strategy_id in list(market.publishers.keys()):
+        await market.stop_publisher(strategy_id)
+    _logger.info("marketplace engine stopped")
+
+
 # Wire all routers
 app.include_router(assets_router)
 app.include_router(vaults_router)
@@ -251,7 +308,7 @@ app.include_router(chat_router)
 app.include_router(corpus_router)
 app.include_router(explore_router)
 app.include_router(generate_router)
-# marketplace_router removed (Issue #381)
+app.include_router(marketplace_router)
 app.include_router(risk_router)
 app.include_router(portfolio_router)
 app.include_router(selection_bias_router)
