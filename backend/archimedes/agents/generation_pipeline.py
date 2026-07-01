@@ -1001,6 +1001,7 @@ async def run_generation(
     store: JobStore | None = None,
     mode: str | None = None,
     model: str | None = None,
+    owner_wallet: str | None = None,
     dual_regime: bool = True,
 ) -> None:
     """Run the full streaming generation pipeline for one job.
@@ -1294,7 +1295,7 @@ async def run_generation(
         # highlighted but both are navigable from the library.
         strategy_ids: dict[str, str] = {}  # candidate_id → strategy_id
         for c in candidates:
-            sid, thash = await _persist_candidate(c, brief)
+            sid, thash = await _persist_candidate(c, brief, owner_wallet=owner_wallet)
             strategy_ids[c.candidate_id] = sid
             await emit.emit(
                 "trace_hashed",
@@ -1419,11 +1420,14 @@ async def run_generation(
         await store.update_status(job_id, "error", error=str(exc))
 
 
-async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief) -> tuple[str, str]:
+async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief, *, owner_wallet: str | None = None) -> tuple[str, str]:
     """Upsert the candidate as a Strategy + return (strategy_id, trace_hash).
 
     Trace hash is the keccak of the canonical (brief, candidate) tuple — gives
     every generation a deterministic identifier mirrored on-chain in v1.5.
+
+    When ``owner_wallet`` is provided, a row is recorded in
+    ``strategy_generators`` so the wallet may publish the strategy (D5).
     """
     from web3 import Web3
 
@@ -1461,6 +1465,14 @@ async def _persist_candidate(c: _CandidateResult, brief: GenerateBrief) -> tuple
                 provenance_hash=trace_hash,
                 is_example=False,
             )
+
+            # Record generator ownership (D5). No-op when owner_wallet is None
+            # (anonymous generation path — strategy stays unowned).
+            if owner_wallet:
+                from archimedes.models.strategy_generators import record_generator
+
+                record_generator(session, strategy_id=record.id, wallet_address=owner_wallet)
+
             session.commit()
 
             # Also write to the unified strategy_passports table (Issue #160)

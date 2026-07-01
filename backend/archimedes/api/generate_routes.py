@@ -121,7 +121,9 @@ async def start_generation(
 
     # Fire-and-forget the pipeline. The route doesn't await it; the SSE stream
     # below tails the event log written by the pipeline as it runs.
-    task = asyncio.create_task(_run_with_cleanup(job_id, req.brief, req.n_candidates, req.mode, selected_model))
+    task = asyncio.create_task(
+        _run_with_cleanup(job_id, req.brief, req.n_candidates, req.mode, selected_model, owner_wallet=_wallet)
+    )
     _register_task(job_id, task)
 
     # Conversion funnel (#787): a generation actually started for this visitor —
@@ -141,9 +143,17 @@ async def _run_with_cleanup(
     n_candidates: int,
     mode: str | None = None,
     model: str | None = None,
+    owner_wallet: str | None = None,
 ) -> None:
     try:
-        await run_generation(job_id=job_id, brief=brief, n_candidates=n_candidates, mode=mode, model=model)
+        await run_generation(
+            job_id=job_id,
+            brief=brief,
+            n_candidates=n_candidates,
+            mode=mode,
+            model=model,
+            owner_wallet=owner_wallet,
+        )
     except asyncio.CancelledError:
         raise
     except Exception:  # safety net — run_generation already emits error events

@@ -26,7 +26,7 @@ from archimedes.api.architect_schemas import (
     StrategyConstructionRequest,
     StrategyConstructionResponse,
 )
-from archimedes.api.auth_siwe import gate_generation
+from archimedes.api.auth_siwe import gate_generation, get_verified_wallet
 from archimedes.api.limiter import limiter
 from archimedes.api.schemas import (
     SignalResponse,
@@ -224,10 +224,21 @@ async def list_strategies(
 
 
 @strategies_router.get("/generated")
-async def list_generated_strategies(limit: int = Query(50, ge=1, le=200)):
-    """List fusion/architect-generated strategies from the strategy_store table."""
+async def list_generated_strategies(
+    limit: int = Query(50, ge=1, le=200),
+    wallet: str | None = Depends(get_verified_wallet),
+):
+    """List fusion/architect-generated strategies from the strategy_store table.
+
+    Scoped to the caller's own generated strategies (D5). Without a session
+    cookie the result is empty — not the global set.
+    """
+
+    if not wallet:
+        return {"strategies": [], "total": 0}
 
     from archimedes.db import get_session
+    from archimedes.models.strategy_generators import StrategyGenerator
     from archimedes.models.strategy_store import StrategyRecord
 
     rows: list[dict] = []
@@ -235,7 +246,11 @@ async def list_generated_strategies(limit: int = Query(50, ge=1, le=200)):
         with get_session() as session:  # type: _Session
             records = (
                 session.query(StrategyRecord)
-                .filter(StrategyRecord.is_example.is_(False))
+                .join(StrategyGenerator, StrategyGenerator.strategy_id == StrategyRecord.id)
+                .filter(
+                    StrategyRecord.is_example.is_(False),
+                    StrategyGenerator.wallet_address == wallet.lower(),
+                )
                 .order_by(StrategyRecord.created_at.desc())
                 .limit(limit)
                 .all()

@@ -371,7 +371,7 @@ export function StrategyArchitect({ strategies }) {
 // + rigor metrics). One row per strategy; no visual hierarchy by status (the
 // STATUS column does that job).
 
-function StrategyRow({ s, isHighlighted, onOpenRigorExplainer, onOpenPassport }) {
+function StrategyRow({ s, isHighlighted, onOpenRigorExplainer, onOpenPassport, extraActions }) {
   const [open, setOpen] = useState(isHighlighted)
   const rowRef = useRef(null)
   const years = periodInYears(s.backtest_start, s.backtest_end)
@@ -523,6 +523,7 @@ function StrategyRow({ s, isHighlighted, onOpenRigorExplainer, onOpenPassport })
                   Open Passport →
                 </button>
               )}
+              {extraActions?.(s)}
               <button
                 className="btn btn-outline btn-sm"
                 onClick={(e) => { e.stopPropagation(); downloadStrategy(s, 'json') }}
@@ -545,7 +546,7 @@ function StrategyRow({ s, isHighlighted, onOpenRigorExplainer, onOpenPassport })
   )
 }
 
-function StrategyTable({ strategies, emptyState, highlightStrategyId, onOpenRigorExplainer, onOpenPassport }) {
+function StrategyTable({ strategies, emptyState, highlightStrategyId, onOpenRigorExplainer, onOpenPassport, extraActions }) {
   if (!strategies.length) return emptyState
   return (
     <>
@@ -576,6 +577,7 @@ function StrategyTable({ strategies, emptyState, highlightStrategyId, onOpenRigo
                 isHighlighted={highlightStrategyId && s.id === highlightStrategyId}
                 onOpenRigorExplainer={onOpenRigorExplainer}
                 onOpenPassport={onOpenPassport}
+                extraActions={extraActions}
               />
             ))}
           </tbody>
@@ -637,6 +639,7 @@ function coerceGenerated(row) {
 export default function Strategies({ highlightStrategyId, defaultTab, onNavigate }) {
   const [examples, setExamples] = useState([])
   const [generated, setGenerated] = useState([])
+  const [published, setPublished] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   // 'generated' is the first-class tab per product feedback — pushes user
@@ -666,9 +669,10 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
     setLoading(true)
     setLoadError('')
     try {
-      const [seedRes, genRes] = await Promise.allSettled([
+      const [seedRes, genRes, pubRes] = await Promise.allSettled([
         apiGet('/api/strategies/'),
         apiGet('/api/strategies/generated'),
+        apiGet('/api/marketplace/my-published'),
       ])
       if (seedRes.status === 'fulfilled') {
         const sorted = [...(seedRes.value.strategies || [])].sort(
@@ -681,7 +685,10 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
       if (genRes.status === 'fulfilled') {
         setGenerated((genRes.value.strategies || []).map(coerceGenerated))
       }
-      // Generated tab failing is non-fatal — empty state is the honest fallback.
+      // Generated / Published tab failing is non-fatal — empty state is the honest fallback.
+      if (pubRes.status === 'fulfilled') {
+        setPublished(pubRes.value || [])
+      }
     } finally {
       setLoading(false)
     }
@@ -711,6 +718,12 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
           onClick={() => setActiveTab('examples')}
         >
           Examples ({examples.length})
+        </span>
+        <span
+          className={`tag ${activeTab === 'published' ? 'tag-accent' : 'tag-muted'}`}
+          onClick={() => setActiveTab('published')}
+        >
+          Published ({published.length})
         </span>
       </div>
 
@@ -822,6 +835,50 @@ export default function Strategies({ highlightStrategyId, defaultTab, onNavigate
               onOpenRigorExplainer={openRigorExplainer}
               onOpenPassport={openPassport}
               emptyState={<p className="caption">No example strategies loaded.</p>}
+            />
+          )}
+        </>
+      )}
+
+      {activeTab === 'published' && (
+        <>
+          <div className="caption mb-3 text-[var(--text-3)] leading-relaxed">
+            Strategies you have published to the on-chain marketplace. Subscribers
+            you approve can mirror trades from your vault.
+          </div>
+          {loading && <div className="caption mb-4">Loading…</div>}
+          {!loading && (
+            <StrategyTable
+              strategies={published}
+              highlightStrategyId={highlightStrategyId}
+              onOpenPassport={openPassport}
+              extraActions={(row) =>
+                row.status === 'running' ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-danger"
+                    onClick={async () => {
+                      if (window.confirm(`Stop publishing "` + (row.strategy_name || row.strategy_id) + `"?`)) {
+                        await apiPost(`/api/marketplace/stop-publish/${row.strategy_id}`, {})
+                        load()
+                      }
+                    }}
+                    style={{ marginLeft: 8 }}
+                  >
+                    Stop
+                  </button>
+                ) : null
+              }
+              emptyState={
+                <div className="card" style={{ padding: 22 }}>
+                  <div className="label mb-2">Nothing published yet</div>
+                  <p className="body" style={{ marginBottom: 10 }}>
+                    Strategies you publish from the strategy passport page will
+                    appear here. Publishing lets subscribers mirror your trades
+                    on-chain.
+                  </p>
+                </div>
+              }
             />
           )}
         </>
