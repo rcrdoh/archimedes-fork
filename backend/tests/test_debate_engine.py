@@ -375,16 +375,51 @@ def test_leaderboard_entries_carry_cited_papers():
     assert union == {"2401.00001", "2402.00001"}
 
 
-async def test_debate_round_transcript_in_fixed_role_order(monkeypatch):
-    monkeypatch.setattr(
-        "archimedes.services.llm_backend.make_llm_backend", lambda model=None, **k: _CannedFusionBackend(model=model)
-    )
+class _DebateBackend:
+    """Records prompts; returns role-appropriate claims so the rebuttal is testable."""
+
+    model_id = "x"
+    served_model = "x"
+    available = True
+
+    def __init__(self):
+        self.prompts = []
+
+    def complete(self, system, user):
+        self.prompts.append(system)
+        role = "bull" if "bull researcher" in system else "bear"
+        return json.dumps(
+            {
+                "verdict": "act" if role == "bull" else "decline",
+                "confidence": 0.7,
+                "key_claims": [f"{role}-claim"],
+            }
+        )
+
+
+async def test_debate_round_two_rounds_with_visible_rebuttal(monkeypatch):
+    backend = _DebateBackend()
+    monkeypatch.setattr("archimedes.services.llm_backend.make_llm_backend", lambda model=None, **k: backend)
     monkeypatch.setattr(de.asyncio, "to_thread", _passthrough_to_thread)
 
     pool = [_fake_proposal("A", ["2401.00001", "2402.00001"])]
     transcript = await de._debate_round(pool, "m", _FakeEmit(), "cand_1")
-    # Best-effort round still produces a deterministic [bull, bear] ordering.
-    assert [t["role"] for t in transcript] == ["bull", "bear"]
+    # Fixed [bull-r1, bear-r1, bull-r2, bear-r2] order (R3 determinism).
+    assert [(t["role"], t["round"]) for t in transcript] == [("bull", 1), ("bear", 1), ("bull", 2), ("bear", 2)]
+    # The visible rebuttal: each round-2 prompt carries the OTHER side's round-1 claim.
+    bull_r2_prompt, bear_r2_prompt = backend.prompts[2], backend.prompts[3]
+    assert "bear-claim" in bull_r2_prompt  # bull rebuts the bear
+    assert "bull-claim" in bear_r2_prompt  # bear rebuts the bull
+
+
+async def test_debate_round_degrades_when_backend_unavailable(monkeypatch):
+    class _Down:
+        available = False
+
+    monkeypatch.setattr("archimedes.services.llm_backend.make_llm_backend", lambda model=None, **k: _Down())
+    monkeypatch.setattr(de.asyncio, "to_thread", _passthrough_to_thread)
+    transcript = await de._debate_round([_fake_proposal("A", ["1", "2"])], "m", _FakeEmit(), "cand_1")
+    assert transcript == []  # never gates; no backend → empty best-effort transcript
 
 
 # ── Review fixes: pool-max bound + leaderboard top-N cap ──────────────────────
@@ -410,3 +445,112 @@ def test_build_leaderboard_caps_to_top_n(monkeypatch):
     # Highest-DSR leader kept its base id; the cap takes the top-3 by score.
     assert board[0].candidate_id == "cand_1"
     assert all(e.has_real_rigor for e in board)
+
+
+# ── Phase 2 — C-regime non-votable Hierarchy-of-Truth gate ────────────────────
+
+
+def _patch_regime(monkeypatch, regime, *, confidence=0.9, status="live"):
+    """Patch the SHARED live-regime read (`current_regime`) + health at the boundary.
+
+    `_critic_regime` reads the most-recently-constructed detector via the module-level
+    `current_regime()` accessor (NOT a fresh GmmRegimeDetector, which would have no
+    classification), so the test patches that accessor.
+    """
+    from types import SimpleNamespace as NS
+
+    rc = NS(regime=regime, confidence=confidence) if regime is not None else None
+    monkeypatch.setattr("archimedes.services.gmm_regime_detector.current_regime", lambda: rc)
+    monkeypatch.setattr(
+        "archimedes.services.gmm_regime_detector.gmm_regime_health",
+        lambda: NS(status=status, reason="test"),
+    )
+
+
+def test_critic_regime_crisis_forces_abstain(monkeypatch):
+    from archimedes.models.regime import Regime
+
+    _patch_regime(monkeypatch, Regime.CRISIS)
+    gate = de._critic_regime()
+    assert gate["force_abstain"] is True
+    assert gate["regime"] == "crisis"
+    assert "CRISIS" in gate["reason"]
+
+
+def test_critic_regime_risk_on_does_not_gate(monkeypatch):
+    from archimedes.models.regime import Regime
+
+    _patch_regime(monkeypatch, Regime.RISK_ON)
+    gate = de._critic_regime()
+    assert gate["force_abstain"] is False
+    assert gate["regime"] == "risk_on"
+
+
+def test_critic_regime_unavailable_fails_safe_to_no_gate(monkeypatch):
+    # No regime read (None) must NEVER force-approve and must not crash — it simply
+    # does not gate (the critic can only ABSTAIN, never spuriously APPROVE).
+    _patch_regime(monkeypatch, None)
+    gate = de._critic_regime()
+    assert gate["force_abstain"] is False
+    assert gate["regime"] is None
+
+
+def test_regime_degraded_does_not_force_abstain(monkeypatch):
+    # DEGRADED (VIX fallback) on a non-crisis regime must not force abstain — else
+    # the society would always abstain whenever the GMM artifact is missing.
+    from archimedes.models.regime import Regime
+
+    _patch_regime(monkeypatch, Regime.RISK_OFF, status="degraded")
+    gate = de._critic_regime()
+    assert gate["force_abstain"] is False
+    assert gate["degraded"] is True
+
+
+def test_build_leaderboard_regime_gate_overrides_strong_survivors():
+    # Even with candidates that clear C-null, a non-votable CRISIS gate abstains.
+    rigor_results = [
+        (_fake_proposal("A", ["2401.00001", "2402.00001"]), _fake_ev(cagr=0.3, dsr=3.0)),
+        (_fake_proposal("B", ["2401.00002", "2402.00002"]), _fake_ev(cagr=0.2, dsr=2.0)),
+    ]
+    board = de.build_leaderboard(
+        rigor_results,
+        regime="neutral",
+        base_id="cand_1",
+        regime_force_abstain=True,
+        regime_reason="CRISIS regime (confidence=0.90) — non-votable ABSTAIN",
+    )
+    assert len(board) == 1
+    assert board[0].generation_method == "debate_abstain"
+    assert "Hierarchy-of-Truth" in board[0].thesis or "Regime gate" in board[0].reasoning
+
+
+# ── Phase 2 — C-prov non-votable provenance/embargo gate (Xia 1/2/4) ──────────
+
+
+def test_critic_prov_drops_citations_outside_the_surface(corpus):
+    # The fixture corpus surface = {2401.0000{1,2,3}, 2402.0000{1,2,3}} (embargo-clean).
+    clean = _fake_proposal("clean", ["2401.00001", "2402.00001"])
+    dirty = _fake_proposal("dirty", ["2401.00001", "9999.99999"])  # 9999.* not in the surface
+    empty = _fake_proposal("empty", [])  # no citations → cannot verify provenance
+    kept, dropped = de._critic_prov([clean, dirty, empty], corpus)
+    assert [p.strategy_name for p in kept] == ["clean"]
+    assert {p.strategy_name for p in dropped} == {"dirty", "empty"}
+
+
+def test_critic_prov_keeps_fully_grounded_candidates(corpus):
+    a = _fake_proposal("a", ["2401.00002", "2402.00002"])
+    b = _fake_proposal("b", ["2401.00003", "2402.00003"])
+    kept, dropped = de._critic_prov([a, b], corpus)
+    assert len(kept) == 2
+    assert dropped == []
+
+
+def test_critic_prov_robust_to_missing_citations(corpus):
+    # A proposal missing source_arxiv_ids (None / absent attr) must DROP, not raise
+    # and abort the whole run (Copilot review).
+    none_cited = SimpleNamespace(strategy_name="none", source_arxiv_ids=None)
+    no_attr = SimpleNamespace(strategy_name="noattr")  # attribute absent entirely
+    good = _fake_proposal("good", ["2401.00001", "2402.00001"])
+    kept, dropped = de._critic_prov([none_cited, no_attr, good], corpus)
+    assert [p.strategy_name for p in kept] == ["good"]
+    assert {p.strategy_name for p in dropped} == {"none", "noattr"}

@@ -279,18 +279,26 @@ async def _propose_pool(brief: GenerateBrief, model: str | None, corpus: list[An
 # ── Step 2 — best-effort adversarial round (transcript only, never gates) ─────
 
 _DEBATE_SYSTEM = (
-    "You are the {role} researcher in a quant strategy debate. {stance}. "
-    "Cite ONLY the listed candidate strategies. Reply with ONE JSON object: "
-    '{{"verdict": "act"|"decline", "confidence": <0..1>, "key_claims": [<str>...]}}.'
+    "You are the {role} researcher in a quant strategy debate, round {rnd}. {stance}. "
+    "Cite ONLY the listed candidate strategies. {rebuttal}"
+    'Reply with ONE JSON object: {{"verdict": "act"|"decline", "confidence": <0..1>, "key_claims": [<str>...]}}.'
 )
+
+_DEBATE_STANCES = {
+    "bull": "Argue FOR acting on the strongest candidate",
+    "bear": "Argue for ABSTENTION — the null is buy-and-hold; attack overfit/cost",
+}
 
 
 async def _debate_round(pool: list[Any], model: str | None, emit: _Emitter, candidate_id: str) -> list[dict[str, Any]]:
-    """Thin best-effort bull/bear round — transcript only, never gates (Phase 1).
+    """Best-effort bull/bear research debate with ONE visible rebuttal round.
 
-    Surfaces the adversarial topology on the SSE stream. Any failure (no backend,
-    unparseable output) degrades to a neutral transcript entry. The transcript is
-    built in fixed [bull, bear] role order for R3 determinism (sort-before-hash).
+    Round 1: bull + bear state initial positions. Round 2: each REBUTS the other's
+    round-1 claims (the visible adversarial turn — the "debate" the roadmap names).
+    Transcript ONLY — it never gates; the deterministic critics do the real culling.
+    Built in fixed ``[bull-r1, bear-r1, bull-r2, bear-r2]`` order for R3 determinism
+    (sort-before-hash). Any failure (no backend, unparseable output) degrades to a
+    neutral entry; the whole round is skipped if no backend is available.
     """
     from archimedes.agents.strategy_architect import extract_json
     from archimedes.services.llm_backend import make_llm_backend
@@ -305,28 +313,43 @@ async def _debate_round(pool: list[Any], model: str | None, emit: _Emitter, cand
     if not getattr(backend, "available", False):
         return transcript
 
-    for role, stance in (
-        ("bull", "Argue FOR acting on the strongest candidate"),
-        ("bear", "Argue for ABSTENTION — the null is buy-and-hold; attack overfit/cost"),
-    ):
-        await emit.emit(
-            "tool_called",
-            candidate_id=candidate_id,
-            tool_name=f"debate_{role}",
-            args_summary=f"candidates: {names[:120]}",
-        )
-        try:
-            raw = await asyncio.to_thread(backend.complete, _DEBATE_SYSTEM.format(role=role, stance=stance), names)
-            parsed = extract_json(raw)
-            transcript.append(
-                {
-                    "role": role,
-                    "verdict": str(parsed.get("verdict", "n/a")),
-                    "claims": list(parsed.get("key_claims") or parsed.get("fatal_flaws") or []),
-                }
+    def _turn(role: str, rnd: int, opponent_claims: list[str]) -> dict[str, Any]:
+        rebuttal = ""
+        if opponent_claims:
+            rebuttal = (
+                f"The opposing researcher argued: {'; '.join(str(c) for c in opponent_claims[:3])}. "
+                "Directly rebut their strongest point. "
             )
+        try:
+            raw = backend.complete(
+                _DEBATE_SYSTEM.format(role=role, rnd=rnd, stance=_DEBATE_STANCES[role], rebuttal=rebuttal),
+                names,
+            )
+            parsed = extract_json(raw)
+            return {
+                "role": role,
+                "round": rnd,
+                "verdict": str(parsed.get("verdict", "n/a")),
+                "claims": list(parsed.get("key_claims") or parsed.get("fatal_flaws") or []),
+            }
         except Exception:
-            transcript.append({"role": role, "verdict": "n/a", "claims": []})
+            return {"role": role, "round": rnd, "verdict": "n/a", "claims": []}
+
+    # Round 1 — initial positions (fixed bull→bear order).
+    for role in ("bull", "bear"):
+        await emit.emit(
+            "tool_called", candidate_id=candidate_id, tool_name=f"debate_{role}_r1", args_summary=names[:120]
+        )
+        transcript.append(await asyncio.to_thread(_turn, role, 1, []))
+
+    # Round 2 — visible rebuttal: each researcher sees the other's round-1 claims.
+    claims_by_role = {t["role"]: t["claims"] for t in transcript}
+    for role, opponent in (("bull", "bear"), ("bear", "bull")):
+        await emit.emit(
+            "tool_called", candidate_id=candidate_id, tool_name=f"debate_{role}_r2", args_summary="rebuttal"
+        )
+        transcript.append(await asyncio.to_thread(_turn, role, 2, claims_by_role.get(opponent, [])))
+
     return transcript
 
 
@@ -356,6 +379,39 @@ async def _critic_rigor(pool: list[Any], num_trials: int) -> list[tuple[Any, Any
         if ev is not None and ev.success and ev.rigor is not None:
             out.append((proposal, ev))
     return out
+
+
+# ── C-prov (deterministic provenance/embargo gate — Xia 1/2/4) ────────────────
+
+
+def _critic_prov(pool: list[Any], corpus: list[Any]) -> tuple[list[Any], list[Any]]:
+    """C-prov (Xia 1/2/4, non-votable): hard-fail any candidate citing a paper
+    OUTSIDE the shared embargo + decay-applied evidence surface.
+
+    The surface is the ``load_corpus()`` output, which already excludes post-embargo
+    papers (``apply_outcome_embargo`` runs inside ``load_papers_from_db``), so a
+    candidate whose ``source_arxiv_ids`` are all in the corpus is provenance-clean.
+    A candidate citing an id NOT in the surface (a post-embargo leak or a
+    hallucination that slipped the proposer's ``valid_ids`` filter) is dropped —
+    deterministic defense-in-depth that cannot be argued out of its position.
+
+    Does NOT change ``pool_size`` (the DSR denominator counts every conformant spec
+    we proposed/searched, per spec §5c); it only culls which survivors reach C-rigor.
+    Returns ``(kept, dropped)``.
+    """
+    surface = {getattr(p, "arxiv_id", None) for p in corpus}
+    surface.discard(None)
+    kept: list[Any] = []
+    dropped: list[Any] = []
+    for prop in pool:
+        # Robust to a proposal missing/None source_arxiv_ids — treat as empty (→ drop,
+        # "not provenance-verifiable"), never raise and abort the whole run (Copilot review).
+        cited = set(getattr(prop, "source_arxiv_ids", None) or [])
+        if cited and cited <= surface:
+            kept.append(prop)
+        else:
+            dropped.append(prop)
+    return kept, dropped
 
 
 # ── Step 4/5 — C-null + synthesize → leaderboard ──────────────────────────────
@@ -465,13 +521,88 @@ def _abstain_result(candidate_id: str, *, regime: str, reason: str) -> _Candidat
     )
 
 
-def build_leaderboard(rigor_results: list[tuple[Any, Any]], *, regime: str, base_id: str) -> list[_CandidateResult]:
-    """Deterministic C-null cull + rank → the top-N leaderboard (leader first).
+def _critic_regime() -> dict[str, Any]:
+    """C-regime (Xia §4.4 Hierarchy-of-Truth) — read the live exogenous regime.
 
-    Returns ``[abstain]`` when no candidate clears the passive null. The leader
-    keeps ``base_id``; alternatives get ``base_id_alt{n}`` so the persist tail can
-    distinguish them. Pure + deterministic — directly unit-tested.
+    **Non-votable.** A live CRISIS read forces ABSTAIN regardless of how good the
+    candidates look — crisis is exactly when you do NOT deploy a fresh strategy,
+    and no bull argument can override it. DEGRADED (GMM artifact missing → VIX
+    rule-based fallback) is surfaced honestly and lowers confidence, but does not
+    by itself force abstain (else the society would always abstain when the model
+    is unavailable). Never raises — any failure degrades to "unavailable, don't
+    force" so the regime critic can only ABSTAIN, never spuriously APPROVE.
+
+    Returns a dict: ``regime`` (str|None), ``confidence`` (float), ``degraded``
+    (bool), ``force_abstain`` (bool), ``reason`` (str).
     """
+    out: dict[str, Any] = {
+        "regime": None,
+        "confidence": 0.0,
+        "degraded": True,
+        "force_abstain": False,
+        "reason": "regime detector unavailable — not gating",
+    }
+    try:
+        from archimedes.models.regime import Regime
+        from archimedes.services.gmm_regime_detector import current_regime, gmm_regime_health
+
+        health = gmm_regime_health()
+        degraded = health.status != "live"
+        # Read the SHARED live detector (the one the oracle/agent runner feeds), NOT a
+        # fresh GmmRegimeDetector — a new instance has no current classification, so it
+        # would always read None and the gate would never fire (Copilot review).
+        rc = current_regime()
+        regime = rc.regime if rc is not None else None
+        confidence = float(rc.confidence) if rc is not None else 0.0
+        force_abstain = regime == Regime.CRISIS
+        if regime is None:
+            reason = "no regime read — not gating"
+        elif force_abstain:
+            reason = (
+                f"CRISIS regime (confidence={confidence:.2f}"
+                f"{', GMM degraded → VIX fallback' if degraded else ''}) — non-votable ABSTAIN"
+            )
+        else:
+            reason = (
+                f"regime={regime.value} confidence={confidence:.2f}"
+                f"{' (GMM degraded → VIX rule-based fallback)' if degraded else ''}"
+            )
+        out = {
+            "regime": regime.value if regime is not None else None,
+            "confidence": confidence,
+            "degraded": degraded,
+            "force_abstain": force_abstain,
+            "reason": reason,
+        }
+    except Exception:
+        logger.debug("C-regime read failed; treating as unavailable (not gating)", exc_info=True)
+    return out
+
+
+def build_leaderboard(
+    rigor_results: list[tuple[Any, Any]],
+    *,
+    regime: str,
+    base_id: str,
+    regime_force_abstain: bool = False,
+    regime_reason: str = "",
+) -> list[_CandidateResult]:
+    """Deterministic C-regime gate → C-null cull + rank → top-N leaderboard.
+
+    The **non-votable C-regime gate runs first**: a live-CRISIS
+    ``regime_force_abstain`` short-circuits to ABSTAIN before C-null even runs —
+    market regime structurally overrides candidate consensus (Hierarchy-of-Truth).
+    Otherwise: C-null cull → rank → leaderboard (leader keeps ``base_id``,
+    alternatives get ``base_id_alt{n}``). Pure + deterministic — directly tested.
+    """
+    if regime_force_abstain:
+        return [
+            _abstain_result(
+                base_id,
+                regime=regime,
+                reason=f"Regime gate (non-votable, Hierarchy-of-Truth): {regime_reason}",
+            )
+        ]
     survivors = [(p, ev) for (p, ev) in rigor_results if _survives_null(ev)]
     if not survivors:
         return [
@@ -544,27 +675,55 @@ async def _run_debate_candidate(
     # Step 2 — best-effort adversarial transcript (never gates).
     await _debate_round(pool, model, emit, candidate_id)
 
-    # Step 3 — C-rigor (A1, aligned with #770/#811 + Önder's #820 unification): the
-    # DSR multiple-testing count is `_society_num_trials(library_size, pool_size) =
-    # library + N`, NOT pool_size alone. The winner survived selection from the pool
-    # AND is promoted into the library, so both selection layers must deflate it —
-    # otherwise the debate "passing" badge is more permissive than the live path's.
-    # When #820 lands the shared helper, this should read from that single source.
+    # Step 3a — C-prov (non-votable, Xia 1/2/4): cull candidates citing outside the
+    # embargo+decay surface. Does NOT change pool_size (the DSR denominator counts
+    # every conformant spec we proposed; §5c) — only which survivors reach C-rigor.
+    prov_clean, prov_dropped = _critic_prov(pool, corpus)
+    if prov_dropped:
+        await emit.emit(
+            "tool_result",
+            candidate_id=candidate_id,
+            tool_name="critic_prov",
+            result_summary=f"dropped {len(prov_dropped)} candidate(s) citing outside the embargo surface",
+        )
+    if not prov_clean:
+        raise DebateUnavailable("debate: all candidates failed provenance (cited outside the embargo+decay surface)")
+
+    # Step 3b — C-rigor (A1, aligned with #770/#811 + Önder's #820): num_trials =
+    # _society_num_trials(library_size, pool_size) = library + N, NOT pool_size alone,
+    # so the debate "passing" badge is not more permissive than the live path. pool_size
+    # (the full conformant proposed count) is the selection set; C-prov only culls which
+    # survivors are backtested. When #820 lands the shared helper, read from that source.
     num_trials = await asyncio.to_thread(lambda: _society_num_trials(_library_size(), pool_size))
     await emit.emit("agent_iteration", candidate_id=candidate_id, iteration_n=2, max_iterations=4)
     await emit.emit(
         "tool_called",
         candidate_id=candidate_id,
         tool_name="evaluate_fusion_spec",
-        args_summary=f"backtest ×{pool_size}, num_trials={num_trials} (library+pool, #770/#820)",
+        args_summary=f"backtest ×{len(prov_clean)}, num_trials={num_trials} (library+pool, #770/#820)",
     )
-    rigor_results = await _critic_rigor(pool, num_trials)
+    rigor_results = await _critic_rigor(prov_clean, num_trials)
     if not rigor_results:
         raise DebateUnavailable("debate: no candidate produced a successful backtest")
 
-    # Steps 4/5 — C-null cull + deterministic synthesize → leaderboard.
+    # Step 4 — C-regime (non-votable Hierarchy-of-Truth): read the live regime.
+    regime_gate = await asyncio.to_thread(_critic_regime)
+    await emit.emit(
+        "tool_result",
+        candidate_id=candidate_id,
+        tool_name="critic_regime",
+        result_summary=regime_gate["reason"],
+    )
+
+    # Step 5 — C-null cull + deterministic synthesize → leaderboard (C-regime gates first).
     await emit.emit("agent_iteration", candidate_id=candidate_id, iteration_n=3, max_iterations=4)
-    leaderboard = build_leaderboard(rigor_results, regime=regime, base_id=candidate_id)
+    leaderboard = build_leaderboard(
+        rigor_results,
+        regime=regime,
+        base_id=candidate_id,
+        regime_force_abstain=regime_gate["force_abstain"],
+        regime_reason=regime_gate["reason"],
+    )
     leader = leaderboard[0]
     await emit.emit(
         "tool_result",

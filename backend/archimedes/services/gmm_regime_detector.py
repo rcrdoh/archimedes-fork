@@ -179,6 +179,20 @@ def gmm_regime_health() -> GmmRegimeHealth:
     )
 
 
+def current_regime() -> RegimeClassification | None:
+    """The live regime classification from the most-recently-constructed detector.
+
+    Reads the SHARED detector (the one the oracle/agent runner feeds market data),
+    mirroring ``gmm_regime_health``. Constructing a fresh ``GmmRegimeDetector`` here
+    would be wrong — a new instance has no current classification until it has been
+    fed snapshots, so it would always return ``None``. Returns ``None`` when no
+    detector has been constructed/fed yet (the cold path) — callers treat that as
+    "no regime read" rather than a market signal.
+    """
+    detector = _LAST_DETECTOR() if _LAST_DETECTOR is not None else None
+    return detector.get_current_regime() if detector is not None else None
+
+
 def _label_components(scaler: StandardScaler, gmm: GaussianMixture) -> dict[int, Regime]:
     """Deterministically map each latent component to a ``Regime``.
 
