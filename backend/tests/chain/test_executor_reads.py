@@ -1,0 +1,302 @@
+"""ChainExecutor read + setter coverage (#738 Tier-A).
+
+Target: backend/archimedes/chain/executor.py
+Complements test_chain_executor.py (which covers execute_trades / create_vault /
+liquidity) by exercising the on-chain READ surface and the vault setters that the
+agent tick depends on: read_portfolio, get_vault_metrics, get_all_vaults,
+get_vault_count, set_token_oracles, set_target_allocations, and the token /
+NAV helpers (_get_token_symbol, _get_token_decimals, _token_to_usdc,
+_safe_total_assets, _parse_vault_created).
+
+Hermetic: the ContractLoader and chain_client are mocked at the boundary — every
+contract `.functions.X().call()` is an AsyncMock. No network, no Arc RPC, no Circle.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+
+import pytest
+from archimedes.chain.executor import ChainExecutor
+from hexbytes import HexBytes
+
+USDC = "0x3600000000000000000000000000000000000000"
+STSLA = "0xE745C07d7d32A1Ca0d6162A1c50e876619CF7388"
+
+
+class _Awaitable:
+    """await-able attribute wrapper (see test_chain_executor.py)."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def __await__(self):
+        async def _coro():
+            return self._value
+
+        return _coro().__await__()
+
+
+@pytest.fixture
+def mock_loader():
+    loader = MagicMock()
+    mock_router = MagicMock()
+    type(loader).amm_router = PropertyMock(return_value=mock_router)
+    loader.amm_pool.return_value = MagicMock()
+    loader.vault.return_value = MagicMock()
+    loader.vault_factory = MagicMock()
+    loader.oracle_for.return_value = MagicMock()
+    loader.token.return_value = MagicMock()
+    return loader
+
+
+@pytest.fixture
+def executor(mock_loader):
+    with patch("archimedes.chain.executor.chain_client") as mock_cc:
+        mock_cc.settings = MagicMock()
+        mock_cc.settings.usdc_address = USDC
+        mock_cc.settings.synth_addresses = {"sTSLA": STSLA}
+        mock_cc.settings.oracle_addresses = {"sTSLA": "0xOracleTSLA"}
+        mock_cc.settings.chain_id = 5042002
+        mock_cc.settings.agent_account = None
+        mock_cc.to_checksum = lambda addr: addr
+        mock_cc.w3 = MagicMock()
+        mock_cc.w3.eth = MagicMock()
+        mock_cc.w3.eth.gas_price = _Awaitable(1_000_000_000)
+        mock_cc.w3.eth.get_transaction_count = AsyncMock(return_value=1)
+        mock_cc.w3.eth.send_raw_transaction = AsyncMock(return_value=HexBytes(b"\x00" * 32))
+        mock_cc.w3.eth.wait_for_transaction_receipt = AsyncMock(return_value={"status": 1})
+        ex = ChainExecutor(loader=mock_loader)
+        ex._mock_cc = mock_cc
+        yield ex
+
+
+def _vault_fn(vault, name, return_value=None, side_effect=None):
+    """Wire vault.functions.<name>().call() to an AsyncMock."""
+    fn = getattr(vault.functions, name)
+    fn.return_value.call = AsyncMock(return_value=return_value, side_effect=side_effect)
+
+
+# ── read_portfolio ────────────────────────────────────────────
+
+
+class TestReadPortfolio:
+    def test_builds_portfolio_from_holdings(self, executor, mock_loader):
+        vault = mock_loader.vault.return_value
+        # getHoldings → ([token addrs], [raw amounts]); one synth + one zero leg.
+        _vault_fn(vault, "getHoldings", return_value=[[STSLA, USDC], [2 * 10**18, 0]])
+        _vault_fn(vault, "totalAssets", return_value=400_000_000)  # $400 (6 dec)
+        # token symbol/decimals for the synth
+        token = mock_loader.token.return_value
+        _vault_fn(token, "symbol", return_value="sTSLA")
+        _vault_fn(token, "decimals", return_value=18)
+        # oracle getPrice for value: 200 USDC (6 dec) per token
+        oracle = mock_loader.oracle_for.return_value
+        _vault_fn(oracle, "getPrice", return_value=200_000_000)
+
+        portfolio = asyncio.run(executor.read_portfolio("0xVault"))
+        assert portfolio.vault_address == "0xVault"
+        assert portfolio.total_value_usdc == pytest.approx(400.0)
+        # The zero-amount USDC leg is skipped; only the synth holding remains.
+        assert len(portfolio.holdings) == 1
+        h = portfolio.holdings[0]
+        assert h.symbol == "sTSLA"
+        assert h.amount == pytest.approx(2.0)
+
+    def test_total_assets_revert_falls_back_to_offchain_nav(self, executor, mock_loader):
+        vault = mock_loader.vault.return_value
+        _vault_fn(vault, "getHoldings", return_value=[[USDC], [500_000_000]])  # $500 USDC
+        _vault_fn(vault, "totalAssets", side_effect=RuntimeError("StalePrice"))
+        portfolio = asyncio.run(executor.read_portfolio("0xVault"))
+        # NAV recomputed off-chain: USDC leg contributes its raw amount directly.
+        assert portfolio.total_value_usdc == pytest.approx(500.0)
+
+
+# ── get_vault_metrics ─────────────────────────────────────────
+
+
+class TestGetVaultMetrics:
+    def test_reads_all_metric_fields(self, executor, mock_loader):
+        vault = mock_loader.vault.return_value
+        _vault_fn(vault, "totalAssets", return_value=1_000_000_000)  # $1000
+        _vault_fn(vault, "totalSupply", return_value=1_000_000_000)
+        _vault_fn(vault, "highWaterMark", return_value=123)
+        _vault_fn(vault, "creator", return_value="0xCreator")
+        _vault_fn(vault, "tier", return_value=1)
+        _vault_fn(vault, "managementFeeBps", return_value=100)
+        _vault_fn(vault, "performanceFeeBps", return_value=1500)
+        _vault_fn(vault, "isAgentAssisted", return_value=True)
+        _vault_fn(vault, "paused", return_value=False)
+
+        m = asyncio.run(executor.get_vault_metrics("0xVault"))
+        assert m["vault_address"] == "0xVault"
+        assert m["total_aum_usdc"] == pytest.approx(1000.0)
+        assert m["tier"] == 1
+        assert m["management_fee_bps"] == 100
+        assert m["is_agent_assisted"] is True
+        # share_price = (totalAssets/totalSupply)/1e6. With equal raw units the
+        # ratio is 1, scaled by /1e6 → 1e-6 (the contract's share decimals).
+        assert m["share_price_usdc"] == pytest.approx(1e-6)
+        assert m["total_supply"] == 1_000_000_000
+        assert m["high_water_mark"] == 123
+        assert m["creator"] == "0xCreator"
+
+    def test_degrades_when_reads_revert(self, executor, mock_loader):
+        vault = mock_loader.vault.return_value
+        for fn in (
+            "totalAssets",
+            "totalSupply",
+            "highWaterMark",
+            "creator",
+            "tier",
+            "managementFeeBps",
+            "performanceFeeBps",
+            "isAgentAssisted",
+            "paused",
+        ):
+            _vault_fn(vault, fn, side_effect=RuntimeError("revert"))
+        # getHoldings also reverts so the stale-price fallback yields 0.
+        _vault_fn(vault, "getHoldings", side_effect=RuntimeError("revert"))
+        m = asyncio.run(executor.get_vault_metrics("0xVault"))
+        assert m["total_aum_usdc"] == 0.0
+        assert m["total_supply"] == 0
+        # No supply → share price defaults to 1 USDC.
+        assert m["share_price_usdc"] == pytest.approx(1.0)
+        assert m["creator"] == "0x0000000000000000000000000000000000000000"
+        assert m["tier"] == 2  # default
+        assert m["is_agent_assisted"] is False
+
+
+# ── get_all_vaults / get_vault_count ──────────────────────────
+
+
+class TestVaultEnumeration:
+    def test_get_all_vaults(self, executor, mock_loader):
+        _vault_fn(mock_loader.vault_factory, "getVaults", return_value=["0xV1", "0xV2"])
+        vaults = asyncio.run(executor.get_all_vaults())
+        assert vaults == ["0xV1", "0xV2"]
+
+    def test_get_vault_count(self, executor, mock_loader):
+        _vault_fn(mock_loader.vault_factory, "vaultCount", return_value=7)
+        assert asyncio.run(executor.get_vault_count()) == 7
+
+
+# ── set_token_oracles / set_target_allocations (Circle path) ──
+
+
+class TestVaultSettersCircle:
+    def test_set_token_oracles_circle(self, executor, mock_loader):
+        with patch("archimedes.chain.executor.circle_signer") as signer:
+            signer.is_configured = True
+            signer.execute_contract = AsyncMock(return_value="0xtx-oracles")
+            tx = asyncio.run(executor.set_token_oracles("0xVault", [STSLA], ["0xOracleTSLA"]))
+        assert tx == "0xtx-oracles"
+        signer.execute_contract.assert_awaited_once()
+        assert signer.execute_contract.await_args.kwargs["abi_function"] == "setTokenOracles(address[],address[])"
+
+    def test_set_target_allocations_circle(self, executor, mock_loader):
+        with patch("archimedes.chain.executor.circle_signer") as signer:
+            signer.is_configured = True
+            signer.execute_contract = AsyncMock(return_value="0xtx-alloc")
+            tx = asyncio.run(executor.set_target_allocations("0xVault", [STSLA], [10000]))
+        assert tx == "0xtx-alloc"
+        assert signer.execute_contract.await_args.kwargs["abi_function"] == "setTargetAllocations(address[],uint256[])"
+
+
+# ── set_target_allocations (raw-key path) + no-account guard ───
+
+
+class TestVaultSettersRawKey:
+    def test_set_target_allocations_raw_key(self, executor, mock_loader):
+        account = MagicMock()
+        account.address = "0xAGENT00000000000000000000000000000000aa"
+        account.sign_transaction.return_value = MagicMock(raw_transaction=b"\x01")
+        executor._mock_cc.settings.agent_account = account
+        vault = mock_loader.vault.return_value
+        vault.functions.setTargetAllocations.return_value.build_transaction = AsyncMock(
+            return_value={"from": account.address, "nonce": 1}
+        )
+        sent = HexBytes("0x" + "ab" * 32)
+        executor._mock_cc.w3.eth.send_raw_transaction = AsyncMock(return_value=sent)
+        with patch("archimedes.chain.executor.circle_signer") as signer:
+            signer.is_configured = False
+            tx = asyncio.run(executor.set_target_allocations("0xVault", [STSLA], [10000]))
+        assert tx == sent.hex() if sent.hex().startswith("0x") else "0x" + sent.hex()
+
+    def test_set_token_oracles_no_account_raises(self, executor):
+        executor._mock_cc.settings.agent_account = None
+        with patch("archimedes.chain.executor.circle_signer") as signer:
+            signer.is_configured = False
+            with pytest.raises(RuntimeError, match="No agent account"):
+                asyncio.run(executor.set_token_oracles("0xVault", [STSLA], ["0xOracleTSLA"]))
+
+
+# ── helpers: token symbol / decimals / value / parse ──────────
+
+
+class TestTokenHelpers:
+    def test_get_token_symbol_known_usdc(self, executor):
+        assert asyncio.run(executor._get_token_symbol(USDC)) == "USDC"
+
+    def test_get_token_symbol_known_synth(self, executor):
+        assert asyncio.run(executor._get_token_symbol(STSLA)) == "sTSLA"
+
+    def test_get_token_symbol_unknown_queries_contract(self, executor, mock_loader):
+        token = mock_loader.token.return_value
+        _vault_fn(token, "symbol", return_value="WHO")
+        assert asyncio.run(executor._get_token_symbol("0x0000000000000000000000000000000000009999")) == "WHO"
+
+    def test_get_token_symbol_contract_revert_truncates_address(self, executor, mock_loader):
+        token = mock_loader.token.return_value
+        _vault_fn(token, "symbol", side_effect=RuntimeError("no symbol"))
+        addr = "0x0000000000000000000000000000000000009999"
+        assert asyncio.run(executor._get_token_symbol(addr)) == addr[:8]
+
+    def test_get_token_decimals_usdc_is_6(self, executor):
+        assert asyncio.run(executor._get_token_decimals(USDC)) == 6
+
+    def test_get_token_decimals_contract(self, executor, mock_loader):
+        token = mock_loader.token.return_value
+        _vault_fn(token, "decimals", return_value=8)
+        assert asyncio.run(executor._get_token_decimals(STSLA)) == 8
+
+    def test_get_token_decimals_revert_defaults_18(self, executor, mock_loader):
+        token = mock_loader.token.return_value
+        _vault_fn(token, "decimals", side_effect=RuntimeError("boom"))
+        assert asyncio.run(executor._get_token_decimals(STSLA)) == 18
+
+    def test_token_to_usdc_for_usdc_is_identity(self, executor):
+        assert asyncio.run(executor._token_to_usdc(USDC, 12_345, 6)) == 12_345
+
+    def test_token_to_usdc_synth_with_getprice(self, executor, mock_loader):
+        oracle = mock_loader.oracle_for.return_value
+        _vault_fn(oracle, "getPrice", return_value=200_000_000)  # $200 (6 dec)
+        # 2 tokens (18 dec) * 200_000_000 / 1e18 = 400_000_000 → $400
+        result = asyncio.run(executor._token_to_usdc(STSLA, 2 * 10**18, 18))
+        assert result == 400_000_000
+
+    def test_token_to_usdc_uses_raw_price_when_requested(self, executor, mock_loader):
+        oracle = mock_loader.oracle_for.return_value
+        _vault_fn(oracle, "price", return_value=100_000_000)
+        result = asyncio.run(executor._token_to_usdc(STSLA, 1 * 10**18, 18, use_raw_price=True))
+        assert result == 100_000_000
+
+    def test_token_to_usdc_unknown_token_returns_amount(self, executor):
+        assert asyncio.run(executor._token_to_usdc("0x0000000000000000000000000000000000008888", 42, 18)) == 42
+
+
+class TestParseVaultCreated:
+    def test_extracts_vault_from_event(self):
+        factory = MagicMock()
+        factory.events.VaultCreated.return_value.process_log.return_value = {"args": {"vault": "0xNew"}}
+        receipt = MagicMock()
+        receipt.logs = [MagicMock()]
+        assert ChainExecutor._parse_vault_created(factory, receipt) == "0xNew"
+
+    def test_returns_none_when_no_matching_log(self):
+        factory = MagicMock()
+        factory.events.VaultCreated.return_value.process_log.side_effect = ValueError("not this log")
+        receipt = MagicMock()
+        receipt.logs = [MagicMock(), MagicMock()]
+        assert ChainExecutor._parse_vault_created(factory, receipt) is None

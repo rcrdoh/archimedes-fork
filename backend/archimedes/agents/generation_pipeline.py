@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import hashlib
 import json
 import logging
@@ -80,6 +81,17 @@ def _pick_pipeline(
        brief's inferred asset classes.
     3. **agent** (SSE streaming portfolio-advisor path) as the fallback.
     """
+    # ── Debate society (flag-gated, additive — T1.1) ──
+    # When ARCHIMEDES_DEBATE_ENABLED is set, the debate society IS the generation
+    # pipeline (staged replacement). While the flag is OFF the legacy decision
+    # tree below runs UNCHANGED — so the flag-OFF live path stays byte-identical
+    # even if a client passes mode="debate". The legacy-runner deletions are
+    # deferred to the Phase-3 cutover PR.
+    from archimedes.agents.debate_engine import debate_enabled
+
+    if debate_enabled():
+        return "debate", "debate society pipeline (ARCHIMEDES_DEBATE_ENABLED)"
+
     # ── User-selected mode override (#290) ──
     if mode_override and mode_override in ("fusion", "architect", "agent"):
         return mode_override, f"user selected {mode_override} mode"
@@ -485,6 +497,7 @@ async def _run_fixture_candidate(
     emit: _Emitter,
     regime: str = "neutral",
     agent: Any = None,  # noqa: ARG001 — signature parity with _run_live_candidate; fixture path ignores it
+    selection_pool_size: int = 1,  # noqa: ARG001 — signature parity; fixture path computes no DSR num_trials
 ) -> _CandidateResult:
     """Synthetic generation that exercises every event the live agent emits.
 
@@ -587,8 +600,25 @@ _REGIME_PROMPT_SUFFIX = {
 }
 
 
+def _society_num_trials(library_size: int, selection_pool_size: int) -> int:
+    """Effective DSR multiple-testing trial count on the agentic society path (#770).
+
+    The winner survived selection from ``selection_pool_size`` (N) generated candidates
+    AND is promoted into a library of ``library_size`` — two independent selection layers,
+    so the deflation count is their SUM (approach A, Bailey & López de Prado 2014). See
+    ``docs/specs/selection-bias-corrections-spec.md`` § 1.3 addendum. Floored at 1.
+    """
+    return max(1, library_size + selection_pool_size)
+
+
 async def _run_live_candidate(
-    *, candidate_id: str, brief: GenerateBrief, emit: _Emitter, regime: str = "neutral", agent: Any = None
+    *,
+    candidate_id: str,
+    brief: GenerateBrief,
+    emit: _Emitter,
+    regime: str = "neutral",
+    agent: Any = None,
+    selection_pool_size: int = 1,
 ) -> _CandidateResult:
     """Drive the real ``portfolio_agent`` with per-iteration event emission.
 
@@ -705,7 +735,15 @@ async def _run_live_candidate(
     # primitive is computed from referenced curated source and gates `passing`.
     return_series = _portfolio_return_series(weights, price_histories)
     lookahead_passed = _lookahead_for_candidate(referenced_strategies)
-    verdict = _rigor_verdict_for(return_series, num_trials=max(1, len(strategies)), lookahead_passed=lookahead_passed)
+    # num_trials = selection-from-N candidates + library context (#770). The agentic
+    # society generates `selection_pool_size` candidates, backtests all, and keeps the
+    # best — selection-from-N is itself a multiple-testing search, so the DSR must be
+    # deflated for BOTH that pool AND the library the winner joins, not the library
+    # alone (which understated deflation and inflated the survivor's DSR). Additive
+    # N + library_size per the selection-bias-corrections spec § 1.3 (Bailey & López de
+    # Prado 2014); the correction can only make the gate stricter. (Önder's call — A.)
+    num_trials = _society_num_trials(len(strategies), selection_pool_size)
+    verdict = _rigor_verdict_for(return_series, num_trials=num_trials, lookahead_passed=lookahead_passed)
     # Derive meaningful name + thesis from the brief and agent output (#299)
     top_picks = sorted(weights.items(), key=lambda x: -x[1])[:3]
     pick_summary = " / ".join(t for t, _ in top_picks)
@@ -761,6 +799,7 @@ async def _run_fusion_candidate(
     emit: _Emitter,
     regime: str = "neutral",
     agent: Any = None,  # noqa: ARG001 — signature parity with _run_live_candidate; fusion path builds its own client
+    selection_pool_size: int = 1,  # noqa: ARG001 — signature parity; fusion candidates skip the static DSR path
 ) -> _CandidateResult:
     """Drive the existing fusion engine with per-step streaming event emission.
 
@@ -1030,9 +1069,14 @@ async def run_generation(
         # ── Auto-route to the best pipeline ──
         pipeline_name, pipeline_reason = _pick_pipeline(brief, mode_override=mode)
 
-        # Determine regime plan: dual_regime emits both bull + bear (Issue #163)
-        if dual_regime:
-            regimes: list[str] = ["bull", "bear"]
+        # Determine regime plan: dual_regime emits both bull + bear (Issue #163).
+        # The debate society owns its OWN internal regime/mechanism split, so its
+        # per-regime loop runs ONCE ("neutral") and the expensive PBO/persist tail
+        # stays a single self-contained unit (spec §5b).
+        if pipeline_name == "debate":
+            regimes: list[str] = ["neutral"]
+        elif dual_regime:
+            regimes = ["bull", "bear"]
         else:
             regimes = ["neutral"] * n_candidates
 
@@ -1060,6 +1104,24 @@ async def run_generation(
                 pipeline_name = "agent"
                 pipeline_reason = (
                     "fusion selected but not runnable "
+                    f"({'no LLM backend' if not use_live else 'corpus yielded <2 papers for the steer'})"
+                    " — falling back to streaming agent"
+                )
+                runner = agent_runner
+        elif pipeline_name == "debate":
+            # Flag-gated debate society (T1.1). model is bound now via partial so
+            # the proposer threads the user's pick (A3); the loop calls runner()
+            # with the same kwargs as every other runner (signature parity). A
+            # DebateUnavailable raised at runtime is a FusionUnavailable subclass,
+            # so the existing fallback below relabels it to the agent path.
+            from archimedes.agents.debate_engine import _debate_can_run, _run_debate_candidate
+
+            if use_live and _debate_can_run(brief):
+                runner = functools.partial(_run_debate_candidate, model=model)
+            else:
+                pipeline_name = "agent"
+                pipeline_reason = (
+                    "debate selected but not runnable "
                     f"({'no LLM backend' if not use_live else 'corpus yielded <2 papers for the steer'})"
                     " — falling back to streaming agent"
                 )
@@ -1123,6 +1185,7 @@ async def run_generation(
                     emit=emit,
                     regime=regime,
                     agent=job_agent,
+                    selection_pool_size=n_candidates,  # #770: DSR deflates for the N-candidate search
                 )
             except FusionUnavailable as exc:
                 # Fusion was selected + precheck passed, but at runtime the
@@ -1143,6 +1206,7 @@ async def run_generation(
                         emit=emit,
                         regime=regime,
                         agent=job_agent,  # preserve the user's free-tier model pick on fallback (#748)
+                        selection_pool_size=n_candidates,  # #770: DSR deflates for the N-candidate search
                     )
                 except Exception as exc2:
                     logger.exception("agent fallback %s (%s) failed: %s", candidate_id, regime, exc2)
@@ -1181,13 +1245,19 @@ async def run_generation(
             candidates.append(cand)
 
         if not candidates:
+            # Honest code + message (#818): this branch fires only when ZERO candidates
+            # were generated (an upstream generation failure) — distinct from "candidates
+            # exist but none passed rigor", which is NOT an error but is surfaced below via
+            # best_selected's deployable=False (ABSTAIN) signal. Using RIGOR_FAIL here would
+            # mislead clients/telemetry into reading a generation failure as a rigor-gate
+            # failure, so this carries its own NO_CANDIDATES code.
             await emit.emit(
                 "error",
-                message="no candidates passed rigor",
+                message="no candidates generated",
                 recoverable=True,
-                code="RIGOR_FAIL",
+                code="NO_CANDIDATES",
             )
-            await store.update_status(job_id, "error", error="no candidates passed rigor")
+            await store.update_status(job_id, "error", error="no candidates generated")
             return
 
         # Patch PBO across the candidate set (library-level metric — Bailey
@@ -1198,16 +1268,25 @@ async def run_generation(
         for c in candidates:
             c.passes_rigor = c.rigor_verdict.get("passing", False)
 
-        # Pick the best by passing-rigor first, then by a simple score.
-        passing = [c for c in candidates if c.passes_rigor] or candidates
+        # Selection: prefer rigor-passing candidates; fall back to the full set only to
+        # still surface a "considered best" for the alternatives panel. Whether that best
+        # is DEPLOYABLE is a separate, honest signal (#818): a candidate that failed the
+        # gate is persisted with passes_rigor_gate=False and the server-side vault gate
+        # refuses to deploy it — we must not imply it is validated.
+        validated = [c for c in candidates if c.passes_rigor]
+        pool = validated or candidates
         best = max(
-            passing,
+            pool,
             key=lambda c: c.rigor_verdict.get("dsr") or 0.0,
         )
         await emit.emit(
             "best_selected",
             best_candidate_id=best.candidate_id,
             considered_count=len(candidates),
+            validated_count=len(validated),
+            # deployable=False ⇒ no candidate cleared the rigor gate; the surfaced best is
+            # a considered alternative (ABSTAIN), not a validated, deployable winner.
+            deployable=best.passes_rigor,
         )
 
         # Persist ALL candidates (both regimes) as StrategyRecords.
@@ -1239,16 +1318,30 @@ async def run_generation(
         # regime variants in parallel (yfinance + numpy is I/O-bound), then
         # upsert the BacktestResult row + updated passport metrics so the
         # next /api/strategies/ read surfaces empirical Sharpe/DSR/PBO/OOS.
-        # Fusion candidates already carry a real DSL backtest + rigor verdict
-        # (has_real_rigor); they emit no static weight vector, so the buy-and-hold
-        # portfolio_backtester doesn't apply. Skip them here — re-running a
-        # weight-less backtest would only emit backtest_failed and can't improve
-        # on the fusion evaluator's metrics.
+        # Fusion candidates NEVER carry a static weight vector — they emit a DSL
+        # strategy_spec (weights={}), evaluated by the fusion evaluator, not the
+        # buy-and-hold portfolio_backtester. So skip ALL fusion candidates here,
+        # keyed on generation_method — not just the has_real_rigor ones. A
+        # *text-only* fusion candidate (model emitted no machine-readable spec, so
+        # has_real_rigor stayed False) ALSO has weights={}; routing it into the
+        # static backtester only emits a misleading
+        # backtest_failed("no weights emitted by agent") — the live conversion bug
+        # in #784 (every Generate result looked broken). Keying on
+        # generation_method preserves the HONEST "no weights" signal for a genuine
+        # agent-path failure (agent emitted no allocation) while never running the
+        # static backtester on a fusion candidate that has nothing static to run.
+        # Debate candidates ("debate"/"debate_abstain") are the same shape — they
+        # emit a DSL spec (weights={}) scored by evaluate_fusion_spec, or are a
+        # populated ABSTAIN — so they skip the static backtester too (T1.1).
+        _static_skip = ("fusion", "debate", "debate_abstain")
         await asyncio.gather(
             *[
-                _backtest_and_persist(c, strategy_ids[c.candidate_id], emit, library_size)
+                # num_trials = N candidates + library context (#770), not library alone.
+                _backtest_and_persist(
+                    c, strategy_ids[c.candidate_id], emit, _society_num_trials(library_size, n_candidates)
+                )
                 for c in candidates
-                if not c.has_real_rigor
+                if c.generation_method not in _static_skip
             ]
         )
 
@@ -1259,10 +1352,16 @@ async def run_generation(
             for cand in candidates:
                 persist_proposal(
                     generation_id=job_id,
-                    # "fusion" for fused candidates, "agent" otherwise — the
-                    # episodic record now reflects which engine produced the
-                    # proposal rather than always claiming "agent".
-                    agent="fusion" if cand.generation_method == "fusion" else "agent",
+                    # "debate" for society candidates, "fusion" for fused, "agent"
+                    # otherwise — the episodic record reflects which engine produced
+                    # the proposal rather than always claiming "agent".
+                    agent=(
+                        "debate"
+                        if cand.generation_method in ("debate", "debate_abstain")
+                        else "fusion"
+                        if cand.generation_method == "fusion"
+                        else "agent"
+                    ),
                     intent=brief.intent,
                     strategy_spec={
                         "strategy_name": cand.strategy_name,
@@ -1421,8 +1520,9 @@ async def _backtest_and_persist(c: _CandidateResult, strategy_id: str, emit: _Em
         c: The candidate that was just persisted.
         strategy_id: The DB id returned by :func:`_persist_candidate`.
         emit: The SSE emitter to surface backtest progress to the UI.
-        num_trials: Curated-library size, fed to ``backtest_portfolio`` as
-            ``num_trials_for_dsr`` for the DSR multiple-testing correction.
+        num_trials: Effective trial count for the DSR multiple-testing correction —
+            N generated candidates + curated-library size on the society path (#770),
+            fed to ``backtest_portfolio`` as ``num_trials_for_dsr``.
     """
     # Fixture mode (offline tests, no-LLM environments) — skip the network
     # round-trip. The test suite covers this function's behavior via direct
@@ -1465,9 +1565,10 @@ async def _backtest_and_persist(c: _CandidateResult, strategy_id: str, emit: _Em
         from archimedes.services.portfolio_backtester import backtest_portfolio
 
         # Run the actual backtest. Raises on insufficient data / fetch failure.
-        # num_trials_for_dsr = curated-library size (selection-bias-corrections-
-        # spec.md § 1.3) — the DSR multiple-testing correction for the selection
-        # set this candidate was chosen from, not the default of 1.
+        # num_trials_for_dsr = N candidates + curated-library size (#770,
+        # selection-bias-corrections-spec.md § 1.3) — the DSR multiple-testing
+        # correction for the full selection set: the N-candidate society search
+        # this winner survived PLUS the library it joins, not library alone.
         result, artifact = backtest_portfolio(
             strategy_id=strategy_id,
             weights=c.weights,

@@ -19,7 +19,9 @@ export async function apiGet(path) {
   // endpoints work whether or not the API is same-origin.
   const res = await fetch(`${API_BASE}${path}`, { credentials: 'include' })
   if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`)
+    const err = new Error(`Backend returned ${res.status}`)
+    err.status = res.status // so callers can distinguish 404 (not-deployed) from real failures
+    throw err
   }
   return res.json()
 }

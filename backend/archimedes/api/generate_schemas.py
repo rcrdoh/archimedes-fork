@@ -31,7 +31,12 @@ class GenerateStartRequest(BaseModel):
     n_candidates: int = Field(default=1, ge=1, le=5, description="How many candidates to consider internally")
     mode: str | None = Field(
         default=None,
-        description="Optional pipeline override: 'fusion', 'architect', or 'agent'. When set, bypasses auto-routing.",
+        description=(
+            "Optional pipeline override: 'fusion', 'architect', or 'agent'. When set, bypasses "
+            "auto-routing. The 'debate' society pipeline (T1.1) is selected by the "
+            "ARCHIMEDES_DEBATE_ENABLED flag rather than this override, so flag-OFF stays "
+            "byte-identical; the deletions of the legacy runners are deferred to the Phase-3 cutover."
+        ),
     )
     model: str | None = Field(
         default=None,

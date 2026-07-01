@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,6 +22,13 @@ from archimedes.services.backtest_repository import insert_backtest_if_missing
 from fastapi.testclient import TestClient
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "analytics_artifact_buy_hold.json"
+
+
+def _utcnow():
+    """Timezone-aware UTC now — AssetPrice requires a tz-aware timestamp."""
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC)
 
 
 @pytest.fixture(autouse=True)
@@ -59,6 +67,71 @@ def client(tmp_path, monkeypatch):
 
         tc = TestClient(app)
         yield tc
+
+
+# ── Tier-B unlock: a real chain_client.settings (#738) ───────────────
+# ConfigService / AssetService / swap routes read addresses off
+# chain_client.settings (NOT chain_client directly). The real ChainSettings is
+# constructed at module-init from .env; under the hermetic gate there is no
+# .env, so this namespace substitutes the exact fields the route layer reads.
+#
+# Why a SEPARATE fixture (not baked into `client`): the bare `client` fixture
+# leaves `chain_client.settings` as an auto-MagicMock, which some pre-existing
+# tests rely on (e.g. the advisor optimizer fails fast against the mock and
+# falls back to a budget-normalized allocation). Installing a real settings
+# object only for the routes that need it keeps every other test's behavior
+# exactly as it was on main.
+_SETTINGS_NAMESPACE = SimpleNamespace(
+    usdc_address="0x3600000000000000000000000000000000000000",
+    synthetic_factory_address="",
+    amm_router_address="0xd5b829f9d364a8bbe1caf6c8b19cb05371b178f4",
+    vault_factory_address="0xca873414070844aeb98b0bf1051f81969c79cc32",
+    reasoning_trace_registry_address="0x42d8a23edb897cbee203e9fa197eb05ab5106ca6",
+    asset_registry_address="0x2d44550711137916df6175587d17886281a0fbc7",
+    stsla_oracle_address="0xe1c9f2b11be97097223a66a188fca541e07873a6",
+    chain_id=5042002,
+    arc_rpc_url="https://rpc.testnet.arc.network",
+    synth_addresses={
+        "sTSLA": "0xd514cd27baf762c650536765cde9b61c876abacd",
+        "sSPY": "0x6fea38dedea0c6bb66ce93e5383c34385d8b889f",
+    },
+    oracle_addresses={
+        "sTSLA": "0xe1c9f2b11be97097223a66a188fca541e07873a6",
+        "sSPY": "0xd8161a8eeab7c7100e2863abe3d5f346b5ff9e52",
+    },
+)
+
+
+@pytest.fixture()
+def chain_settings_client(client, monkeypatch):
+    """`client` with a real `chain_client.settings` namespace + to_checksum.
+
+    Unblocks the Tier-B routes (config/contracts, assets, swap/quote) that read
+    `chain_client.settings.*` at request time. `to_checksum` is the only
+    ChainClient method those paths call; a pass-through is safe because every
+    seeded address is already checksum-shaped (or its case is irrelevant to the
+    assertion).
+
+    Bindings matter: ``config_service`` captures ``chain_client`` at MODULE
+    import time, so the `client` fixture's `patch("archimedes.chain.client.
+    chain_client")` (which only rebinds the *client module* attribute) does not
+    reach it. ``asset_service`` / ``swap_routes`` re-import inside the function,
+    so they see the patched mock. We set the settings on the patched mock AND
+    rebind ``config_service.chain_client`` to it so every Tier-B path reads the
+    same namespace.
+    """
+    from archimedes.chain.client import chain_client as patched_client
+    from archimedes.chain.contracts import get_contract_loader
+
+    patched_client.settings = _SETTINGS_NAMESPACE
+    patched_client.to_checksum = lambda addr: addr
+    # Point config_service's module-level binding at the same patched client.
+    monkeypatch.setattr("archimedes.services.config_service.chain_client", patched_client)
+    # The loader is @lru_cache'd and captures chain_client.settings at build
+    # time; clear it so a loader cached by an earlier test can't leak a stale
+    # settings reference into these routes.
+    get_contract_loader.cache_clear()
+    return client
 
 
 @pytest.fixture()
@@ -182,8 +255,12 @@ class TestStrategyRoutes:
             assert "dsr_p_value" in s, f"dsr_p_value missing for {s.get('id')}"
             assert "passes_rigor_gate" in s, f"passes_rigor_gate missing for {s.get('id')}"
 
-    def test_rigor_gate_fields_correct_for_tier1(self, client, seeded_db):
-        """Moreira-Muir fixture values flow correctly: dsr_p_value ≥ 0.95, passes_rigor_gate=True."""
+    def test_rigor_gate_badge_is_live_not_fixture_for_tier1(self, client, seeded_db):
+        """#821: the served ``passes_rigor_gate`` badge for Moreira-Muir comes from
+        the LIVE gate on persisted returns — NOT the fixture boolean. ``seeded_db``
+        only seeds Buy-and-Hold's backtest, so Moreira-Muir has no live returns and
+        the badge must be ``pending`` (False), even though its fixture row says True.
+        The fixture-derived display metric (dsr_p_value) still flows for rendering."""
         strategies = _list_all_strategies(client)
         # Match Moreira-Muir specifically by its full title. A bare "Volatility"
         # substring also matches Ang-Hodrick's "The Cross-Section of Volatility
@@ -194,9 +271,9 @@ class TestStrategyRoutes:
         )
         if mm is None:
             pytest.skip("Moreira-Muir strategy not found in fixture")
-        assert mm["passes_rigor_gate"] is True
-        assert mm["dsr_p_value"] is not None
-        assert mm["dsr_p_value"] >= 0.95, f"Expected p≥0.95, got {mm['dsr_p_value']}"
+        # No live returns for this strategy → pending, NOT a fixture True/False.
+        assert mm["rigor_gate_status"] == "pending"
+        assert mm["passes_rigor_gate"] is False, "fixture boolean must NOT drive the live badge (#821)"
 
 
 class TestRiskRoutes:
@@ -255,18 +332,137 @@ class TestSelectionBiasRoutes:
 
 
 class TestConfigRoutes:
-    def test_contracts(self, client):
-        # ConfigService reads contract addresses from chain_client.settings
-        # which is initialized at import time — requires deeper mocking.
-        # The /api/config/contracts endpoint is tested live on EC2.
-        pytest.skip("Requires chain_client.settings module-level init mocking")
+    def test_contracts(self, chain_settings_client):
+        """/api/config/contracts surfaces the deployed addresses from
+        chain_client.settings.
+
+        Un-skipped by the Tier-B unlock (#738): `chain_settings_client` installs
+        a real `chain_client.settings` namespace, so ConfigService reads the
+        addresses without a live chain. The contract loader is mocked so pool /
+        vault enumeration returns empty lists deterministically — the address
+        fields are what this endpoint guarantees.
+        """
+        mock_loader = MagicMock()
+        mock_loader.amm_router.functions.getAllPools.return_value.call = AsyncMock(return_value=[])
+        mock_loader.vault_factory.functions.getVaults.return_value.call = AsyncMock(return_value=[])
+        with patch("archimedes.chain.contracts.get_contract_loader", return_value=mock_loader):
+            resp = chain_settings_client.get("/api/config/contracts")
+        assert resp.status_code == 200
+        data = resp.json()
+        # The settings-sourced addresses must flow straight through.
+        assert data["usdc"] == "0x3600000000000000000000000000000000000000"
+        assert data["amm_router"] == "0xd5b829f9d364a8bbe1caf6c8b19cb05371b178f4"
+        assert data["vault_factory"] == "0xca873414070844aeb98b0bf1051f81969c79cc32"
+        assert data["chain_id"] == 5042002
+        # Synthetics map omits empty addresses; the two seeded synths must appear.
+        assert "sTSLA" in data["synthetics"]
+        # Pool/vault enumeration returns empty under the mocked loader.
+        assert data["pools"] == {}
+        assert data["vaults"] == {}
 
 
 class TestAssetRoutes:
-    def test_list_assets(self, client):
-        # AssetService reads from on-chain via chain_client — requires deeper mocking.
-        # The /api/assets/ endpoint is tested live on EC2.
-        pytest.skip("Requires chain_client.settings module-level init mocking")
+    def test_list_assets(self, chain_settings_client):
+        """/api/assets/ composes chain settings + oracle prices into the asset list.
+
+        Un-skipped by the Tier-B unlock (#738). The oracle HTTP boundary
+        (OracleUpdater.fetch_prices, which hits yfinance/CoinGecko) is mocked so
+        the test is hermetic; USDC plus the configured synths must surface.
+        """
+        from archimedes.models.asset import AssetPrice
+
+        priced = [
+            AssetPrice(symbol="sTSLA", price_usd=185.50, timestamp=_utcnow(), source="yfinance"),
+        ]
+        with patch(
+            "archimedes.chain.oracle_updater.OracleUpdater.fetch_prices",
+            new=AsyncMock(return_value=priced),
+        ):
+            resp = chain_settings_client.get("/api/assets/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assets = data["assets"]
+        by_symbol = {a["symbol"]: a for a in assets}
+        # USDC is always present, pegged at $1 with 6 decimals.
+        assert "USDC" in by_symbol
+        assert by_symbol["USDC"]["price_usd"] == 1.0
+        assert by_symbol["USDC"]["decimals"] == 6
+        # The configured synths surface; the priced one carries the oracle price.
+        assert "sTSLA" in by_symbol
+        assert by_symbol["sTSLA"]["price_usd"] == 185.50
+        assert by_symbol["sTSLA"]["decimals"] == 18
+        # A synth with no oracle price falls back to 0.0 (not a fabricated value).
+        assert by_symbol["sSPY"]["price_usd"] == 0.0
+
+
+class TestSwapRoutes:
+    def test_swap_quote_returns_amount_out_fee_and_price_impact(self, chain_settings_client):
+        """/api/swap/quote previews a swap via the AMM router (#738 behavior d).
+
+        Hermetic: the contract loader's amm_router is mocked so getAmountOut
+        returns deterministic raw amounts. The quote must expose amount_out, a
+        fee, a non-negative price impact, and a slippage-bounded min_amount_out.
+        """
+        usdc = "0x3600000000000000000000000000000000000000"
+        stsla = "0xd514cd27baf762c650536765cde9b61c876abacd"
+
+        def _amount_out_for(amount_in_raw: int) -> int:
+            # USDC (6 dec) → sTSLA (18 dec). Spot ~ 1 USDC → 0.005 sTSLA.
+            # Larger trades get slightly less per unit (positive price impact):
+            #   100 USDC (1e8 raw) → 0.49 sTSLA (4.9e17 raw)
+            #     1 USDC (1e6 raw) → 0.005 sTSLA (5e15 raw) — the spot quote.
+            if amount_in_raw == 100_000_000:
+                return 490_000_000_000_000_000
+            return 5_000_000_000_000_000
+
+        mock_router = MagicMock()
+        # Route calls produce a contract-fn object whose .call() awaits the
+        # deterministic amount-out for that raw input — mirrors web3's
+        # `router.functions.getAmountOut(a, b, n).call()` shape.
+        mock_router.functions.getAmountOut = MagicMock(
+            side_effect=lambda _ti, _to, amount_in_raw: SimpleNamespace(
+                call=AsyncMock(return_value=_amount_out_for(amount_in_raw))
+            )
+        )
+
+        mock_loader = MagicMock()
+        type(mock_loader).amm_router = property(lambda self: mock_router)
+
+        with patch("archimedes.chain.contracts.get_contract_loader", return_value=mock_loader):
+            resp = chain_settings_client.get(
+                "/api/swap/quote",
+                params={"token_in": usdc, "token_out": stsla, "amount_in": 100.0},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["token_in"] == usdc
+        assert data["token_out"] == stsla
+        assert data["amount_in"] == 100.0
+        # 4.9e17 raw / 1e18 = 0.49 sTSLA out.
+        assert data["amount_out"] == pytest.approx(0.49)
+        assert data["fee_pct"] == 0.3
+        assert data["price_impact_pct"] >= 0.0
+        # min_amount_out applies the 0.5% slippage floor.
+        assert data["min_amount_out"] == pytest.approx(0.49 * 0.995)
+
+    def test_swap_quote_bad_pair_returns_400(self, chain_settings_client):
+        """A router failure is surfaced as a generic 400 (no RPC-internal leak)."""
+        mock_router = MagicMock()
+        mock_router.functions.getAmountOut.return_value.call = AsyncMock(side_effect=RuntimeError("no pool for pair"))
+        mock_loader = MagicMock()
+        type(mock_loader).amm_router = property(lambda self: mock_router)
+        with patch("archimedes.chain.contracts.get_contract_loader", return_value=mock_loader):
+            resp = chain_settings_client.get(
+                "/api/swap/quote",
+                params={
+                    "token_in": "0x3600000000000000000000000000000000000000",
+                    "token_out": "0xd514cd27baf762c650536765cde9b61c876abacd",
+                    "amount_in": 1.0,
+                },
+            )
+        assert resp.status_code == 400
+        # The raw exception text must NOT leak to the client.
+        assert "no pool for pair" not in resp.json()["detail"]
 
 
 class TestRegimeRoutes:

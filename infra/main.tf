@@ -178,7 +178,7 @@ resource "aws_instance" "archimedes" {
   }
 
   lifecycle {
-    ignore_changes = [ami] # Don't recreate on AMI updates
+    ignore_changes = [ami, user_data] # AMI updates + user_data (bootstrap-only, runs at first boot) must not reboot the live box
   }
 }
 

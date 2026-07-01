@@ -21,6 +21,7 @@ const NAV = [
   ]},
   { group: 'Discover', items: [
     { id: 'explore',      label: 'Explore',      icon: 'i-lucide-compass' },
+    { id: 'leaderboard',  label: 'Leaderboard',  icon: 'i-lucide-trophy' },
     { id: 'corpus',       label: 'Corpus',       icon: 'i-lucide-library' },
     { id: 'architecture', label: 'Architecture', icon: 'i-lucide-network' },
   ]},
@@ -34,11 +35,15 @@ const NAV = [
     { id: 'reasoning', label: 'Reasoning', icon: 'i-lucide-brain' },
     { id: 'learnings', label: 'Learnings', icon: 'i-lucide-graduation-cap' },
   ]},
+  { group: 'Ops', items: [
+    { id: 'insights', label: 'Insights', icon: 'i-lucide-bar-chart-3' },
+  ]},
 ]
 
 export const PAGE_LABELS = {
   landing: 'Home',
   explore: 'Explore',
+  leaderboard: 'Leaderboard',
   generate: 'Generate',
   architecture: 'Architecture',
   library: 'Library',
@@ -47,6 +52,7 @@ export const PAGE_LABELS = {
   portfolio: 'Portfolio',
   reasoning: 'Reasoning',
   learnings: 'Learnings',
+  insights: 'Insights',
   'vault-detail': 'Vault Details',
   about: 'About',
   imprint: 'Imprint',

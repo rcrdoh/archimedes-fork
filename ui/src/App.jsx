@@ -6,6 +6,8 @@ import Explore from './components/Explore'
 import Generate from './components/Generate'
 import Portfolio from './components/Portfolio'
 import Learnings from './components/Learnings'
+import Insights from './components/Insights'
+import Leaderboard from './components/Leaderboard'
 import Strategies from './components/Strategies'   // serves /library route ("Example Library")
 import StrategyPassport from './components/StrategyPassport'
 import CorpusExplorer from './components/CorpusExplorer'
@@ -29,6 +31,7 @@ const openConnectModal = () => window.dispatchEvent(new Event('open-wallet-modal
 const PAGE_TO_PATH = {
   landing:   '/',
   explore:   '/explore',
+  leaderboard: '/leaderboard',
   generate:  '/generate',
   architecture: '/architecture',
   library:   '/library',
@@ -37,6 +40,7 @@ const PAGE_TO_PATH = {
   portfolio: '/portfolio',
   reasoning: '/reasoning',
   learnings: '/learnings',
+  insights:  '/insights',
   about:     '/about',
   imprint:   '/imprint',
 }
@@ -186,6 +190,7 @@ export default function App() {
     const titles = {
       landing:        'Archimedes',
       explore:        'Explore · Archimedes',
+      leaderboard:    'Leaderboard · Archimedes',
       generate:       'Generate · Archimedes',
       architecture:   'Architecture · Archimedes',
       library:        'Library · Archimedes',
@@ -220,6 +225,7 @@ export default function App() {
     switch (page) {
       case 'landing':     return <Landing onNavigate={navigateToPage} />
       case 'explore':      return <Explore />
+      case 'leaderboard':  return <Leaderboard />
       case 'generate':     return (
         <WalletGate
           walletAddr={walletAddr}
@@ -289,6 +295,7 @@ export default function App() {
           <Learnings onNavigate={navigateToPage} />
         </WalletGate>
       )
+      case 'insights':     return <Insights />
       case 'vault-detail': return <VaultDetail address={selectedVault} onBack={backToPortfolio} />
       default:             return <NotFound page={page} onNavigate={navigateToPage} />
     }

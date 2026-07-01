@@ -65,6 +65,54 @@ async def _anchor_strategies_async(strategy_ids: list[str]) -> None:
             logger.warning("anchor failed for strategy %s (non-fatal): %s", sanitize_log_value(sid), exc)
 
 
+def _strategy_rigor_status(strategy_id: str) -> tuple[bool, bool]:
+    """``(found, passes_rigor_gate)`` for a strategy id, resolved across the curated
+    provider AND the generated ``strategy_passports`` table — the same two sources
+    ``GET /api/strategies/{id}`` uses. Server-side source of truth for the deploy
+    gate (#818).
+
+    Fail-closed: if the DB lookup raises (cannot verify a generated strategy), the
+    strategy is reported as not-found so the caller refuses the deploy rather than
+    waving through an unverifiable one.
+    """
+    strat = strategy_provider.get_strategy(strategy_id)
+    if strat is not None:
+        return True, bool(getattr(strat, "passes_rigor_gate", False))
+
+    from archimedes.db import get_session
+    from archimedes.services.passport_loader import get_passport
+
+    try:
+        with get_session() as session:
+            record = get_passport(session, strategy_id)
+            if record is not None:
+                return True, bool(getattr(record, "passes_rigor_gate", False))
+    except Exception:
+        logger.exception("rigor-status lookup failed for %s — failing closed", sanitize_log_value(strategy_id))
+        return False, False
+    return False, False
+
+
+def _assert_strategies_pass_rigor(strategy_ids: list[str]) -> None:
+    """Fail-closed deploy precondition (#818): every strategy bound to a vault must
+    resolve and carry a passing rigor verdict. Raises 422 otherwise. The frontend
+    Deploy gate (#782) is defense-in-depth; THIS is the guarantee a non-UI caller
+    cannot route around. A strategy with no computed verdict (placeholder) has
+    ``passes_rigor_gate == False`` and is correctly refused."""
+    for sid in strategy_ids:
+        found, passes = _strategy_rigor_status(sid)
+        if not found:
+            raise HTTPException(status_code=422, detail=f"Strategy '{sid}' not found — cannot deploy.")
+        if not passes:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Strategy '{sid}' has not passed the rigor gate — refusing to deploy "
+                    "(server-side rigor enforcement)."
+                ),
+            )
+
+
 @vaults_router.get("/", response_model=VaultListResponse)
 async def list_vaults(
     tier: int | None = Query(None, ge=1, le=2),
@@ -99,6 +147,11 @@ async def create_vault(
     widen slippage, pause, or otherwise drain the vault. This re-lands the intent
     of reverted PR #646 without changing the live 5-arg createVault selector.
     """
+    # Server-side rigor gate (#818): refuse to deploy any strategy that hasn't
+    # passed the rigor gate, BEFORE spending gas. The #782 frontend Deploy gate is
+    # defense-in-depth; this is the guarantee a direct/non-UI API call can't bypass.
+    _assert_strategies_pass_rigor(req.strategy_ids)
+
     try:
         vault_address = await chain_executor.create_vault(
             name=req.name,

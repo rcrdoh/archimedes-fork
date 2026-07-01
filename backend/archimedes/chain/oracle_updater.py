@@ -50,6 +50,30 @@ DEFAULT_MAX_DEVIATION_BPS = 2000
 # Max age of the upstream observation before we refuse to push it on-chain.
 # Override via ORACLE_MAX_UPSTREAM_STALENESS_SECONDS.
 DEFAULT_MAX_UPSTREAM_STALENESS_SECONDS = 900  # 15 minutes
+# Secondary-source cross-check band (#775): the max divergence (bps) between a
+# NON-yfinance primary (Pyth/Stork via the PRICE_SOURCE cascade) and an
+# independent yfinance reading before we fail closed. Generous default — both
+# sources lag between updates; Önder owns tuning. 0 disables the cross-check.
+DEFAULT_CROSSCHECK_BAND_BPS = 5000  # 50%
+
+
+def _int_env(name: str, default: int) -> int:
+    """Parse an integer env var, failing SAFE to ``default`` rather than raising at
+    oracle-runner startup.
+
+    A missing or blank value silently uses ``default`` — an unset optional var is
+    normal and must not log on every startup. A value that is PRESENT but non-numeric
+    (a typo) is a real misconfiguration, so it logs a warning before falling back. A
+    bare ``int(os.getenv(...))`` would instead crash the runner on either.
+    """
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default  # unset/blank optional var → default, no warning (not a misconfig)
+    try:
+        return int(raw.strip())
+    except ValueError:
+        logger.warning("invalid %s=%r (not an integer) — falling back to %d", name, raw, default)
+        return default
 
 
 def _encrypt_entity_secret(entity_secret_hex: str, public_key_pem: str) -> str:
@@ -85,35 +109,108 @@ class OracleUpdater:
         self._entity_secret: str = os.getenv("CIRCLE_ENTITY_SECRET", "")
         self._wallet_id: str = os.getenv("WALLET_ID", "")
 
-        # Sanity bounds (audit #13 / issue #508)
-        self._max_deviation_bps: int = int(os.getenv("ORACLE_MAX_DEVIATION_BPS", str(DEFAULT_MAX_DEVIATION_BPS)))
-        self._max_upstream_staleness_s: int = int(
-            os.getenv("ORACLE_MAX_UPSTREAM_STALENESS_SECONDS", str(DEFAULT_MAX_UPSTREAM_STALENESS_SECONDS))
+        # Sanity bounds (audit #13 / issue #508). Parsed fail-safe: a non-numeric
+        # env var degrades to the default instead of crashing the runner at startup.
+        self._max_deviation_bps: int = _int_env("ORACLE_MAX_DEVIATION_BPS", DEFAULT_MAX_DEVIATION_BPS)
+        self._max_upstream_staleness_s: int = _int_env(
+            "ORACLE_MAX_UPSTREAM_STALENESS_SECONDS", DEFAULT_MAX_UPSTREAM_STALENESS_SECONDS
         )
         # Last price (6-dec int) we successfully submitted, per symbol —
         # fallback deviation reference when the on-chain read fails.
         self._last_pushed_price_int: dict[str, int] = {}
 
+        # Secondary-source cross-check band (#775).
+        self._crosscheck_band_bps: int = _int_env("PRICE_CROSSCHECK_BAND_BPS", DEFAULT_CROSSCHECK_BAND_BPS)
+
     # ─── Public API ──────────────────────────────────────────────
 
     async def fetch_prices(self) -> list[AssetPrice]:
-        """Fetch current prices for all synthetic assets via yfinance + CoinGecko."""
-        prices: list[AssetPrice] = []
+        """Fetch current prices for all synthetic assets.
+
+        The source is governed by the ``PRICE_SOURCE`` env (North Star §10.5):
+          • ``yfinance`` (default) — legacy behavior, unchanged; a deploy of this
+            change is a no-op until the flag is flipped.
+          • ``cascade`` — Pyth Hermes for the symbols it covers, yfinance for the
+            rest, CoinGecko for crypto Pyth misses.
+          • ``pyth_hermes`` — Pyth only (no yfinance/CoinGecko fallback).
+        Admin overrides (``ADMIN_PRICES_JSON``) apply on top in every mode.
+
+        The cascade is the safety net: any Pyth miss/error falls back
+        transparently, and every price keeps its true ``source`` + upstream
+        timestamp so the on-chain push staleness/deviation gates stay meaningful.
+        Zero contract change — only *where* the price comes from differs.
+        """
+        # Lazy import: keep the `archimedes.services` package (and its import-time
+        # cycle) off oracle_updater's module-load path so the standalone oracle
+        # runner imports cleanly.
+        from archimedes.services.price_source import load_admin_prices, price_source_mode
+
         now = datetime.now(UTC)
-
-        # Fetch equity/ETF/futures prices via yfinance (in thread pool — yfinance is sync)
+        mode = price_source_mode()
         equity_symbols = {k: v for k, v in YFINANCE_MAP.items() if k.startswith("s")}
-        equity_prices = await asyncio.to_thread(self._fetch_yfinance, equity_symbols, now)
-        prices.extend(equity_prices)
 
-        # Fetch crypto prices via CoinGecko API
-        crypto_prices = await self._fetch_crypto(now)
-        prices.extend(crypto_prices)
+        if mode in ("cascade", "pyth_hermes"):
+            prices = await self._fetch_cascade(equity_symbols, now, strict_pyth=(mode == "pyth_hermes"))
+        else:
+            prices = list(await asyncio.to_thread(self._fetch_yfinance, equity_symbols, now))
+            prices.extend(await self._fetch_crypto(now))
+
+        # Manual admin overrides (pin/demo) win over the fetched price, in any mode.
+        admin = load_admin_prices()
+        if admin:
+            prices = [admin.get(p.symbol, p) for p in prices]
+            have = {p.symbol for p in prices}
+            prices.extend(ap for sym, ap in admin.items() if sym not in have)
 
         for p in prices:
             self._price_cache[p.symbol] = p
 
-        logger.info(f"Fetched {len(prices)} prices")
+        logger.info("Fetched %d prices (source=%s)", len(prices), mode)
+        return prices
+
+    async def _fetch_cascade(
+        self, equity_symbols: dict[str, str], now: datetime, *, strict_pyth: bool
+    ) -> list[AssetPrice]:
+        """Pyth-first cascade: Pyth for covered symbols, yfinance/CoinGecko for the
+        rest (unless ``strict_pyth``). Pyth failures degrade gracefully to fallback."""
+        from archimedes.services.price_source import PYTH_FEED_IDS, fetch_pyth_prices
+
+        pyth_targets = [s for s in (*equity_symbols, *CRYPTO_MAP) if s in PYTH_FEED_IDS]
+        pyth = await fetch_pyth_prices(pyth_targets)
+
+        if strict_pyth:
+            # Strict Pyth: no fallback by contract. Keep every observation — stale
+            # ones are rejected downstream by _validate_for_push and no source fills
+            # the gap (that's the strict-mode promise).
+            return list(pyth.values())
+
+        # Cascade: a STALE Pyth observation must NOT count as "covered". Otherwise the
+        # symbol is dropped downstream by the staleness gate (_validate_for_push) with
+        # no yfinance/CoinGecko fallback to fill it — the exact gap the cascade exists
+        # to close (e.g. off-hours equity feeds). Only FRESH Pyth prices count as
+        # covered; stale ones fall through to the fallback sources below.
+        cap = self._max_upstream_staleness_s
+
+        def _is_fresh(p: AssetPrice) -> bool:
+            observed = p.timestamp if p.timestamp.tzinfo else p.timestamp.replace(tzinfo=UTC)
+            return (now - observed).total_seconds() <= cap
+
+        fresh_pyth = {sym: p for sym, p in pyth.items() if _is_fresh(p)}
+        covered = set(fresh_pyth)
+        prices: list[AssetPrice] = list(fresh_pyth.values())
+
+        remaining_equity = {k: v for k, v in equity_symbols.items() if k not in covered}
+        if remaining_equity:
+            prices.extend(await asyncio.to_thread(self._fetch_yfinance, remaining_equity, now))
+
+        # Only fill crypto symbols Pyth didn't freshly cover. _fetch_crypto fetches the
+        # whole CRYPTO_MAP, so filter its result to the uncovered set — otherwise a
+        # symbol Pyth already covered would be pushed twice.
+        uncovered_crypto = {s for s in CRYPTO_MAP if s not in covered}
+        if uncovered_crypto:
+            crypto = await self._fetch_crypto(now)
+            prices.extend(p for p in crypto if p.symbol in uncovered_crypto)
+
         return prices
 
     async def push_prices_on_chain(self, prices: list[AssetPrice]) -> str | None:
@@ -149,6 +246,10 @@ class OracleUpdater:
                 # that are non-positive, stale upstream, or deviate too far
                 # from the last known good price.
                 rejection = await self._validate_for_push(price, price_int)
+                # Secondary-source cross-check (#775): only when the sanity gate
+                # already passed (avoid the extra yfinance fetch on a rejected price).
+                if rejection is None:
+                    rejection = await self._cross_check_secondary(price)
                 if rejection is not None:
                     logger.warning(f"Refusing to push {price.symbol} price {price.price_usd}: {rejection}")
                     continue
@@ -262,6 +363,77 @@ class OracleUpdater:
                     f"{reference_int / 1e6:.2f} exceeds {self._max_deviation_bps} bps cap"
                 )
 
+        return None
+
+    async def _cross_check_secondary(self, price: AssetPrice) -> str | None:
+        """Secondary-source cross-check (#775): compare a NON-yfinance primary
+        (Pyth/Stork via the PRICE_SOURCE cascade) against an independent yfinance
+        reading and fail closed when they diverge beyond the band. Returns a
+        rejection reason, or None to proceed.
+
+        **Asymmetric, by design.** A stale / missing / flaky yfinance NEVER blocks
+        a healthy primary — otherwise a yfinance outage (it's known-flaky, #772)
+        would become a trading halt and the guardrail itself the failure. yfinance
+        problems only proceed-and-log; only a *confident* divergence between two
+        healthy sources fails closed.
+
+        Honest claim this earns: *"primary cross-checked against an independent
+        yfinance market source, fail-closed on relative-magnitude divergence beyond
+        a band."* NOT "decentralized 2-of-3" (yfinance is centralized + off-chain).
+
+        **Scope + a known limitation (be precise, #775):** this is a *magnitude*
+        band check only. It does NOT verify the *freshness* of the yfinance secondary
+        — ``_fetch_yfinance_single`` returns a bare price with no observation
+        timestamp, so a stale weekend/off-hours yfinance read could in principle
+        trip a divergence against a healthy primary. The wide default band
+        (``DEFAULT_CROSSCHECK_BAND_BPS`` = 5000 bps / 50%) is what tolerates that for
+        now; a real secondary-freshness check (threading the yfinance bar timestamp
+        through) is follow-up tuning in Önder's lane (#775 Phase 2), NOT implemented
+        here. The check is a no-op when the primary is yfinance (same source), an
+        admin pin (operator last-resort override — must not be second-guessed), or
+        when the symbol has no yfinance ticker.
+        """
+        if self._crosscheck_band_bps <= 0:
+            return None  # disabled
+        if price.source in ("yfinance", "admin"):
+            # yfinance: same source, not an independent second opinion.
+            # admin: a last-resort operator pin (ADMIN_PRICES_JSON) — the whole point
+            # is to override upstream, so the secondary guardrail must not block it.
+            return None
+        yf_ticker = YFINANCE_MAP.get(price.symbol)
+        if not yf_ticker:
+            return None  # no independent yfinance ticker for this symbol → can't cross-check → proceed
+        try:
+            secondary = await self._fetch_yfinance_single(yf_ticker)
+        except Exception as exc:
+            logger.warning(
+                "cross-check: yfinance fetch failed for %s (%s) — proceeding on primary (asymmetric)",
+                price.symbol,
+                exc,
+            )
+            return None
+        if secondary is None or secondary <= 0:
+            logger.info(
+                "cross-check: no usable yfinance secondary for %s — proceeding on primary (asymmetric)",
+                price.symbol,
+            )
+            return None
+
+        deviation_bps = abs(price.price_usd - secondary) / secondary * 10_000
+        if deviation_bps > self._crosscheck_band_bps:
+            return (
+                f"cross-check FAIL: primary({price.source}) {price.price_usd:.4f} diverges "
+                f"{deviation_bps:.0f} bps from independent yfinance {secondary:.4f} "
+                f"(band {self._crosscheck_band_bps} bps) — failing closed"
+            )
+        logger.debug(
+            "cross-check OK for %s: primary(%s) %.4f vs yfinance %.4f (%.0f bps)",
+            price.symbol,
+            price.source,
+            price.price_usd,
+            secondary,
+            deviation_bps,
+        )
         return None
 
     async def _get_reference_price_int(self, symbol: str) -> tuple[int | None, bool]:
